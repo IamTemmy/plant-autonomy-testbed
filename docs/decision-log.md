@@ -35,6 +35,8 @@ The README and code describe *what* and *how*. This file documents *why*.
 | DL-013 | 2026-05-25 | Leak sensor added as a fault input | Active |
 | DL-014 | 2026-05-25 | Reservoir construction and float switch mounting | Active |
 | DL-015 | 2026-05-26 | BME280 bench test validated | Active |
+| DL-016 | 2026-05-26 | Power architecture: keep buck converter | Active |
+| DL-017 | 2026-05-26 | LM2596 buck converter validated | Active |
 
 ---
 
@@ -253,6 +255,57 @@ These entries record decisions made after the project definition was published, 
 **Rationale.** The sketch confirms: (1) the I²C bus is wired correctly and the auto-detect across addresses 0x76/0x77 works as written; (2) the Adafruit library returns calibrated values, not raw counts; (3) values pass plausibility-bound checks (no `[WARN: implausible reading]` lines); (4) the sensor is not stuck — the breath response proves real-time measurement, not a constant fake value. This last point matters more than the absolute accuracy: a sensor that always reads "24°C, 45%" looks healthy but is useless to a control loop.
 
 **Alternatives considered.** None — this is a validation outcome, not a design choice. Evidence: `docs/images/01-bme280-validation.png`.
+
+---
+
+### DL-016 — Power architecture: keep buck converter ahead of the extension board
+
+**Date:** 2026-05-26 · **Status:** Active
+
+**Context.** The Freenove ESP32-WROVER kit ships with an extension board that the WROVER module plugs into. The extension board has a DC jack and an onboard regulator that handles input across a range (5–12V, verified by direct test — plugging the 12V adapter straight into the DC jack powers the system and it runs). All power to the ESP32-WROVER module flows through the extension board, not into the WROVER module directly.
+
+This made the buck converter genuinely optional. The 12V supply could be tied directly to the extension board's DC jack and the system would work. The question was whether the buck still earns its place in the design or should be removed.
+
+**Decision.** Keep the buck converter. The 12V supply feeds the buck; the buck's 5V output feeds the extension board's DC jack; the extension board powers the ESP32-WROVER module and produces EXT 3.3V for any 3.3V peripherals.
+
+**Rationale.**
+
+1. **Thermal.** The extension board's onboard regulator is the type of linear regulator that dissipates the voltage difference as heat. With 12V at its input and 3.3V at its output, the regulator drops 8.7V — at the ESP32's typical ~150 mA draw, that is over a watt of heat in a small package. Run a buck ahead of the extension board and the regulator only has to handle the 5V → 3.3V drop, which is roughly five times less power to dissipate. The buck itself converts at ~85–90% efficiency regardless of input voltage, so the heat comes off the regulator without going somewhere worse.
+
+2. **Reliability under transient load.** The ESP32 draws sudden current spikes during WiFi transmits (up to ~500 mA). Onboard linear regulators stretched across a large input-output gap are more brownout-prone under those spikes than the same regulator running off a closer-to-target input. Brownouts manifest as random resets and unreliable WiFi — exactly the class of failure that undermines an autonomy system.
+
+3. **The buck is already paid for and validated.** It's owned, on the bench, and passed its Phase 1 validation (see DL-017). Removing it from the design now would not save any time, money, or board space worth caring about.
+
+4. **It is the standard pattern for mixed-voltage embedded systems.** A single high-voltage input (12V in our case, to drive the pump) branching through a buck to a logic-level rail is what reviewers expect to see. Tying the high-voltage rail directly to a dev board with an onboard regulator is functionally fine but reads as a corner-cut.
+
+**Alternatives considered.** Tie 12V directly to the extension board's DC jack (rejected for the thermal and reliability reasons above — the system would run, just hotter and more brownout-prone). Use a 5V wall adapter for the extension board and a separate 12V adapter for the pump (works, but adds a second wall wart, a second point of failure, and forfeits the single-supply intent). Power the extension board over USB during the build and a separate 12V for actuators (fine for the bench, but doesn't generalize to the deployed system).
+
+---
+
+### DL-017 — LM2596 buck converter validated
+
+**Date:** 2026-05-26 · **Status:** Active
+
+**Context.** Phase 1 component validation for the LM2596 step-down converter that supplies 5V to the extension board's DC jack from the 12V system rail (see DL-016 for the power-architecture decision).
+
+**Decision.** LM2596 bench test passes. The converter is approved for integration into the power tree.
+
+**Rationale.** Bench measurements:
+
+- Input voltage from 12V adapter: **12.34V**
+- Output voltage before trim adjustment: **11.5V** (significantly above target — see safety note below)
+- Output voltage after trim adjustment: **5.0V**
+- Stability over 30 seconds, no load: no drift observed
+- Power-cycle recheck (unplug, replug adapter): output returned to 5.0V — trim setting holds
+- Load test with 220Ω resistor (~23 mA at 5V), measured with the load connected: no voltage sag observed under load
+
+**Safety observation worth recording.** The pre-adjustment output of 11.5V confirms the standard practice of trimming the output to target *before* connecting any load. Connecting the extension board's DC jack to an uncalibrated 11.5V output would have placed the extension board's onboard regulator under a much larger voltage drop than the design intends — well inside its tolerated input range, but exactly the high-dissipation, brownout-prone condition the buck exists to avoid (see DL-016). The procedure of adjust-then-load remains correct discipline, but the failure mode it prevents here is reliability degradation, not exceeding spec. The procedure of adjust-then-load is now part of the project's bench-test discipline.
+
+**What this test verified.** The LM2596 module is functional, the trim pot is adjustable and holds its setting across power cycles, the output is stable under no-load and at a small (~23 mA) load, and the 12V adapter delivers within spec at the buck's input.
+
+**What this test did not verify** (deferred to Phase 2 integration). Behavior under the realistic load of the ESP32-WROVER plus extension board plus any peripherals on the EXT 3.3V rail — that includes the ~500 mA WiFi-transmit current spikes. Cross-load behavior when the pump is also drawing from the 12V rail upstream of the buck. Long-term thermal behavior under sustained load. The LM2596 is rated to 3A and the 12V adapter to 3A, so these should be well within spec, but they are not yet directly measured.
+
+**Alternatives considered.** None — this is a validation outcome, not a design choice.
 
 ---
 
