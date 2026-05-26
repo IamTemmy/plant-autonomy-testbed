@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# VS Code (if ever used)
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+
+# Environment files
+.env
+.env.local
+
+# Logs
+*.log
+
+# Editor backups
+*.swp
+*.swo
+.idea/
+
+# Build artifacts
+build/
+dist/
