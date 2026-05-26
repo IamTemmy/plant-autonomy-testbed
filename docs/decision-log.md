@@ -34,6 +34,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | DL-012 | 2026-05-25 | Power distribution discipline | Active |
 | DL-013 | 2026-05-25 | Leak sensor added as a fault input | Active |
 | DL-014 | 2026-05-25 | Reservoir construction and float switch mounting | Active |
+| DL-015 | 2026-05-26 | BME280 bench test validated | Active |
 
 ---
 
@@ -238,6 +239,20 @@ These entries record decisions made after the project definition was published, 
 **Rationale.** A drilled lid keeps the assembly clean, contains splashes, suppresses evaporation, and provides a stable mount point for the float switch. Inlet tube reaching near the bottom (but not flush) lets the pump draw nearly all the water without the tube end being blocked by the container floor. Testing NO/NC orientation up front prevents inverted-logic bugs in firmware.
 
 **Alternatives considered.** Open reservoir with side-mounted float (less clean, more evaporation, weaker float mount). Inlet tube fixed flat against the bottom (flow blockage risk). Skip the lid entirely (no float mount, evaporation, debris ingress).
+
+---
+
+### DL-015 — BME280 bench test validated
+
+**Date:** 2026-05-25 · **Status:** Active
+
+**Context.** Phase 1 component validation requires every sensor to be exercised individually before integration. BME280 is the first sensor under test.
+
+**Decision.** BME280 bench test passes. The sensor is detected on the ESP32's default I²C bus, returns plausible indoor temperature, humidity, and pressure readings, and responds correctly to a breath stimulus (temperature and humidity both rise within seconds and recover to baseline within ~60 seconds). The sensor is approved for integration.
+
+**Rationale.** The sketch confirms: (1) the I²C bus is wired correctly and the auto-detect across addresses 0x76/0x77 works as written; (2) the Adafruit library returns calibrated values, not raw counts; (3) values pass plausibility-bound checks (no `[WARN: implausible reading]` lines); (4) the sensor is not stuck — the breath response proves real-time measurement, not a constant fake value. This last point matters more than the absolute accuracy: a sensor that always reads "24°C, 45%" looks healthy but is useless to a control loop.
+
+**Alternatives considered.** None — this is a validation outcome, not a design choice. Evidence: `docs/images/01-bme280-validation.png`.
 
 ---
 

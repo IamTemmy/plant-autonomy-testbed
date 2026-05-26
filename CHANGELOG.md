@@ -15,3 +15,10 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 - `CHANGELOG.md` — this file
 - `.gitignore` — macOS, PlatformIO, Python, and editor artifacts
 - `docs/decision-log.md` — engineering decisions and rationale, seeded with project baseline and Phase 1 refinements
+
+### Validated
+- BME280 component test passed — sensor detected at I2C address 0x76/0x77, plausible indoor readings, responsive to breath stimulus (see `docs/images/01-bme280-validation.png`)
+
+### Added (continued)
+- `firmware/test-sketches/01-bme280/` — PlatformIO project for BME280 bench test (platformio.ini, src/main.cpp, README.md)
+- `docs/images/01-bme280-validation.png` — serial-monitor screenshot capturing baseline + breath-response readings
