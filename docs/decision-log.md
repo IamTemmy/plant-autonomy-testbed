@@ -37,6 +37,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | DL-015 | 2026-05-26 | BME280 bench test validated | Active |
 | DL-016 | 2026-05-26 | Power architecture: keep buck converter | Active |
 | DL-017 | 2026-05-26 | LM2596 buck converter validated | Active |
+| DL-018 | 2026-05-27 | Peristaltic pump + IRLB8721 MOSFET driver validated | Active |
 
 ---
 
@@ -304,6 +305,32 @@ This made the buck converter genuinely optional. The 12V supply could be tied di
 **What this test verified.** The LM2596 module is functional, the trim pot is adjustable and holds its setting across power cycles, the output is stable under no-load and at a small (~23 mA) load, and the 12V adapter delivers within spec at the buck's input.
 
 **What this test did not verify** (deferred to Phase 2 integration). Behavior under the realistic load of the ESP32-WROVER plus extension board plus any peripherals on the EXT 3.3V rail — that includes the ~500 mA WiFi-transmit current spikes. Cross-load behavior when the pump is also drawing from the 12V rail upstream of the buck. Long-term thermal behavior under sustained load. The LM2596 is rated to 3A and the 12V adapter to 3A, so these should be well within spec, but they are not yet directly measured.
+
+**Alternatives considered.** None — this is a validation outcome, not a design choice.
+
+---
+
+### DL-018 — Peristaltic pump and IRLB8721 MOSFET driver validated
+
+**Date:** 2026-05-26 · **Status:** Active
+
+**Context.** Phase 1 component validation for the actuator driver pattern that the entire system depends on. The IRLB8721 N-channel MOSFET switches a 12V peristaltic pump from a 3.3V GPIO signal, with a 1N4007 diode catching the inductive turn-off spike. This is the canonical pattern for any future 12V actuator added to the system.
+
+**Decision.** Pump and MOSFET driver bench test passes. The subsystem is approved for integration.
+
+**Rationale.** Bench observations across three or more full ON/OFF cycles:
+
+- Pump runs cleanly during commanded ON intervals; silent during commanded OFF intervals
+- Stop transitions are clean — no continued dribble or coast after the OFF command, confirming the flyback diode is catching the inductive spike as intended
+- ESP32 does not reset across pump transitions, confirming common ground is correctly established and the 12V load is electrically isolated from the ESP32's power domain
+- IRLB8721 runs warm but not hot under continuous cycling — consistent with low Rds(on) at logic-level gate drive and the modest pump current (~100 mA)
+- Wet test (suction tube in water vessel, output tube to empty container) confirms the pump actually moves water and the direction is consistent with the polarity wiring
+
+**On flow rate.** Observed flow rate is slow. This is expected and correct: the Adafruit peristaltic pump is specified at roughly 100 mL/min at 12V. Peristaltic pumps trade flow rate for dose precision, which is the right tradeoff for the system's actual use case ("deliver N mL of water on a watering decision"). A faster pump would deliver more water per second but with less control over total dose volume.
+
+**Pre-power continuity verification.** Before power was applied, the wiring was verified by a continuity-test matrix covering common ground, gate signal path through the 220Ω series and 10kΩ pull-down resistors, drain path through the pump, diode orientation (forward voltage measured at ~0.596V — within normal range for a silicon diode), and absence of a 12V-to-ground short. An apparent +12V-to-drain short was correctly diagnosed as conduction through the pump's motor winding, not a wiring fault — verified by disconnecting one pump lead and re-running the relevant check. This diagnostic discipline (verify continuity before power, distinguish real shorts from coil-mediated paths) is now part of the project's bench-test practice. Evidence: `docs/images/02-pump-mosfet-validation.png`.
+
+**What this test did not verify** (deferred to Phase 2 integration). Closed-loop verification — running the pump and confirming via the soil moisture sensor that water actually reached the soil. Dose calibration — measuring mL delivered per second of runtime so the firmware can convert a target volume into a runtime. Long-duration thermal behavior of the MOSFET under realistic duty cycles. Behavior when the buck converter is sharing the 12V rail under load simultaneously with the pump.
 
 **Alternatives considered.** None — this is a validation outcome, not a design choice.
 

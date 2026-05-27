@@ -22,3 +22,10 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 ### Added (continued)
 - `firmware/test-sketches/01-bme280/` — PlatformIO project for BME280 bench test (platformio.ini, src/main.cpp, README.md)
 - `docs/images/01-bme280-validation.png` — serial-monitor screenshot capturing baseline + breath-response readings
+
+### Validated (continued)
+- Peristaltic pump + IRLB8721 MOSFET driver — clean ON/OFF transitions, flyback diode behaving correctly, no ESP32 resets, water flow confirmed in wet test (see DL-018)
+
+### Added (continued)
+- \`firmware/test-sketches/02-pump-mosfet/\` — PlatformIO project for pump driver bench test (platformio.ini, src/main.cpp, README.md)
+- \`docs/images/02-pump-mosfet-validation.png\` — serial-monitor screenshot of pump cycling
