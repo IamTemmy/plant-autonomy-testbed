@@ -39,6 +39,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | DL-017 | 2026-05-26 | LM2596 buck converter validated | Active |
 | DL-018 | 2026-05-27 | Peristaltic pump + IRLB8721 MOSFET driver validated | Active |
 | DL-019 | 2026-05-29 | BME280 re-validated on integrated bench | Active |
+| DL-020 | 2026-05-29 | Soil moisture sensor validated and calibrated | Active |
 
 ---
 
@@ -352,6 +353,36 @@ For this approach to be sound, re-mounting a previously-validated component must
 **Why this matters.** Confirms the integration approach is sound: previously-validated subsystems can coexist with newly-added components without losing their validation status. Each new component going forward can be added to the same breadboard with confidence that the existing components stay healthy.
 
 **What this did not verify.** Behavior of the BME280 while the pump is actively cycling on the same breadboard — that's a true co-operation test and is deferred until enough subsystems are present to make it meaningful (likely after soil moisture, BH1750, and OLED join the bench).
+
+---
+
+### DL-020 — Soil moisture sensor validated and calibrated
+
+**Date:** 2026-05-29 · **Status:** Active
+
+**Context.** Phase 1 component validation for the capacitive soil moisture sensor. Unlike a digital sensor, an analog sensor's raw reading has no inherent meaning until it is calibrated against known conditions in the specific physical setup (this sensor, this soil mix, this insertion depth). The bench test therefore combines validation (does it work?) with initial calibration (what does the data actually mean?).
+
+**Decision.** Soil moisture sensor passes validation. Initial calibration values recorded below. The sensor is approved for integration. Final threshold values will be refined in Phase 2 when observing the sensor in the actual plant pot over real watering cycles.
+
+**Rationale.** Sensor wired to GPIO34 (ADC1, input-only, WiFi-safe). The test sketch reads at 1 Hz with 20-sample averaging per read; this reduced jitter to ~15 ADC counts (~0.4% of full scale) across all three conditions — well below the operational range of interest. Readings monotonically decrease as moisture increases, consistent with capacitive-sensor physics. The dry-air, dry-soil, and wet-soil conditions are well-separated, confirming the sensor distinguishes between the relevant physical states.
+
+**Calibration data** (potting mix from current bag, room temperature, probe at working depth, container without drainage):
+
+| Condition | Raw ADC range | % of ADC scale |
+|---|---|---|
+| Dry air (probe in hand, no medium) | 2846 – 2862 | 69.5 – 69.9% |
+| Dry soil (potting mix, untreated) | 2518 – 2528 | 61.4 – 61.9% |
+| Wet soil (~30 min post-watering, distributed) | 1946 – 1960 | 47.3 – 48.1% |
+
+**Implications for firmware.**
+- The operational range for the watering decision is approximately **2523 (dry) → 1953 (wet)**, a span of ~570 counts.
+- A midpoint threshold (~2238) would mean "water when soil is halfway between dry and wet" — likely too late for a real plant.
+- A more realistic Phase 2 starting threshold is approximately **2350–2400**, corresponding to roughly 25–30% of the way from wet to dry — i.e. water when the soil has dried out about a third of the way. This will be refined empirically by observing the actual plant's daily moisture cycles in Phase 2.
+- Hysteresis around the threshold (e.g. trigger at 2400, stop at 2200) is recommended to prevent toggling near the threshold. Noise of ~15 counts is small enough that a 200-count hysteresis band is more than sufficient.
+
+**What this test did not verify.** Long-term sensor drift over weeks of use. Behavior with the actual plant's root system in place (roots affect soil structure and water distribution near the probe). Temperature dependence (capacitive sensors have some thermal coefficient). Behavior during the transient period immediately after watering, before water has distributed. All of these are addressed in Phase 2 observation.
+
+**Alternatives considered.** None for the validation outcome itself. For the calibration methodology, using the actual plant pot was considered and rejected — calibrating in the plant pot would require driving the live plant to both moisture extremes (dry stress and saturation), which is unacceptable. A separate container with the same soil mix gives valid calibration that transfers to the plant pot because the dielectric properties depend on the soil composition, not the container.
 
 ---
 

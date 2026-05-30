@@ -32,3 +32,9 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Re-validated
 - BME280 — re-mounted onto the integrated breadboard (alongside pump + buck) and re-tested against the original sketch; no behavioral regression (see DL-019)
+
+### Validated (continued)
+- Capacitive soil moisture sensor — clean monotonic response (dry air → dry soil → wet soil), low noise (~15 ADC counts after averaging), operational range of ~570 counts between dry-soil and wet-soil conditions (see DL-020)
+
+### Added (continued)
+- \`firmware/test-sketches/03-soil-moisture/\` — PlatformIO project for soil moisture bench test and calibration (platformio.ini, src/main.cpp, README.md)
