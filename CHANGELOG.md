@@ -38,3 +38,9 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Added (continued)
 - \`firmware/test-sketches/03-soil-moisture/\` — PlatformIO project for soil moisture bench test and calibration (platformio.ini, src/main.cpp, README.md)
+
+### Validated (continued)
+- BH1750 light sensor — calibrated lux output, responds correctly to light changes, coexists cleanly on the I²C bus with BME280 (see DL-021)
+
+### Added (continued)
+- \`firmware/test-sketches/04-bh1750/\` — PlatformIO project for BH1750 bench test (platformio.ini, src/main.cpp, README.md)

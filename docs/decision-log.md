@@ -40,6 +40,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | DL-018 | 2026-05-27 | Peristaltic pump + IRLB8721 MOSFET driver validated | Active |
 | DL-019 | 2026-05-29 | BME280 re-validated on integrated bench | Active |
 | DL-020 | 2026-05-29 | Soil moisture sensor validated and calibrated | Active |
+| DL-021 | 2026-05-29 | BH1750 light sensor validated | Active |
 
 ---
 
@@ -383,6 +384,34 @@ For this approach to be sound, re-mounting a previously-validated component must
 **What this test did not verify.** Long-term sensor drift over weeks of use. Behavior with the actual plant's root system in place (roots affect soil structure and water distribution near the probe). Temperature dependence (capacitive sensors have some thermal coefficient). Behavior during the transient period immediately after watering, before water has distributed. All of these are addressed in Phase 2 observation.
 
 **Alternatives considered.** None for the validation outcome itself. For the calibration methodology, using the actual plant pot was considered and rejected — calibrating in the plant pot would require driving the live plant to both moisture extremes (dry stress and saturation), which is unacceptable. A separate container with the same soil mix gives valid calibration that transfers to the plant pot because the dielectric properties depend on the soil composition, not the container.
+
+---
+
+### DL-021 — BH1750 light sensor validated
+
+**Date:** 2026-05-29 · **Status:** Active
+
+**Context.** Phase 1 component validation for the BH1750 ambient light sensor. The BH1750 returns calibrated lux directly — no analog-style calibration is required for the sensor itself. The test was also an opportunity to verify that the I²C bus tolerates two devices (BME280 at 0x76, BH1750 at 0x23) sharing SDA and SCL without interference.
+
+**Decision.** BH1750 passes validation. The sensor is approved for integration.
+
+**Rationale.** Sensor wired to the existing I²C bus on the breadboard alongside the BME280. Both devices respond to their respective addresses; neither interferes with the other. The BH1750 returns plausible lux values that respond correctly to light changes — covering the sensor drops the reading toward zero, exposing it to a strong light source raises the reading proportionally.
+
+**Bench observations** (room with fluorescent overhead lighting):
+- Ambient with room lights on: ~6.7 lux
+- Hand covering sensor: < 6 lux
+- Room lights off (sensor sees only stray light): ~0 lux ("dark")
+- Grow light brought near sensor: > 50 lux
+
+The sensor responds correctly to relative changes — the validation criterion for Phase 1.
+
+**On the classifier labels.** The sketch includes a coarse classifier (`dark / dim / room / bright / very bright`) with thresholds taken from generic indoor-lighting reference tables (typical incandescent or LED-lit residential rooms in the 100–500 lux range). The test environment's actual measured ambient is ~6.7 lux under fluorescent overhead lighting — substantially lower than generic indoor references because fluorescent fixtures often produce lower task-surface illuminance than incandescent fixtures of comparable perceived brightness, and because the sensor's orientation reads reflected rather than direct light. The classifier labels are therefore not well-calibrated to this specific environment, but this does not affect sensor validation: the labels are debug-print color only and the firmware does not act on them.
+
+**Implications for Phase 2 firmware.** The grow-light supplementation logic requires a real lux threshold below which supplementation triggers. That threshold cannot be set from generic reference tables given the observed mismatch with this environment. It must be set empirically by recording lux readings across a representative day-cycle (morning, midday, evening) and during the desired grow-light operating window, in the actual final sensor mounting position (height, orientation, distance from windows and overhead fixtures). This is a Phase 2 task and is explicitly deferred.
+
+**What this test did not verify.** Long-term sensor stability. Behavior in direct sunlight (the sensor has multiple measurement modes for different ranges; the current sketch uses high-resolution continuous mode, suitable for indoor lighting but may saturate near 100,000 lux). Behavior during rapid light transitions (sensor has settling time). Multi-day drift. These are addressed by Phase 2 observation in the deployed environment.
+
+**Alternatives considered.** TSL2591 was the rejected alternative at the project-definition stage for wider range and higher sensitivity; the BH1750 was kept as sufficient for this project's indoor-only use case. This validation confirms the BH1750 choice is appropriate for the operating environment.
 
 ---
 
