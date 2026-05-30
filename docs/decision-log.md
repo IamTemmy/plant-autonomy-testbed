@@ -20,28 +20,28 @@ The README and code describe *what* and *how*. This file documents *why*.
 
 | ID | Date | Title | Status |
 |---|---|---|---|
-| DL-001 | 2026-05-16 | Plant choice: basil | Active |
-| DL-002 | 2026-05-16 | Pot size and growing medium | Active |
-| DL-003 | 2026-05-16 | Sensor suite | Active |
-| DL-004 | 2026-05-16 | Actuator switching: MOSFET, not relay | Active |
-| DL-005 | 2026-05-16 | Telemetry hub and stack | Active |
-| DL-006 | 2026-05-16 | Firmware framework | Active |
-| DL-007 | 2026-05-16 | Vision as a separate node | Active |
-| DL-008 | 2026-05-16 | PCB deferred, protoboard as final form | Active |
-| DL-009 | 2026-05-25 | MOSFET part substitution: IRLZ44N → IRLB8721 | Active |
-| DL-010 | 2026-05-25 | Grow light strategy: LBW lamp + Shelly smart plug | Active |
-| DL-011 | 2026-05-25 | Protoboard deferred from immediate Phase 1 | Active |
-| DL-012 | 2026-05-25 | Power distribution discipline | Active |
-| DL-013 | 2026-05-25 | Leak sensor added as a fault input | Active |
-| DL-014 | 2026-05-25 | Reservoir construction and float switch mounting | Active |
-| DL-015 | 2026-05-26 | BME280 bench test validated | Active |
-| DL-016 | 2026-05-26 | Power architecture: keep buck converter | Active |
-| DL-017 | 2026-05-26 | LM2596 buck converter validated | Active |
-| DL-018 | 2026-05-27 | Peristaltic pump + IRLB8721 MOSFET driver validated | Active |
-| DL-019 | 2026-05-29 | BME280 re-validated on integrated bench | Active |
-| DL-020 | 2026-05-29 | Soil moisture sensor validated and calibrated | Active |
-| DL-021 | 2026-05-29 | BH1750 light sensor validated | Active |
-| DL-022 | 2026-05-29 | Grow-light control strategy: deferred | Active |
+| [DL-001](#dl-001) | 2026-05-16 | Plant choice: basil | Active |
+| [DL-002](#dl-002) | 2026-05-16 | Pot size and growing medium | Active |
+| [DL-003](#dl-003) | 2026-05-16 | Sensor suite | Active |
+| [DL-004](#dl-004) | 2026-05-16 | Actuator switching: MOSFET, not relay | Active |
+| [DL-005](#dl-005) | 2026-05-16 | Telemetry hub and stack | Active |
+| [DL-006](#dl-006) | 2026-05-16 | Firmware framework | Active |
+| [DL-007](#dl-007) | 2026-05-16 | Vision as a separate node | Active |
+| [DL-008](#dl-008) | 2026-05-16 | PCB deferred, protoboard as final form | Active |
+| [DL-009](#dl-009) | 2026-05-25 | MOSFET part substitution: IRLZ44N → IRLB8721 | Active |
+| [DL-010](#dl-010) | 2026-05-25 | Grow light strategy: LBW lamp + Shelly smart plug | Active |
+| [DL-011](#dl-011) | 2026-05-25 | Protoboard deferred from immediate Phase 1 | Active |
+| [DL-012](#dl-012) | 2026-05-25 | Power distribution discipline | Active |
+| [DL-013](#dl-013) | 2026-05-25 | Leak sensor added as a fault input | Active |
+| [DL-014](#dl-014) | 2026-05-25 | Reservoir construction and float switch mounting | Active |
+| [DL-015](#dl-015) | 2026-05-26 | BME280 bench test validated | Active |
+| [DL-016](#dl-016) | 2026-05-26 | Power architecture: keep buck converter | Active |
+| [DL-017](#dl-017) | 2026-05-26 | LM2596 buck converter validated | Active |
+| [DL-018](#dl-018) | 2026-05-27 | Peristaltic pump + IRLB8721 MOSFET driver validated | Active |
+| [DL-019](#dl-019) | 2026-05-29 | BME280 re-validated on integrated bench | Active |
+| [DL-020](#dl-020) | 2026-05-29 | Soil moisture sensor validated and calibrated | Active |
+| [DL-021](#dl-021) | 2026-05-29 | BH1750 light sensor validated | Active |
+| [DL-022](#dl-022) | 2026-05-29 | Grow-light control strategy: deferred | Active |
 
 ---
 
@@ -49,6 +49,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 
 These entries record the original decisions from the project definition so the log is self-contained — a reader can understand the project from this file alone.
 
+<a id="dl-001"></a>
 ### DL-001 — Plant choice: basil
 
 **Date:** 2026-05-16 · **Status:** Active
@@ -63,6 +64,7 @@ These entries record the original decisions from the project definition so the l
 
 ---
 
+<a id="dl-002"></a>
 ### DL-002 — Pot size and growing medium
 
 **Date:** 2026-05-16 · **Status:** Active
@@ -77,6 +79,7 @@ These entries record the original decisions from the project definition so the l
 
 ---
 
+<a id="dl-003"></a>
 ### DL-003 — Sensor suite
 
 **Date:** 2026-05-16 · **Status:** Active
@@ -91,6 +94,7 @@ These entries record the original decisions from the project definition so the l
 
 ---
 
+<a id="dl-004"></a>
 ### DL-004 — Actuator switching: MOSFET, not relay
 
 **Date:** 2026-05-16 · **Status:** Active. See also DL-009 (specific part) and DL-010 (grow light no longer uses this method).
@@ -105,6 +109,7 @@ These entries record the original decisions from the project definition so the l
 
 ---
 
+<a id="dl-005"></a>
 ### DL-005 — Telemetry hub and stack
 
 **Date:** 2026-05-16 · **Status:** Active
@@ -119,6 +124,7 @@ These entries record the original decisions from the project definition so the l
 
 ---
 
+<a id="dl-006"></a>
 ### DL-006 — Firmware framework
 
 **Date:** 2026-05-16 · **Status:** Active
@@ -133,6 +139,7 @@ These entries record the original decisions from the project definition so the l
 
 ---
 
+<a id="dl-007"></a>
 ### DL-007 — Vision as a separate node
 
 **Date:** 2026-05-16 · **Status:** Active
@@ -147,6 +154,7 @@ These entries record the original decisions from the project definition so the l
 
 ---
 
+<a id="dl-008"></a>
 ### DL-008 — PCB deferred, protoboard as final form
 
 **Date:** 2026-05-16 · **Status:** Active. Refined further by DL-011 (deferred even out of Phase 1).
@@ -165,6 +173,7 @@ These entries record the original decisions from the project definition so the l
 
 These entries record decisions made after the project definition was published, during procurement and bench-test planning. Where they modify the PDF baseline, that supersession is called out explicitly.
 
+<a id="dl-009"></a>
 ### DL-009 — MOSFET part substitution: IRLZ44N → IRLB8721
 
 **Date:** 2026-05-25 · **Status:** Active. Supersedes the IRLZ44N specification in PDF §2 and §7.
@@ -179,6 +188,7 @@ These entries record decisions made after the project definition was published, 
 
 ---
 
+<a id="dl-010"></a>
 ### DL-010 — Grow light strategy: LBW lamp + Shelly smart plug
 
 **Date:** 2026-05-25 · **Status:** Active. **Supersedes** the grow light specification in PDF §2 (Concluded Decisions), §6 (Wiring — grow-light MOSFET on GPIO26), and §7 (BOM grow light entry).
@@ -193,6 +203,7 @@ These entries record decisions made after the project definition was published, 
 
 ---
 
+<a id="dl-011"></a>
 ### DL-011 — Protoboard deferred from immediate Phase 1
 
 **Date:** 2026-05-25 · **Status:** Active. Refines DL-008.
@@ -207,6 +218,7 @@ These entries record decisions made after the project definition was published, 
 
 ---
 
+<a id="dl-012"></a>
 ### DL-012 — Power distribution discipline
 
 **Date:** 2026-05-25 · **Status:** Active. Refines PDF §6 (Wiring).
@@ -221,6 +233,7 @@ These entries record decisions made after the project definition was published, 
 
 ---
 
+<a id="dl-013"></a>
 ### DL-013 — Leak sensor added as a fault input
 
 **Date:** 2026-05-25 · **Status:** Active. Extends PDF §4 (Control State Machine, Fault state).
@@ -235,6 +248,7 @@ These entries record decisions made after the project definition was published, 
 
 ---
 
+<a id="dl-014"></a>
 ### DL-014 — Reservoir construction and float switch mounting
 
 **Date:** 2026-05-25 · **Status:** Active. Refines PDF §5 (Physical Setup) and §7 (BOM — reservoir entry).
@@ -249,6 +263,7 @@ These entries record decisions made after the project definition was published, 
 
 ---
 
+<a id="dl-015"></a>
 ### DL-015 — BME280 bench test validated
 
 **Date:** 2026-05-25 · **Status:** Active
@@ -263,6 +278,7 @@ These entries record decisions made after the project definition was published, 
 
 ---
 
+<a id="dl-016"></a>
 ### DL-016 — Power architecture: keep buck converter ahead of the extension board
 
 **Date:** 2026-05-26 · **Status:** Active
@@ -287,6 +303,7 @@ This made the buck converter genuinely optional. The 12V supply could be tied di
 
 ---
 
+<a id="dl-017"></a>
 ### DL-017 — LM2596 buck converter validated
 
 **Date:** 2026-05-26 · **Status:** Active
@@ -314,6 +331,7 @@ This made the buck converter genuinely optional. The 12V supply could be tied di
 
 ---
 
+<a id="dl-018"></a>
 ### DL-018 — Peristaltic pump and IRLB8721 MOSFET driver validated
 
 **Date:** 2026-05-26 · **Status:** Active
@@ -340,6 +358,7 @@ This made the buck converter genuinely optional. The 12V supply could be tied di
 
 ---
 
+<a id="dl-019"></a>
 ### DL-019 — BME280 re-validated on integrated bench
 
 **Date:** 2026-05-29 · **Status:** Active. Re-validates DL-015 after physical re-mounting.
@@ -358,6 +377,7 @@ For this approach to be sound, re-mounting a previously-validated component must
 
 ---
 
+<a id="dl-020"></a>
 ### DL-020 — Soil moisture sensor validated and calibrated
 
 **Date:** 2026-05-29 · **Status:** Active
@@ -388,6 +408,7 @@ For this approach to be sound, re-mounting a previously-validated component must
 
 ---
 
+<a id="dl-021"></a>
 ### DL-021 — BH1750 light sensor validated
 
 **Date:** 2026-05-29 · **Status:** Active
@@ -418,6 +439,7 @@ The sensor responds correctly to relative changes — the validation criterion f
 
 ---
 
+<a id="dl-022"></a>
 ### DL-022 — Grow-light control strategy: deferred pending operating-environment characterization
 
 **Date:** 2026-05-29 · **Status:** Active. Deferred — to be resolved before Phase 2 firmware integration.
