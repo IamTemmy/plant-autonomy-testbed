@@ -41,6 +41,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | DL-019 | 2026-05-29 | BME280 re-validated on integrated bench | Active |
 | DL-020 | 2026-05-29 | Soil moisture sensor validated and calibrated | Active |
 | DL-021 | 2026-05-29 | BH1750 light sensor validated | Active |
+| DL-022 | 2026-05-29 | Grow-light control strategy: deferred | Active |
 
 ---
 
@@ -414,6 +415,39 @@ The sensor responds correctly to relative changes — the validation criterion f
 **What this test did not verify.** Long-term sensor stability. Behavior in direct sunlight (the sensor has multiple measurement modes for different ranges; the current sketch uses high-resolution continuous mode, suitable for indoor lighting but may saturate near 100,000 lux). Behavior during rapid light transitions (sensor has settling time). Multi-day drift. These are addressed by Phase 2 observation in the deployed environment.
 
 **Alternatives considered.** TSL2591 was the rejected alternative at the project-definition stage for wider range and higher sensitivity; the BH1750 was kept as sufficient for this project's indoor-only use case. This validation confirms the BH1750 choice is appropriate for the operating environment.
+
+---
+
+### DL-022 — Grow-light control strategy: deferred pending operating-environment characterization
+
+**Date:** 2026-05-29 · **Status:** Active. Deferred — to be resolved before Phase 2 firmware integration.
+
+**Context.** With the grow-light architecture revised in DL-010 (AC fixture controlled via Shelly smart plug, binary on/off) and the BH1750 validated in DL-021, the next question is how Phase 2 firmware should decide when to command the grow light on or off. Two strategies are on the table, and the choice depends on factors that cannot be evaluated until the system is observed in its actual operating environment.
+
+**Decision.** Defer the choice between closed-loop DLI control and scheduled operation until the operating environment is better characterized. Both strategies remain viable. Phase 2 will start with whichever is appropriate based on observations made closer to deployment.
+
+**The two candidate strategies.**
+
+**Strategy A — Closed-loop DLI control.** Firmware integrates measured lux from the BH1750 over the day, compares the accumulated daily light integral against basil's target, and commands the grow light on when accumulated light is falling short. Reactive to actual conditions; theoretically the more autonomous choice.
+
+**Strategy B — Scheduled operation with BH1750 as verification.** Firmware runs the grow light on a fixed daily schedule (e.g. 7am–9pm) sized to give basil its target light hours. The BH1750 is used to (1) verify the grow light actually turned on when commanded (closed-loop fault detection — if lux does not rise after a grow-light-on command, the smart plug or fixture has failed), and (2) log ambient light data for portfolio purposes. Simpler, more predictable, less sensitive to environmental contamination.
+
+**Why this is not yet a clear choice.**
+
+1. **The operating environment is shared and uncontrolled.** The room has dimmable overhead lighting used by other occupants. Their lighting behavior cannot be predicted. The BH1750 cannot distinguish their light from natural light or from the grow light — it reads total ambient lux.
+2. **Lux is not photosynthetically meaningful.** A given lux value from fluorescent overhead lighting delivers substantially less photosynthetic energy to a plant than the same lux from a dedicated grow light, because plants respond to specific wavelengths (PAR) that lux measurement does not weight for. The BH1750 cannot measure PAR; a PAR sensor would cost ~10×–20× more and is out of scope.
+3. **The user has partial control over the operating environment.** During summer the room is less shared and lighting patterns are more predictable, making Strategy A potentially viable. During the academic semester the room is more variable and Strategy B becomes more defensible.
+
+**What would force the decision.**
+- If observations show the room's ambient lux varies wildly during the period the system will be deployed, Strategy B is the honest choice — the BH1750 readings would be too contaminated to drive reliable DLI control.
+- If observations show the room's ambient lighting is reliably predictable during the deployment window (because the user controls the room or the deployment is short enough to plan around), Strategy A becomes viable.
+- The decision can also remain pragmatic: start with Strategy B (simpler, lower risk), and migrate to Strategy A later only if observations of how the plant actually grows under scheduled lighting suggest a more reactive approach would help.
+
+**Implications for hardware.** None. Both strategies use the same hardware (BH1750 + Shelly smart plug + grow light). The choice is firmware-only and can be revisited without any wiring changes.
+
+**Implications for the BH1750's role.** The sensor stays in the build regardless of which strategy is chosen. Under Strategy A it is the primary input; under Strategy B it is the verification and logging input. Either way, the validation in DL-021 stands.
+
+**Alternatives considered.** Hybrid (schedule + BH1750 trims the schedule) — possible, but adds complexity without clearly outperforming either of the simpler strategies in the user's mixed-lighting environment. Same deferral logic applies.
 
 ---
 
