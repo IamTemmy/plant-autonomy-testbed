@@ -42,6 +42,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-020](#dl-020) | 2026-05-29 | Soil moisture sensor validated and calibrated | Active |
 | [DL-021](#dl-021) | 2026-05-29 | BH1750 light sensor validated | Active |
 | [DL-022](#dl-022) | 2026-05-29 | Grow-light control strategy: deferred | Active |
+| [DL-023](#dl-023) | 2026-05-29 | Float switch validated and orientation mapped | Active |
 
 ---
 
@@ -470,6 +471,37 @@ The sensor responds correctly to relative changes — the validation criterion f
 **Implications for the BH1750's role.** The sensor stays in the build regardless of which strategy is chosen. Under Strategy A it is the primary input; under Strategy B it is the verification and logging input. Either way, the validation in DL-021 stands.
 
 **Alternatives considered.** Hybrid (schedule + BH1750 trims the schedule) — possible, but adds complexity without clearly outperforming either of the simpler strategies in the user's mixed-lighting environment. Same deferral logic applies.
+
+---
+
+<a id="dl-023"></a>
+### DL-023 — Float switch validated and orientation mapped
+
+**Date:** 2026-05-29 · **Status:** Active
+
+**Context.** Phase 1 component validation for the reservoir float switch. Float switches are sold without standardized polarity — the same physical state can produce either an open or closed circuit depending on how the manufacturer wired the internal reed switch. The bench test determines which orientation corresponds to which state for *this specific switch*, so the firmware's "is the reservoir low?" check can be written with correct polarity.
+
+**Decision.** Float switch passes validation. The orientation-to-state mapping is recorded below and will be referenced when Phase 2 firmware reads the reservoir level input.
+
+**Rationale.** Switch wired between GPIO27 (configured `INPUT_PULLUP`) and GND. With pull-up enabled, an open switch reads HIGH (3.3V via the internal pull-up) and a closed switch reads LOW (shorted to GND). Transitions were clean — no flickering when held still, immediate response on inversion. The test was conducted dry (no water) because the float's position is controlled by gravity alone; flipping the device between right-side-up and inverted produces the same internal magnet movement as water rising and falling in a reservoir.
+
+**Orientation mapping for this specific switch.**
+
+| Physical state | Real-world meaning | Switch state | GPIO27 reads |
+|---|---|---|---|
+| Threaded end up, float at bottom (gravity-pulled down) | Empty reservoir | CLOSED | LOW |
+| Inverted, float at top (gravity-pulled up, simulating water lift) | Full reservoir | OPEN | HIGH |
+
+This is the "normally closed" wiring convention (closed circuit when the float is at the bottom of the tube). The opposite convention also exists in commercial float switches, so the mapping must be explicit in firmware comments.
+
+**Firmware implications.**
+- `digitalRead(FLOAT_PIN) == LOW` → reservoir is empty → enter Fault state, alert operator, do not run pump
+- `digitalRead(FLOAT_PIN) == HIGH` → reservoir has water → normal operation
+- The polarity is the *opposite* of the intuitive "open means low water" assumption, so the firmware should include a clear comment block above the float read with the mapping table to prevent future bugs.
+
+**What this test did not verify.** Behavior under actual water (the test was dry — flipping the device replaced rising water). Long-term reliability of the reed switch under repeated cycling. Behavior at marginal water levels (the float oscillating near the threshold position). These are addressed in Phase 2 with the switch mounted in the actual reservoir.
+
+**Alternatives considered.** None — this is a validation outcome, not a design choice.
 
 ---
 

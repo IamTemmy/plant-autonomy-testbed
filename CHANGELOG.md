@@ -44,3 +44,9 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Added (continued)
 - \`firmware/test-sketches/04-bh1750/\` — PlatformIO project for BH1750 bench test (platformio.ini, src/main.cpp, README.md)
+
+### Validated (continued)
+- Float switch — clean state transitions on orientation change, orientation-to-state mapping recorded for firmware reference (see DL-023)
+
+### Added (continued)
+- \`firmware/test-sketches/05-float-switch/\` — PlatformIO project for float switch bench test (platformio.ini, src/main.cpp, README.md)
