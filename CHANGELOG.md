@@ -29,3 +29,6 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 ### Added (continued)
 - \`firmware/test-sketches/02-pump-mosfet/\` — PlatformIO project for pump driver bench test (platformio.ini, src/main.cpp, README.md)
 - \`docs/images/02-pump-mosfet-validation.png\` — serial-monitor screenshot of pump cycling
+
+### Re-validated
+- BME280 — re-mounted onto the integrated breadboard (alongside pump + buck) and re-tested against the original sketch; no behavioral regression (see DL-019)

@@ -38,6 +38,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | DL-016 | 2026-05-26 | Power architecture: keep buck converter | Active |
 | DL-017 | 2026-05-26 | LM2596 buck converter validated | Active |
 | DL-018 | 2026-05-27 | Peristaltic pump + IRLB8721 MOSFET driver validated | Active |
+| DL-019 | 2026-05-29 | BME280 re-validated on integrated bench | Active |
 
 ---
 
@@ -333,6 +334,24 @@ This made the buck converter genuinely optional. The 12V supply could be tied di
 **What this test did not verify** (deferred to Phase 2 integration). Closed-loop verification — running the pump and confirming via the soil moisture sensor that water actually reached the soil. Dose calibration — measuring mL delivered per second of runtime so the firmware can convert a target volume into a runtime. Long-duration thermal behavior of the MOSFET under realistic duty cycles. Behavior when the buck converter is sharing the 12V rail under load simultaneously with the pump.
 
 **Alternatives considered.** None — this is a validation outcome, not a design choice.
+
+---
+
+### DL-019 — BME280 re-validated on integrated bench
+
+**Date:** 2026-05-29 · **Status:** Active. Re-validates DL-015 after physical re-mounting.
+
+**Context.** Phase 1 was originally tested component-by-component on a clear breadboard, with the BME280 removed after its first validation (DL-015). The current Phase 1 approach is to grow a single integrated test bench organically: each new component is wired onto the same breadboard alongside the previously-validated ones, tested with its own sketch, and left in place. This makes the breadboard the natural integration platform by the end of Phase 1, without a "big bang" reorganization step.
+
+For this approach to be sound, re-mounting a previously-validated component must not silently regress its behavior. The BME280 was re-wired onto the breadboard already populated by the pump + MOSFET driver and the LM2596 buck converter, and re-validated against the same criteria as DL-015.
+
+**Decision.** BME280 re-validation passes. The sensor remains approved for integration, now permanently placed on the integrated test bench.
+
+**Rationale.** The 01-bme280 sketch was re-flashed unchanged. The sensor was detected at its I²C address, returned plausible indoor readings, and responded to a breath stimulus exactly as in DL-015 — no behavioral regression from being physically re-mounted alongside an actuator subsystem.
+
+**Why this matters.** Confirms the integration approach is sound: previously-validated subsystems can coexist with newly-added components without losing their validation status. Each new component going forward can be added to the same breadboard with confidence that the existing components stay healthy.
+
+**What this did not verify.** Behavior of the BME280 while the pump is actively cycling on the same breadboard — that's a true co-operation test and is deferred until enough subsystems are present to make it meaningful (likely after soil moisture, BH1750, and OLED join the bench).
 
 ---
 
