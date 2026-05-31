@@ -56,3 +56,12 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Added (continued)
 - \`firmware/test-sketches/06-oled/\` — PlatformIO project for OLED bench test with Phase 2 dashboard preview (platformio.ini, src/main.cpp, README.md)
+
+### Validated (continued)
+- User-feedback subsystem (2 LEDs + 3 buttons + active buzzer) — validated across three iterative sketches with a four-state state machine; safety property (FAULT latching, MANUAL inert during fault) demonstrated (see DL-025)
+
+### Added (continued)
+- \`firmware/test-sketches/09-buzzer/\` — PlatformIO project for active buzzer test integrating LEDs, buttons, and CRITICAL state (platformio.ini, src/main.cpp, README.md)
+
+### Changed
+- Button C moved from GPIO35 to GPIO26 (GPIO35 lacks an internal pull-up; GPIO26 was freed by DL-010's grow-light architecture change)

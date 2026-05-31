@@ -44,6 +44,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-022](#dl-022) | 2026-05-29 | Grow-light control strategy: deferred | Active |
 | [DL-023](#dl-023) | 2026-05-29 | Float switch validated and orientation mapped | Active |
 | [DL-024](#dl-024) | 2026-05-30 | OLED display validated, three-device I²C bus confirmed | Active |
+| [DL-025](#dl-025) | 2026-05-30 | User-feedback subsystem validated (LEDs, buttons, buzzer, state machine) | Active |
 
 ---
 
@@ -531,6 +532,77 @@ The values displayed are mocked, not live — that integration belongs to Phase 
 **What this test did not verify.** Live data rendering (the values are hardcoded in the sketch — the integration with BME280/BH1750/soil sensor happens in Phase 2). Long-term burn-in characteristics of the OLED (OLED pixels age with use; static UI elements may show after months of operation, but this is a known property of the technology and is mitigated by occasional layout changes or low-power sleep). Behavior under voltage sag (the test was run with the buck-converted 5V supply through the extension board's 3.3V regulator, all known stable from prior validations).
 
 **Alternatives considered.** None — this is a validation outcome, not a design choice.
+
+---
+
+<a id="dl-025"></a>
+### DL-025 — User-feedback subsystem validated: LEDs, buttons, buzzer, and state machine
+
+**Date:** 2026-05-30 · **Status:** Active
+
+**Context.** The original PDF specified three status LEDs, three buttons, and a buzzer as a single subsystem for local user feedback and control. With the OLED already validated as the primary status display (DL-024) and the eventual MQTT dashboard available for remote control, the original specification was reconsidered against actual need before any wiring or code began. The goal: justify each component's presence in terms of a real fault mode or interaction scenario, rather than carrying components forward by default.
+
+**Decision.** The user-feedback subsystem is reduced and validated in its revised form: **2 LEDs (green, red), 3 buttons (STOP, ACK, MANUAL), and 1 active buzzer**. All six components pass validation, both individually and together via a four-state state machine. The subsystem is approved for integration.
+
+**Rationale for the revised scope.**
+
+The driving principle is the "Waymo manual-override" scenario: in a real fault, the operator may not be present, and a remote helper (someone the operator phones from a distance) must be able to describe what they see and execute simple recovery actions on the operator's behalf. The subsystem is therefore scoped to that interaction, not to general convenience.
+
+- **2 LEDs** — Green and red, deliberately distinct colors, easy to describe over the phone ("the red one is solid"). Two LEDs support five visually distinct states via blink patterns: green steady (IDLE), green slow blink (MEASURING), green fast blink (ACTION), red steady (FAULT), red fast blink (CRITICAL). The third LED was dropped — incremental information value did not justify the additional pin, resistor, and wiring complexity.
+- **3 buttons** — Each maps to a specific fault-recovery action: STOP (latch the system into FAULT), ACK (acknowledge and clear FAULT or CRITICAL), MANUAL (override to trigger one watering cycle from IDLE). The MANUAL button is the bench-utility addition over the strict-minimum two-button design; it earns its place during Phase 2 testing and as a "make the plant get water now" affordance for the operator.
+- **1 active buzzer** — The only audible channel. Chosen over the passive buzzer because the system needs a single fault alarm rather than melodies; the active type is louder at the same drive level. Driven through an NPN transistor (1 kΩ base resistor) to keep the GPIO from sourcing the buzzer's current directly; powered from the 5V rail rather than 3.3V to maximize loudness.
+
+**Pin assignment changes.**
+
+The original PDF allocated GPIO16 and GPIO17 for two of the LEDs. These pins are not broken out on the ESP32-WROVER variant — they are reserved internally for the WROVER's PSRAM. This was not caught at the project-definition stage and is corrected here. Working assignments:
+
+| Component | Pin | Notes |
+|---|---|---|
+| Green LED | GPIO18 | output, via 270Ω to GND |
+| Red LED | GPIO19 | output, via 270Ω to GND |
+| Button A (STOP) | GPIO32 | INPUT_PULLUP |
+| Button B (ACK) | GPIO33 | INPUT_PULLUP |
+| Button C (MANUAL) | GPIO26 | INPUT_PULLUP — reclaimed from grow-light MOSFET (freed by DL-010) |
+| Buzzer | GPIO4 | GPIO → 1kΩ → NPN base; emitter → GND; collector → buzzer(−); buzzer(+) → 5V |
+
+Button C was initially wired to GPIO35, which is input-only on the ESP32 and *also* lacks internal pull-up/pull-down resistors — a property easy to miss because the broader "input-only" labeling does not call this out explicitly. With INPUT_PULLUP configured but no actual pull-up present, the pin would have floated when the button was released, producing random false triggers. Caught during bench planning before any code ran; the wire was moved to GPIO26 (available because DL-010 moved grow-light control off the MOSFET). This is an instance of the engineering value of writing down the GPIO inventory explicitly — the pin reclamation only worked because the project tracks which pins are actually in use, not just which were originally specified.
+
+**State machine validated by the test sketches.**
+
+| State | LEDs | Buzzer | Entry condition |
+|---|---|---|---|
+| IDLE | green steady | silent | boot; ACK from FAULT or CRITICAL |
+| ACTION | green fast blink | silent | MANUAL from IDLE (3 s, then auto-returns to IDLE) |
+| FAULT | red steady | silent | STOP from IDLE or ACTION |
+| CRITICAL | red fast blink | **ON** | STOP from FAULT (escalation: unacknowledged fault) |
+
+A fifth pattern (MEASURING — green slow blink) was demonstrated in the first test sketch but is not currently reachable through button input alone; it is reserved for Phase 2 when the firmware enters MEASURING during a sensor read cycle.
+
+**Test methodology — three iterative sketches.**
+
+Rather than build one combined sketch, the validation was done across three discrete sketches, each preserved as its own artifact in the repo. This gives a clear record of how each component was first validated:
+
+- `07-feedback-io` — LEDs only; cycles every state pattern automatically to confirm visual distinguishability.
+- `08-buttons` — Adds buttons; introduces the IDLE/ACTION/FAULT state machine driven by button presses; implicitly re-validates the LEDs in their state-indicator role.
+- `09-buzzer` — Adds the buzzer and the CRITICAL state; introduces the STOP-from-FAULT escalation; implicitly re-validates the LEDs and buttons.
+
+The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalating to CRITICAL on a second press, with no actual fault condition behind it. The real fault triggers (low water, leak detected, watering verification failure, etc.) belong to Phase 2 firmware. What this test validates is that the *components and the state-rendering logic* are correct, so Phase 2 can connect real conditions to a known-good rendering layer.
+
+**Safety property exercised.** The state machine enforces that the MANUAL button is inert when the system is in FAULT or CRITICAL. The fault state is *latched* — it does not clear by itself, and the operator (local or remote) must explicitly acknowledge it via ACK before any further actions are accepted. This is the standard pattern for safety-critical state machines (the same pattern used in industrial control, aerospace, and autonomous vehicles) and was verified observationally during the buzzer test: pressing MANUAL during FAULT produced no state change.
+
+**What this test did not verify.**
+
+- Real fault triggers (deferred to Phase 2: low-water signal from the float switch, leak detection, watering-verification failure, sensor-stuck detection, etc.).
+- Long-term buzzer reliability under repeated CRITICAL events.
+- Behavior when multiple buttons are pressed simultaneously (the current code services them in serial order each loop iteration — adequate for typical operator behavior, but not formally tested).
+- Debouncing under noisy mechanical contacts (the 10 ms loop delay provides crude debouncing; if any button shows flicker on a press, software debouncing will be added in Phase 2).
+
+**Alternatives considered.**
+
+- Original 3+3+1 plan (rejected — components without specific justified roles).
+- 1+1+1 ultra-minimal plan (rejected — insufficient state granularity for a remote helper to describe; "the light is on" doesn't distinguish IDLE from FAULT).
+- Passive buzzer with PWM tones for variable alert sounds (rejected — over-spec for a single-alarm use case).
+- Bi-color (red/green in one package) LED instead of two discrete LEDs (rejected — one pin and one resistor savings, but harder to wire reliably on a breadboard and slightly harder to describe over the phone).
 
 ---
 
