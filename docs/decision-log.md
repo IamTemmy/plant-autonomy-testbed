@@ -45,6 +45,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-023](#dl-023) | 2026-05-29 | Float switch validated and orientation mapped | Active |
 | [DL-024](#dl-024) | 2026-05-30 | OLED display validated, three-device I²C bus confirmed | Active |
 | [DL-025](#dl-025) | 2026-05-31 | User-feedback subsystem validated (LEDs, buttons, buzzer, state machine) | Active |
+| [DL-026](#dl-026) | 2026-05-31 | Leak sensor validated and calibrated | Active |
 
 ---
 
@@ -603,6 +604,46 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 - 1+1+1 ultra-minimal plan (rejected — insufficient state granularity for a remote helper to describe; "the light is on" doesn't distinguish IDLE from FAULT).
 - Passive buzzer with PWM tones for variable alert sounds (rejected — over-spec for a single-alarm use case).
 - Bi-color (red/green in one package) LED instead of two discrete LEDs (rejected — one pin and one resistor savings, but harder to wire reliably on a breadboard and slightly harder to describe over the phone).
+
+---
+
+<a id="dl-026"></a>
+### DL-026 — Leak sensor validated and calibrated
+
+**Date:** 2026-05-31 · **Status:** Active
+
+**Context.** Phase 1 component validation and calibration for the DIYables comb-pattern water-detection sensor. This sensor was added to the project in DL-013 as a leak-detection input that would trigger the system's CRITICAL fault state if water appeared outside the reservoir. The bench test validates that the sensor works and establishes the operational range so the Phase 2 firmware can set a meaningful trigger threshold.
+
+**Decision.** Leak sensor passes validation. The sensor is approved for integration. The Phase 2 firmware will treat the analog reading as a sensitive binary trip wire rather than a calibrated continuous measurement.
+
+**Rationale.** Sensor wired to GPIO39 (ADC1, input-only, WiFi-safe). The test sketch reads at 2 Hz with 20-sample averaging per read; the dry baseline reads cleanly at 0 ADC counts (0%) with no measurable drift, providing a stable zero against which any wet signal is unambiguous.
+
+**Calibration data.**
+
+| Condition | Raw ADC | % of full scale |
+|---|---|---|
+| Dry pads (no contact with water) | 0 | 0% |
+| Tissue lightly damp around sensor | ~283 | 6.9% |
+| Tissue wet, squeezed against sensor | ~1376 | 33.2% |
+| Sensor partially submerged in water | ~2067 | 50.5% |
+
+**On the ~50% ceiling.** The sensor's output does not approach the full 0–4095 ADC range even when fully submerged. This is a physical property of conductive-pad water sensors, not a sensor defect: ordinary tap water is a poor conductor by electrical standards, so the resistance between the interleaved copper pads never falls low enough to drive the divider's output to its full-scale voltage. Higher-conductivity water (saltwater, mineral-rich runoff) would push the reading higher; deionized water would push it lower. For the project's intended deployment (detecting a leak of plain water onto a damp surface near the reservoir), a 0–50% practical range is the available signal, and the dry baseline of 0 is the meaningful reference point.
+
+**Implications for the Phase 2 firmware.**
+
+- The trigger threshold for entering CRITICAL on a leak event should be set at approximately **200 raw counts (~5% of full scale)**. This is well above the dry baseline of 0, well below the lightly-damp reading of ~283, and gives the sensor a sensitive trip-wire character — a small amount of water near the sensor (the kind that would indicate the *start* of a leak) is detected before it becomes a flood.
+- Once triggered, the system enters CRITICAL state and remains latched until manually acknowledged via Button B (ACK). The fault does not auto-clear even if the reading falls back to zero, because a single brief wet reading still indicates that water reached a place it should not have — the operator needs to inspect and confirm the situation, not have the system silently dismiss the event.
+- Hysteresis is not needed in the same way as the soil sensor: this is a one-shot event detector, not a continuous control input.
+- The sensor reads in the opposite polarity from the soil moisture sensor: **higher = wetter** here, **lower = wetter** for soil moisture. The firmware comment block above each read must call this out to prevent inverted-logic bugs.
+
+**What this test did not verify.**
+
+- Long-term sensor stability under sustained wet exposure (the exposed copper pads will corrode over months of contact with water). The deployment plan is to mount the sensor on the *surface below* the reservoir and pump assembly, where it should remain dry under normal operation and only become wet during an actual fault. This minimizes corrosion exposure.
+- Behavior with non-pure water (potting-mix runoff has dissolved minerals that increase conductivity; this could shift the practical range upward, which would be conservative — i.e. easier to trigger).
+- Behavior at temperature extremes (water conductivity is temperature-dependent; for indoor operation this is negligible).
+- Whether a slow drip is detected as quickly as a pour (the test used relatively rapid wetting; very slow drips might take longer to bridge the pads conductively, but should still trigger eventually).
+
+**Alternatives considered.** None — this is a validation outcome, not a design choice. The sensor itself was chosen in DL-013 as the simplest, cheapest, most appropriate option for a binary leak detector.
 
 ---
 

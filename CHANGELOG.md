@@ -65,3 +65,9 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Changed
 - Button C moved from GPIO35 to GPIO26 (GPIO35 lacks an internal pull-up; GPIO26 was freed by DL-010's grow-light architecture change)
+
+### Validated (continued)
+- DIYables leak sensor — clean dry baseline at 0 ADC counts, ~50% practical maximum at full water contact, sensitive trip-wire character suitable for binary leak detection (see DL-026)
+
+### Added (continued)
+- \`firmware/test-sketches/10-leak-sensor/\` — PlatformIO project for leak sensor bench test and calibration (platformio.ini, src/main.cpp, README.md)
