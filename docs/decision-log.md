@@ -44,7 +44,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-022](#dl-022) | 2026-05-29 | Grow-light control strategy: deferred | Active |
 | [DL-023](#dl-023) | 2026-05-29 | Float switch validated and orientation mapped | Active |
 | [DL-024](#dl-024) | 2026-05-30 | OLED display validated, three-device I²C bus confirmed | Active |
-| [DL-025](#dl-025) | 2026-05-30 | User-feedback subsystem validated (LEDs, buttons, buzzer, state machine) | Active |
+| [DL-025](#dl-025) | 2026-05-31 | User-feedback subsystem validated (LEDs, buttons, buzzer, state machine) | Active |
 
 ---
 
