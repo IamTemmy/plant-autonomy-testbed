@@ -43,6 +43,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-021](#dl-021) | 2026-05-29 | BH1750 light sensor validated | Active |
 | [DL-022](#dl-022) | 2026-05-29 | Grow-light control strategy: deferred | Active |
 | [DL-023](#dl-023) | 2026-05-29 | Float switch validated and orientation mapped | Active |
+| [DL-024](#dl-024) | 2026-05-30 | OLED display validated, three-device I²C bus confirmed | Active |
 
 ---
 
@@ -500,6 +501,34 @@ This is the "normally closed" wiring convention (closed circuit when the float i
 - The polarity is the *opposite* of the intuitive "open means low water" assumption, so the firmware should include a clear comment block above the float read with the mapping table to prevent future bugs.
 
 **What this test did not verify.** Behavior under actual water (the test was dry — flipping the device replaced rising water). Long-term reliability of the reed switch under repeated cycling. Behavior at marginal water levels (the float oscillating near the threshold position). These are addressed in Phase 2 with the switch mounted in the actual reservoir.
+
+**Alternatives considered.** None — this is a validation outcome, not a design choice.
+
+---
+
+<a id="dl-024"></a>
+### DL-024 — OLED display validated, three-device I²C bus confirmed
+
+**Date:** 2026-05-30 · **Status:** Active
+
+**Context.** Phase 1 component validation for the SSD1306-based 0.96-inch, 128×64 yellow/blue OLED display. The OLED is the first *output* device in the project (everything previously validated was a sensor or actuator) and is the third I²C device to join the shared bus after BME280 and BH1750. This test therefore validates two things simultaneously: the display itself, and the I²C bus's ability to host three devices without interference.
+
+**Decision.** OLED passes validation. The display is approved for integration. The shared I²C bus is confirmed healthy with three devices attached.
+
+**Rationale.** OLED detected at default I²C address 0x3C on first try. The splash screen rendered correctly, transitioned cleanly to a mock dashboard. The dashboard renders the system title and phase label in the yellow zone (top 16 pixels — a fixed hardware property of this OLED variant, not a software setting) and mock sensor values plus a live uptime counter in the blue zone (bottom 48 pixels). The uptime counter increments once per second, confirming the display is being actively refreshed rather than locked on a static frame. No rendering artifacts, no flickering, no I²C bus errors.
+
+**Bus integrity.** Three devices on the same SDA/SCL pair: BME280 (0x76 or 0x77), BH1750 (0x23), SSD1306 OLED (0x3C). All three remained reachable and functional during the OLED test. This is the first multi-device I²C validation in the project and de-risks the eventual integrated firmware, which will read all three devices in the same `loop()`.
+
+**Mock dashboard layout** (preview of the Phase 2 status UI):
+
+| Zone | Pixel range | Content |
+|---|---|---|
+| Yellow | y = 0..15 | Title "PLANT AUTONOMY"; subtitle "Phase 1 bench test" |
+| Blue | y = 16..63 | Temp, humidity, light, soil, uptime + pump state (five lines) |
+
+The values displayed are mocked, not live — that integration belongs to Phase 2. The layout choice reserves the yellow band for status-at-a-glance information (title now; later, an alert indicator or system state) and the blue band for the actual sensor data, which is the natural reading hierarchy for a yellow/blue split OLED.
+
+**What this test did not verify.** Live data rendering (the values are hardcoded in the sketch — the integration with BME280/BH1750/soil sensor happens in Phase 2). Long-term burn-in characteristics of the OLED (OLED pixels age with use; static UI elements may show after months of operation, but this is a known property of the technology and is mitigated by occasional layout changes or low-power sleep). Behavior under voltage sag (the test was run with the buck-converted 5V supply through the extension board's 3.3V regulator, all known stable from prior validations).
 
 **Alternatives considered.** None — this is a validation outcome, not a design choice.
 

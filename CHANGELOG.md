@@ -50,3 +50,9 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Added (continued)
 - \`firmware/test-sketches/05-float-switch/\` — PlatformIO project for float switch bench test (platformio.ini, src/main.cpp, README.md)
+
+### Validated (continued)
+- SSD1306 OLED display — splash and mock dashboard render cleanly, uptime counter confirms active refresh, three-device I²C bus (BME280 + BH1750 + OLED) validated healthy (see DL-024)
+
+### Added (continued)
+- \`firmware/test-sketches/06-oled/\` — PlatformIO project for OLED bench test with Phase 2 dashboard preview (platformio.ini, src/main.cpp, README.md)
