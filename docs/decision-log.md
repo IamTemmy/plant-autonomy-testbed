@@ -539,7 +539,7 @@ The values displayed are mocked, not live — that integration belongs to Phase 
 <a id="dl-025"></a>
 ### DL-025 — User-feedback subsystem validated: LEDs, buttons, buzzer, and state machine
 
-**Date:** 2026-05-30 · **Status:** Active
+**Date:** 2026-05-31 · **Status:** Active
 
 **Context.** The original PDF specified three status LEDs, three buttons, and a buzzer as a single subsystem for local user feedback and control. With the OLED already validated as the primary status display (DL-024) and the eventual MQTT dashboard available for remote control, the original specification was reconsidered against actual need before any wiring or code began. The goal: justify each component's presence in terms of a real fault mode or interaction scenario, rather than carrying components forward by default.
 
