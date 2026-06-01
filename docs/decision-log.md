@@ -47,6 +47,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-025](#dl-025) | 2026-05-31 | User-feedback subsystem validated (LEDs, buttons, buzzer, state machine) | Active |
 | [DL-026](#dl-026) | 2026-05-31 | Leak sensor validated and calibrated | Active |
 | [DL-027](#dl-027) | 2026-05-31 | Hub bootstrap: Pi online, Mosquitto installed | Active |
+| [DL-028](#dl-028) | 2026-05-31 | Campus deployment network deferred; project on home WiFi for now | Active |
 
 ---
 
@@ -672,6 +673,43 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 **What this entry does not record.** Broker configuration choices (listener interface, persistence settings, authentication). The decision to use Mosquitto over alternatives — that was made at project definition. The choice of Pi 4 over Pi Zero or other variants — also made earlier. Static IP assignment for the Pi — deferred until broker testing reveals whether DHCP-stable or static is needed.
 
 **Alternatives considered.** Single monolithic hub-setup document (rejected, see Rationale). Skipping documentation until everything is working (rejected — would lose the procedural detail and the campus-WiFi diagnostic, which is exactly the kind of friction worth recording for replicability).
+
+---
+
+<a id="dl-028"></a>
+### DL-028 — Campus deployment network deferred; project on home WiFi pending IT consultation
+
+**Date:** 2026-05-31 · **Status:** Active
+
+**Context.** The project's intended deployment environment is the JSU campus lab where Phase 2+ integration testing will happen. The hub bootstrap session (DL-027) attempted to bring the Pi up on a campus-accessible network so the Pi, the future ESP32 nodes, and the Shelly smart plug could all communicate over the same broker. The attempt failed and the investigation surfaced architectural constraints that would have blocked the project later if discovered during integration rather than now.
+
+**Decision.** Continue all hub and integration work on home WiFi for the immediate term. Deferral of the campus-network choice until a consultation with campus IT confirms whether any available campus network path satisfies the four criteria listed below. If no campus path qualifies, fall back to a personal mobile hotspot dedicated to the deployed system or wired Ethernet from a vetted jack.
+
+**Rationale — what was tried at the lab.**
+
+- **Direct association with the campus IoT-style network (JSU_DEVICE).** WPA2-Personal authentication (verified — not enterprise EAP), so IoT-class devices like the Pi and Shelly can in principle join. Client isolation was suspected (devices on the same SSID cannot reach each other directly) but was never conclusively tested before the session ended.
+- **TP-Link Archer A6 router uplinked to a campus wall jack.** The router obtained a WAN IP, but devices attached to its WiFi kept dropping. A factory reset did not stabilize the router. Discarded as a hardware issue rather than a network issue.
+- **Netgear R6400v2 uplinked to the same wall jack.** The router itself was healthy and got upstream connectivity — direct IP pings to 8.8.8.8 succeeded — but DNS lookups resolved hostnames to the router's own LAN IP. That signature is characteristic of an upstream **captive portal** holding the network until the client authenticates through a web page. macOS repeatedly disconnected from the router's WiFi because it could not verify real internet access. A headless Pi has no browser, so even if the Mac side had cleared the portal, the Pi could not.
+- **Direct Ethernet from the wall jack to the Pi.** Considered but not attempted — would have required either a connected monitor for headless diagnostics or pre-configured static networking, neither of which was set up that session.
+
+**Diagnostic signatures worth recording.**
+- **Captive portal** — DNS resolves hostnames to the router's own LAN IP regardless of the lookup; pings to bare IP addresses (e.g., 8.8.8.8) succeed; macOS shows the "no internet" yellow exclamation on the WiFi icon and may auto-disconnect.
+- **Client isolation** — devices can reach the gateway and internet but cannot reach each other; ARP table on one device does not contain the other's MAC; `ping <other-device>` times out even though both devices are confirmed associated with the same SSID.
+
+**Criteria the deployment network must satisfy.** The next campus-IT conversation should request a path that meets all four. Any path missing one of these is unworkable for this architecture, regardless of how friendly it is in other respects.
+
+1. **Shared Layer 2 broadcast domain across participating devices** — Pi, both ESP32 nodes, and the Shelly must all be on a network where they can reach each other by IP. mDNS (`planthub.local`) is convenient but not required; raw IP works fine if `arp` and `ping` succeed device-to-device.
+2. **No captive portal** — or, if one exists, a mechanism to bypass it for registered MAC addresses. A headless Pi and a headless Shelly cannot complete a browser-based portal.
+3. **WPA2-Personal (PSK), not WPA2-Enterprise (EAP)** — the Shelly Plus Plug US does not support enterprise authentication. WPA3-Personal is acceptable on the Pi and ESP32 sides but the Shelly may not support it; verify before committing.
+4. **Outbound internet** — for OTA updates, ntfy.sh alerts, optional remote dashboard access, and package installs. Strictly speaking the broker and dashboard work LAN-only, but losing outbound internet narrows the project's feature set significantly.
+
+**What this entry does not commit to.** A specific campus network. A specific fallback (mobile hotspot vs. Ethernet vs. dedicated AP). A timeline for moving off home WiFi. The campus-IT conversation defines the next decision; this entry just establishes what that decision needs to satisfy.
+
+**Implications for the immediate hub work.** None blocking. The Pi is online via home WiFi; the broker, Python services, and dashboard will all install and verify identically on any compatible network. When the deployment network is chosen, the Pi can be re-pointed via `sudo raspi-config` (WiFi) or `dhcpcd.conf` (Ethernet) with no other changes. The ESP32 firmware will hard-code the broker's IP and the WiFi SSID/password as compile-time constants — when the network changes, the firmware is recompiled and reflashed. This is acceptable for a single deployment but worth recording so it's not forgotten as a deployment-time chore.
+
+**Lessons worth keeping.** Enterprise and institutional networks are hostile to IoT projects by default. Captive portals and client isolation are common, and both produce silent failures from the device side — there is no error message saying "this network does not allow device-to-device traffic." Verify both before committing an architecture to any given network. Also: a single mis-flashed credentials file (the initial Pi image had no WiFi credentials written despite the Imager UI claiming otherwise) can look like a network problem for hours. Always confirm the customization landed on the SD card before debugging anything downstream.
+
+**Alternatives considered.** Continue troubleshooting on campus that night (rejected — diagnostic momentum was already lost and the home network is available, productive). Order a separate access point and bypass the campus network entirely (deferred — premature without IT input; might be the right answer but worth checking other paths first).
 
 ---
 

@@ -76,3 +76,6 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 - \`hub/01-pi-setup/\` — Raspberry Pi flashing and bootstrap procedure
 - \`hub/02-mosquitto-install/\` — Mosquitto broker installation (configuration and testing pending)
 - DL-027 — Hub bootstrap milestone
+
+### Decided
+- DL-028 — Campus deployment network deferred; project on home WiFi until IT consultation can confirm a campus path that satisfies the four criteria for IoT-class device-to-device communication
