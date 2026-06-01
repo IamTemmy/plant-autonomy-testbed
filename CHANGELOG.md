@@ -79,3 +79,10 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Decided
 - DL-028 — Campus deployment network deferred; project on home WiFi until IT consultation can confirm a campus path that satisfies the four criteria for IoT-class device-to-device communication
+
+### Validated
+- Mosquitto broker on Pi — loopback pub/sub verified, broker correctly routes messages between independent clients on localhost (see DL-029)
+
+### Added
+- \`docs/images/03-mosquitto-loopback-verification.png\` — screenshot of two SSH sessions during loopback test
+- Broker verification section appended to \`hub/02-mosquitto-install/README.md\`

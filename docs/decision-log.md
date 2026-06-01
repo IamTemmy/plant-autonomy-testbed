@@ -48,6 +48,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-026](#dl-026) | 2026-05-31 | Leak sensor validated and calibrated | Active |
 | [DL-027](#dl-027) | 2026-05-31 | Hub bootstrap: Pi online, Mosquitto installed | Active |
 | [DL-028](#dl-028) | 2026-05-31 | Campus deployment network deferred; project on home WiFi for now | Active |
+| [DL-029](#dl-029) | 2026-05-31 | Mosquitto broker verified via loopback pub/sub | Active |
 
 ---
 
@@ -710,6 +711,39 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 **Lessons worth keeping.** Enterprise and institutional networks are hostile to IoT projects by default. Captive portals and client isolation are common, and both produce silent failures from the device side — there is no error message saying "this network does not allow device-to-device traffic." Verify both before committing an architecture to any given network. Also: a single mis-flashed credentials file (the initial Pi image had no WiFi credentials written despite the Imager UI claiming otherwise) can look like a network problem for hours. Always confirm the customization landed on the SD card before debugging anything downstream.
 
 **Alternatives considered.** Continue troubleshooting on campus that night (rejected — diagnostic momentum was already lost and the home network is available, productive). Order a separate access point and bypass the campus network entirely (deferred — premature without IT input; might be the right answer but worth checking other paths first).
+
+---
+
+<a id="dl-029"></a>
+### DL-029 — Mosquitto broker verified via loopback pub/sub
+
+**Date:** 2026-05-31 · **Status:** Active
+
+**Context.** Mosquitto was installed on the Pi in DL-027, but installation alone does not prove the broker actually routes messages between clients. The loopback pub/sub test exercises the broker's core function — accept a connection from a publisher, accept a connection from a subscriber, deliver published messages to subscribed clients — on the most controlled possible setup, two clients on the same host as the broker.
+
+**Decision.** Mosquitto broker verified operational on the Pi for loopback traffic. The broker is approved for use as the project's MQTT broker. LAN-accessible and authenticated configurations are deferred to subsequent entries.
+
+**Rationale.** Test methodology and result documented in `hub/02-mosquitto-install/README.md`. Three test messages were published from one SSH session and received instantly by a subscriber running in a second SSH session, both on the Pi. The test confirms the broker is actively routing — installation succeeded, the systemd service is healthy, the default configuration is sufficient for local-loopback operation, and no firewall or service-level misconfiguration blocks pub/sub.
+
+**Why two SSH sessions, not one.** The pub/sub model is fundamentally between separate clients — a publisher and a subscriber that may not be aware of each other's existence. Testing both roles from a single shell would not exercise the broker's actual routing behavior in any meaningful way; it would only prove the binary executes. Two independent client connections to the same broker is the minimum honest test.
+
+**What this verifies in concrete terms.**
+- Mosquitto's daemon accepts client connections on `localhost:1883` (the default).
+- The default configuration (no custom `mosquitto.conf` yet) permits publish, subscribe, and message routing.
+- The broker exhibits expected near-zero latency between publish and delivery (the messages appeared in the subscriber's terminal instantly upon publish from the other session).
+
+**What this does not verify.**
+- LAN client reachability. The broker has not been bound to the Pi's LAN interface or `0.0.0.0`, nor has any non-Pi device attempted a connection. The next step is to add an explicit listener for the LAN interface, then verify with a third client running on the Mac.
+- Authentication. The default configuration is open — any client that can reach the broker can publish and subscribe to any topic. For LAN-only development this is acceptable; before any external exposure (Cloudflare Tunnel, Tailscale, port forward), the broker must require authentication.
+- Persistence across reboots. Whether `mosquitto.service` is enabled in systemd has not been confirmed. A power cycle test is the appropriate next verification.
+- Topic-level access control. The default permits any client to subscribe to `#` (all topics), which has security implications when more devices join. Not relevant for the loopback test but worth noting.
+
+**Implications for the next steps.**
+- Before the Shelly Plus Plug US can be told to use this broker, the broker must be reachable from the LAN. That requires configuring `mosquitto.conf` to bind a listener to the appropriate interface.
+- Before the broker is exposed beyond the LAN, authentication must be enabled.
+- A separate decision will record the topic structure the project uses (`plant/sensors/...`, `plant/state`, `plant/commands/...`, etc.) when the first ESP32 client publishes real data. The existing topic plan from the project's earlier design discussions is still a draft until it's exercised by real firmware.
+
+**Alternatives considered.** None — this is a verification outcome, not a design choice.
 
 ---
 
