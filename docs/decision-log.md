@@ -46,6 +46,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-024](#dl-024) | 2026-05-30 | OLED display validated, three-device I²C bus confirmed | Active |
 | [DL-025](#dl-025) | 2026-05-31 | User-feedback subsystem validated (LEDs, buttons, buzzer, state machine) | Active |
 | [DL-026](#dl-026) | 2026-05-31 | Leak sensor validated and calibrated | Active |
+| [DL-027](#dl-027) | 2026-05-31 | Hub bootstrap: Pi online, Mosquitto installed | Active |
 
 ---
 
@@ -644,6 +645,33 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 - Whether a slow drip is detected as quickly as a pour (the test used relatively rapid wetting; very slow drips might take longer to bridge the pads conductively, but should still trigger eventually).
 
 **Alternatives considered.** None — this is a validation outcome, not a design choice. The sensor itself was chosen in DL-013 as the simplest, cheapest, most appropriate option for a binary leak detector.
+
+---
+
+<a id="dl-027"></a>
+### DL-027 — Hub bootstrap: Raspberry Pi online, Mosquitto installed
+
+**Date:** 2026-05-31 · **Status:** Active. Work-in-progress milestone — broker configuration and Shelly integration are next.
+
+**Context.** The Raspberry Pi 4 is the project's hub, running the MQTT broker, data services, database, and dashboard. This entry records the first step of standing it up: getting the Pi online, updating the OS, and installing the Mosquitto package. Broker configuration and end-to-end MQTT testing are deferred to a subsequent entry.
+
+**Decision.** The Pi is treated as a fully-fledged subsystem in the repository, with its setup and service installation documented as discrete steps under `hub/` — mirroring the per-component structure used for firmware test sketches. Each step gets its own subdirectory with a README that documents the procedure, the current state, and what remains. Configuration files and verification scripts will be added to those directories as the work progresses.
+
+**Rationale.** A monolithic "hub setup guide" document was rejected in favor of incremental, per-step directories for three reasons. First, parity with the firmware structure: a reader scanning the repo sees the same organizational pattern in both `firmware/test-sketches/` and `hub/`, which is internally consistent and easier to navigate. Second, partial completion is honestly representable: each step's README can say "done X, not yet Y" without forcing the entire document into "draft" or "complete" states. Third, atomic commits: a single step's progress can be committed without rewriting an umbrella document, which keeps the git history meaningful.
+
+**Current hub state.**
+- Raspberry Pi 4 Model B flashed with Raspberry Pi OS Lite (64-bit) onto a SanDisk 64 GB microSD card. Older cards considered (1 GB, 16 GB) were rejected for size.
+- SSH operational from the developer machine.
+- `sudo apt update && sudo apt upgrade -y` completed.
+- `mosquitto` and `mosquitto-clients` installed via apt. Broker not yet configured or tested.
+
+**On the deployment WiFi.** Initial work was done using the developer's home WiFi for productivity reasons. The intended deployment environment is on the JSU campus network, where a first attempt suggested a *client-isolation* policy: devices on the network cannot reach each other directly, even on the same SSID. This would block both SSH from the developer machine to the Pi and MQTT between ESP32 nodes and the Pi. The diagnosis was made via ARP table inspection but is not yet conclusive — the initial WiFi credentials may also have failed to write during OS flashing (the configuration file was missing on the Pi after boot), so the campus WiFi was never actually attempted with valid credentials. **Action item:** retest the campus WiFi with verified credentials on the next campus visit; if client isolation is confirmed, escalate to campus IT for a viable network segment (separate AP, MAC registration, or wired Ethernet). If neither is available, fall back to a personal mobile hotspot dedicated to the deployed system.
+
+**Implications.** The hub work can proceed on home WiFi without blocking, since the Pi just needs internet for package installs and the broker's loopback for local testing. The deployment-network question only becomes blocking when the ESP32 nodes and Shelly need to connect to the same broker, which is two to three commits away.
+
+**What this entry does not record.** Broker configuration choices (listener interface, persistence settings, authentication). The decision to use Mosquitto over alternatives — that was made at project definition. The choice of Pi 4 over Pi Zero or other variants — also made earlier. Static IP assignment for the Pi — deferred until broker testing reveals whether DHCP-stable or static is needed.
+
+**Alternatives considered.** Single monolithic hub-setup document (rejected, see Rationale). Skipping documentation until everything is working (rejected — would lose the procedural detail and the campus-WiFi diagnostic, which is exactly the kind of friction worth recording for replicability).
 
 ---
 

@@ -71,3 +71,8 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Added (continued)
 - \`firmware/test-sketches/10-leak-sensor/\` — PlatformIO project for leak sensor bench test and calibration (platformio.ini, src/main.cpp, README.md)
+
+### Added
+- \`hub/01-pi-setup/\` — Raspberry Pi flashing and bootstrap procedure
+- \`hub/02-mosquitto-install/\` — Mosquitto broker installation (configuration and testing pending)
+- DL-027 — Hub bootstrap milestone
