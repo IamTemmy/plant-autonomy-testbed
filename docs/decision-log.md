@@ -890,7 +890,20 @@ Renamed via:
 
 After both ends were updated and the Shelly rebooted, the integration resumed normally. Verified by subscribing to `plant/grow-light/online` from the Mac using the new credentials and observing `true` within ~30 seconds.
 
-**On the rotations.** This is the third password rotation of the day. The pattern that emerged: password screenshots and terminal pastes are unavoidable during interactive setup, and the disciplined response is to rotate at every visible exposure. The cumulative cost of three rotations today was minimal (each takes ~3 minutes including the Shelly-side update); the cumulative habit of rotating without hesitation is the actual takeaway. For Phase 2 firmware, credentials will be loaded from gitignored secrets files rather than typed into setup commands, which eliminates this particular exposure surface.
+**On the rotations.** Four password rotations occurred during the integration session — each triggered by a different visible exposure (screenshot, terminal paste, command-line argument). The cumulative cost was minimal (~3 minutes per rotation), but the recurrence revealed a workflow problem: passing `-P 'password'` on the command line means the password ends up in shell history, terminal output, and anything pasted from that terminal. The disciplined response is not just rotation but eliminating the exposure surface.
+
+**Adopted workflow — credentials in a sourced environment file.** Created `~/.mqtt/plant-broker.conf` on the developer Mac with file permissions `600`. The file contains two lines:
+
+```text
+export MQTT_USER=basilmqtt
+export MQTT_PASS='current-password'
+```
+
+Sourced manually at the start of each session via `source ~/.mqtt/plant-broker.conf`, then referenced in commands as `-u "$MQTT_USER" -P "$MQTT_PASS"`. Pasted commands now show literal variable names (`$MQTT_USER`, `$MQTT_PASS`) rather than the actual values, eliminating the most common exposure vector.
+
+The file is deliberately **not** added to `~/.zshrc` for automatic loading. Auto-loading would put the credentials in the environment of every program run on the machine, which is a broader exposure than the project requires; the trivial cost of typing `source ~/.mqtt/plant-broker.conf` once per session is worth the security boundary. For frequent use, a `mqtt-load` alias in `~/.zshrc` is acceptable since the alias itself does not contain credentials.
+
+`~/.mqtt/plant-broker.conf` lives only on the developer Mac. It is not committed to the repo and is not on the Pi. On the Pi, the broker reads credentials from `/etc/mosquitto/passwd` (root-owned, mosquitto-group-readable, 640) — that file is also not committed and is regenerated locally per the procedure in `hub/03-broker-config/README.md`. The pattern for Phase 2 ESP32 firmware will be analogous: a `secrets.h` file present locally per sketch, listed in `.gitignore`, never committed.
 
 **Implications for the next steps.**
 

@@ -112,3 +112,8 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 ### Changed
 - MQTT username renamed from \`basilpi\` to \`basilmqtt\` to avoid collision with the Linux user account name
 - DL-030 updated with the username rename note for accuracy
+
+### Changed
+- Adopted credential-file workflow on developer Mac (\`~/.mqtt/plant-broker.conf\` with environment variables); MQTT passwords no longer passed on command lines
+- DL-032 updated with the credential workflow rationale
+- Verification commands in \`hub/03-broker-config/README.md\` and DL-030 updated to use environment variables instead of literal credentials

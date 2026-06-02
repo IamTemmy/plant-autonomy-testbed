@@ -78,29 +78,52 @@ Expected: immediate failure with `Connection error: Connection Refused: not auth
 On the Pi, in two SSH sessions. Session 1:
 
 ```text
-mosquitto_sub -h localhost -t test/hello -u basilpi -P 'YOUR-PASSWORD' -v
+mosquitto_sub -h localhost -t test/hello -u "$MQTT_USER" -P "$MQTT_PASS" -v
 ```
 
 Session 2:
 
 ```text
-mosquitto_pub -h localhost -t test/hello -m "auth from Pi" -u basilpi -P 'YOUR-PASSWORD'
+mosquitto_pub -h localhost -t test/hello -m "auth from Pi" -u "$MQTT_USER" -P "$MQTT_PASS"
 ```
 
 Expected: the message appears in session 1 immediately. Ctrl+C to stop.
+
+### Workflow: local credentials file on the developer machine
+
+To avoid putting passwords in command-line arguments (which then end up in shell history and terminal output), the developer Mac uses an environment file:
+
+```text
+~/.mqtt/plant-broker.conf    (permissions 600, never committed)
+```
+
+Contents:
+
+```text
+export MQTT_USER=basilmqtt
+export MQTT_PASS='actual-password-here'
+```
+
+Source it at the start of each MQTT session:
+
+```text
+source ~/.mqtt/plant-broker.conf
+```
+
+Then use `-u "$MQTT_USER" -P "$MQTT_PASS"` in commands instead of literal credentials. ESP32 firmware will follow an analogous pattern with a gitignored `secrets.h` once Phase 2 begins.
 
 ### Test 3: LAN access from an external client
 
 From the developer machine (Mac in this build), with `mosquitto-clients` installed (`brew install mosquitto`):
 
 ```text
-mosquitto_sub -h 10.6.19.139 -t test/hello -u basilpi -P 'YOUR-PASSWORD' -v
+mosquitto_sub -h 10.6.19.139 -t test/hello -u "$MQTT_USER" -P "$MQTT_PASS" -v
 ```
 
 On the Pi:
 
 ```text
-mosquitto_pub -h 10.6.19.139 -t test/hello -m "Mac sees Pi broker over LAN" -u basilpi -P 'YOUR-PASSWORD'
+mosquitto_pub -h 10.6.19.139 -t test/hello -m "Mac sees Pi broker over LAN" -u "$MQTT_USER" -P "$MQTT_PASS"
 ```
 
 Expected: the message appears on the Mac. This is the test that proves the architecture — the broker is reachable, authenticated, and operational from any device on the LAN, which is what the Shelly and ESP32 nodes will need.
