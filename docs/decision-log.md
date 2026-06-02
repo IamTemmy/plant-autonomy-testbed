@@ -50,6 +50,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-028](#dl-028) | 2026-05-31 | Campus deployment network deferred; project on home WiFi for now | Active |
 | [DL-029](#dl-029) | 2026-05-31 | Mosquitto broker verified via loopback pub/sub | Active |
 | [DL-030](#dl-030) | 2026-06-02 | Mosquitto broker configured for LAN access with authentication | Active |
+| [DL-031](#dl-031) | 2026-06-02 | Shelly Plus Plug US ("basilplug") paired and joined JSU_DEVICE | Active |
 
 ---
 
@@ -681,7 +682,7 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 <a id="dl-028"></a>
 ### DL-028 — Campus deployment network deferred; project on home WiFi pending IT consultation
 
-**Date:** 2026-05-31 · **Status:** Active — partially resolved 2026-06-01 (see addendum below)
+**Date:** 2026-05-31 · **Status:** Resolved 2026-06-02 — JSU_DEVICE confirmed viable across three devices (Pi, Mac, Shelly Plus Plug); proceeding with project on JSU_DEVICE as the deployment network
 
 **Context.** The project's intended deployment environment is the JSU campus lab where Phase 2+ integration testing will happen. The hub bootstrap session (DL-027) attempted to bring the Pi up on a campus-accessible network so the Pi, the future ESP32 nodes, and the Shelly smart plug could all communicate over the same broker. The attempt failed and the investigation surfaced architectural constraints that would have blocked the project later if discovered during integration rather than now.
 
@@ -811,6 +812,43 @@ All three tests passed.
 - Bind only to the Pi's current LAN IP instead of `0.0.0.0`. Rejected — DHCP makes the IP a moving target.
 - Allow anonymous connections for development, add auth later. Rejected — the cost of retrofitting auth after clients exist is meaningfully higher than configuring it correctly from the start.
 - Use mTLS (mutual TLS) instead of username/password. Rejected for Phase 3 — substantial complexity for marginal gain on a LAN-only broker. May revisit at deployment hardening.
+
+---
+
+<a id="dl-031"></a>
+### DL-031 — Shelly Plus Plug US paired and joined JSU_DEVICE
+
+**Date:** 2026-06-02 · **Status:** Active. MQTT configuration is the next step (separate DL entry).
+
+**Context.** The Shelly Plus Plug US is the project's grow-light controller per DL-010. It is the project's first commercial, off-the-shelf networked client of the Mosquitto broker. The project's two ESP32 nodes are still on the bench and not yet networked, so the Shelly is the first opportunity to validate the broker's authenticated LAN access path (DL-030) with a real third-party MQTT client rather than command-line test tools.
+
+**Decision.** Shelly Plus Plug US successfully paired, joined JSU_DEVICE WiFi, and named "basilplug." Current IP on JSU_DEVICE: `10.6.17.32`. The plug is approved as the project's grow-light controller and is ready for MQTT configuration.
+
+**Pairing process and what was learned.**
+
+The initial pairing attempt failed at the Shelly Smart Control app's "Add Device" step despite the app being able to discover the plug. Two factors were involved, both worth documenting:
+
+- **Provisioning window expiry.** Shelly firmware 1.7.5+ (which this unit ships with) only accepts new pairing requests during a 15-minute window after power-on. The window had likely expired between unboxing the plug, downloading the mobile app, and signing in to a Shelly cloud account. Resolved by unplugging the plug and re-applying power to restart the window.
+- **Prior HomeKit auto-pairing.** On first power-up before any app was installed, the plug auto-paired to the developer's iPhone via Apple Home (HomeKit). HomeKit broadcasts a setup code by default on first boot; an iPhone signed into iCloud and on the same local network discovers and adds it automatically. This is convenient for the consumer use case but conflicts with re-pairing via a different app: the Shelly Smart Control app treats a plug that already has a WiFi association as "already provisioned" and refuses to complete its own setup flow. The Apple Home control continued to work because HomeKit's local-network protocol is independent of WiFi credentials in the way the Shelly Smart Control app expects.
+- **Resolution.** Factory reset via the standard "hold button for ~10 seconds" procedure. After reset, the LED flashed blue (provisioning mode), and re-pairing via the Shelly Smart Control app succeeded immediately. Manual typing of the WiFi password (no autofill, no paste) was used per Shelly's documented advice, though it is unclear whether that step was necessary or just well-advised hygiene.
+
+**On the HomeKit-vs-MQTT relationship.** Configuring MQTT on the Shelly will not disable HomeKit; the two protocols coexist on the device. After the next DL entry covers MQTT setup, the plug will be controllable through three independent paths: the Shelly app (cloud or LAN), HomeKit (if re-added to Apple Home post-reset), and MQTT (our broker). For this project's automation logic, only the MQTT path matters; the others are conveniences available to a human operator.
+
+**Network observations.**
+- JSU_DEVICE supports 2.4 GHz WiFi. The Shelly's 2.4-GHz-only radio joined without issue, ruling out the band-mismatch concern raised in DL-028's criteria check.
+- The plug received a DHCP-assigned IP (`10.6.17.32`) in a different subnet octet than the Pi (`10.6.19.139`), confirming that JSU_DEVICE assigns IPs from a large pool. Devices may not always be in the same /24, but the /16 subnet still puts them in the same broadcast domain, which is what matters for MQTT discovery.
+- This is the third device (after the Mac and the Pi) to successfully use JSU_DEVICE for project-relevant traffic, fully resolving DL-028's deferral.
+
+**What this entry does not yet record.**
+- MQTT configuration on the Shelly (broker IP, credentials, topic prefix). That is the next DL entry, after the Shelly's web UI configuration is done and verified end-to-end.
+- The grow-light's actual electrical load. The Shelly is currently plugged into a power strip with no load attached to it; the grow light will be plugged into the Shelly only after MQTT control is confirmed working.
+- Static DHCP reservation. Both the Pi and the Shelly are currently on DHCP-assigned IPs; if either reboots, the IP may change. Worth requesting from campus IT eventually; not blocking today.
+
+**Lessons worth keeping.**
+- Consumer IoT devices often auto-pair to platform-specific ecosystems on first power-up. This is usually harmless but can interfere with re-pairing through a different application, with no clear error message indicating why. Factory reset is the standard recourse.
+- Firmware-imposed provisioning windows are a real failure mode that looks identical to network or app issues. When pairing fails inexplicably, check the device's firmware behavior documentation for time-bound provisioning states before blaming the network.
+
+**Alternatives considered.** None — the Shelly is already chosen per DL-010, and the pairing process is dictated by the device's firmware.
 
 ---
 

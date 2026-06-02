@@ -99,3 +99,9 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Validated
 - Mosquitto broker reachable from external client (Mac) over JSU_DEVICE with authentication; three-test verification pattern (anonymous rejected, loopback authenticated, external client authenticated) all passed
+
+### Validated
+- Shelly Plus Plug US ("basilplug") paired and joined JSU_DEVICE on 10.6.17.32; third device confirming JSU_DEVICE viability for project use (see DL-031)
+
+### Resolved
+- DL-028 fully resolved — JSU_DEVICE is the deployment network; campus deferral closed
