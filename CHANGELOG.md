@@ -86,3 +86,9 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 ### Added
 - \`docs/images/03-mosquitto-loopback-verification.png\` — screenshot of two SSH sessions during loopback test
 - Broker verification section appended to \`hub/02-mosquitto-install/README.md\`
+
+### Resolved
+- DL-028 partially resolved — JSU_DEVICE confirmed viable for deployment after second re-flash succeeded; client-isolation concern ruled out by ARP visibility analysis; original Pi-join failure attributed to silent Imager password typo
+
+### Documentation
+- Updated DL-028 with empirical findings from 2026-06-01 campus network testing

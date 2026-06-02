@@ -680,7 +680,7 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 <a id="dl-028"></a>
 ### DL-028 — Campus deployment network deferred; project on home WiFi pending IT consultation
 
-**Date:** 2026-05-31 · **Status:** Active
+**Date:** 2026-05-31 · **Status:** Active — partially resolved 2026-06-01 (see addendum below)
 
 **Context.** The project's intended deployment environment is the JSU campus lab where Phase 2+ integration testing will happen. The hub bootstrap session (DL-027) attempted to bring the Pi up on a campus-accessible network so the Pi, the future ESP32 nodes, and the Shelly smart plug could all communicate over the same broker. The attempt failed and the investigation surfaced architectural constraints that would have blocked the project later if discovered during integration rather than now.
 
@@ -712,6 +712,27 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 
 **Alternatives considered.** Continue troubleshooting on campus that night (rejected — diagnostic momentum was already lost and the home network is available, productive). Order a separate access point and bypass the campus network entirely (deferred — premature without IT input; might be the right answer but worth checking other paths first).
 
+**Addendum (2026-06-01) — campus network testing.** Returned to campus and tested the deployment-network question empirically with the Pi.
+
+*ARP visibility on JSU_DEVICE.* From the Mac connected to JSU_DEVICE, `arp -a` listed approximately 200 devices spanning the 10.6.0.0/16 subnet. A strictly client-isolated network would not produce that breadth — isolation typically restricts visibility to the gateway and a small number of devices the Mac has actively talked to. This is positive evidence that JSU_DEVICE is *not* aggressively isolated at the link layer, contrary to the original suspicion.
+
+*Two Pi re-flash attempts.* The first re-flash with Raspberry Pi Imager customization for JSU_DEVICE failed: the Pi never appeared in the Mac's ARP table even after a full first-boot interval, and no Pi-prefix MAC was discoverable. This was indistinguishable from client isolation at first glance. The second re-flash succeeded — `ping planthub.local` from the Mac returned `64 bytes from 10.6.19.139` with sub-30 ms latency, the Pi was reachable via SSH on the campus network, and `mosquitto` was re-installed without incident.
+
+*Concluded diagnosis.* The first re-flash's failure was almost certainly a password typo during Imager customization. The Imager UI shows the WiFi password as dots and does not validate it before writing, so a wrong character produces a Pi that boots, attempts WiFi association, fails authentication silently, and stays off the network with no error visible to the operator. The second re-flash, with the same target SSID but a freshly-typed password, joined immediately.
+
+*Status of the four DL-028 criteria after today.*
+1. Shared Layer 2 broadcast domain — **satisfied.** Mac and Pi can ARP each other directly on JSU_DEVICE (Mac sees 10.6.19.139 in its ARP table and can ping it).
+2. No captive portal — **satisfied.** Pi authenticated and reached outbound internet (apt update + install ran cleanly during the re-install of Mosquitto on JSU_DEVICE) without any browser interaction.
+3. WPA2-Personal — **satisfied** (verified during initial network selection).
+4. Outbound internet — **satisfied** (apt-get reached Debian repos and downloaded packages successfully on JSU_DEVICE).
+
+*Updated decision.* JSU_DEVICE is now considered viable for the project's deployment, pending one remaining test: device-to-device communication between the Pi and the eventual ESP32 nodes / Shelly smart plug (i.e. can other clients reach the Mosquitto broker on the Pi over JSU_DEVICE?). This requires Pi-side broker LAN configuration and is the immediate next step.
+
+*Backup option retained.* JSU IT also provided an alternate WiFi credential set on 2026-06-01. The credentials remain on file as a fallback if the JSU_DEVICE viability conclusion turns out to be premature (e.g., if device-to-device traffic on JSU_DEVICE turns out to be filtered even though direct Mac-to-Pi ping works). The backup network has not yet been characterized.
+
+*Lessons added to the project's bench-test discipline.*
+- Imager customization fails silently on password typos. When the symptom is "Pi doesn't appear on the network and there's no obvious reason why," **re-flash with extra attention to the password before debugging the network**. The cost of re-flashing is ~5 minutes; the cost of misdiagnosing as a network issue can be hours.
+- ARP table breadth is a useful low-effort signal for client-isolation diagnosis. A network where you can see ~200 other devices is structurally not strictly isolated, regardless of what symptoms a single failed device might produce.
 ---
 
 <a id="dl-029"></a>
