@@ -92,3 +92,10 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Documentation
 - Updated DL-028 with empirical findings from 2026-06-01 campus network testing
+
+### Added
+- \`hub/03-broker-config/\` — Mosquitto broker LAN configuration, authentication, and verification procedure
+- DL-030 — Broker LAN configuration milestone
+
+### Validated
+- Mosquitto broker reachable from external client (Mac) over JSU_DEVICE with authentication; three-test verification pattern (anonymous rejected, loopback authenticated, external client authenticated) all passed

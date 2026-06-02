@@ -49,6 +49,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-027](#dl-027) | 2026-05-31 | Hub bootstrap: Pi online, Mosquitto installed | Active |
 | [DL-028](#dl-028) | 2026-05-31 | Campus deployment network deferred; project on home WiFi for now | Active |
 | [DL-029](#dl-029) | 2026-05-31 | Mosquitto broker verified via loopback pub/sub | Active |
+| [DL-030](#dl-030) | 2026-06-02 | Mosquitto broker configured for LAN access with authentication | Active |
 
 ---
 
@@ -733,6 +734,7 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 *Lessons added to the project's bench-test discipline.*
 - Imager customization fails silently on password typos. When the symptom is "Pi doesn't appear on the network and there's no obvious reason why," **re-flash with extra attention to the password before debugging the network**. The cost of re-flashing is ~5 minutes; the cost of misdiagnosing as a network issue can be hours.
 - ARP table breadth is a useful low-effort signal for client-isolation diagnosis. A network where you can see ~200 other devices is structurally not strictly isolated, regardless of what symptoms a single failed device might produce.
+
 ---
 
 <a id="dl-029"></a>
@@ -765,6 +767,50 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 - A separate decision will record the topic structure the project uses (`plant/sensors/...`, `plant/state`, `plant/commands/...`, etc.) when the first ESP32 client publishes real data. The existing topic plan from the project's earlier design discussions is still a draft until it's exercised by real firmware.
 
 **Alternatives considered.** None — this is a verification outcome, not a design choice.
+
+---
+
+<a id="dl-030"></a>
+### DL-030 — Mosquitto broker configured for LAN access with authentication
+
+**Date:** 2026-06-02 · **Status:** Active
+
+**Context.** DL-029 validated the broker for loopback traffic only. For the project's actual architecture — Shelly smart plug, ESP32 nodes, and the eventual Streamlit dashboard all connecting to the broker over the LAN — the broker must accept connections on its LAN interface, not just on `localhost`. Authentication is required because the LAN in question is the shared campus network (JSU_DEVICE) with hundreds of other devices.
+
+**Decision.** Mosquitto broker configured to listen on `0.0.0.0:1883` with username/password authentication required. The broker is approved as the Phase 3 telemetry hub.
+
+**Rationale — listener interface.** `0.0.0.0` (listen on all interfaces) was chosen over binding to a specific IP. The Pi receives its IP via DHCP and the IP may change across reboots or lease renewals on a network this size. `0.0.0.0` keeps the broker reachable regardless of which IP the Pi currently holds. Other devices find the Pi either by mDNS (`planthub.local`, which is flaky on JSU_DEVICE) or by the current IP. A static DHCP reservation will be requested from campus IT in a future conversation to make `10.6.19.139` (the current address) permanent; until then, the IP is treated as discoverable rather than hardcoded.
+
+**Rationale — authentication.** `allow_anonymous false` enforced from the start, before any client connects. The broker is on a shared campus network with ~200 other devices, MQTT port 1883 is widely scanned, and the cost of adding auth later (after firmware has been written, after the Shelly has been paired, after the dashboard has been built) is substantially higher than the cost of doing it now (one extra config line, one extra command-line flag in client invocations). Username `basilpi` mirrors the Pi user account name for simplicity — this is acceptable because the MQTT password is independent of the Pi user password.
+
+**Verification — three tests in increasing scope.**
+1. **Anonymous rejected.** `mosquitto_sub` without credentials → immediate `Connection Refused: not authorised`. Confirms auth is enforced rather than bypassed.
+2. **Authenticated loopback.** `mosquitto_sub`/`mosquitto_pub` with credentials, both on the Pi → messages flow correctly. Confirms the credential check accepts valid logins.
+3. **External client.** `mosquitto_sub` on the Mac to the Pi's IP with credentials, `mosquitto_pub` on the Pi → messages flow across the LAN. **This is the architecturally meaningful test** — it proves the broker is reachable, authenticated, and operational from a device that is not the Pi.
+
+All three tests passed.
+
+**On the password file ownership puzzle.** During initial setup, the broker repeatedly failed to start with `status=13` (EACCES). Investigation revealed that `mosquitto_passwd -c` creates the file owned by `root:root`, but the broker daemon runs as the `mosquitto` user and needs read access. The naive fix (`chown mosquitto:mosquitto`) makes the broker happy but produces a deprecation warning from `mosquitto_passwd` saying future versions will refuse to load files not owned by root. The correct configuration is **owner `root`, group `mosquitto`, permissions `640`** — root retains write access, the broker reads via group membership, and no one else has access at all. Recorded in `hub/03-broker-config/README.md` so this isn't re-diagnosed next time.
+
+**On the duplicate-key error.** First config attempt re-declared `persistence_location`, which is already set in the default `mosquitto.conf`. Mosquitto refuses to load configurations with duplicate keys and the broker fails to start. Recorded similarly. **General principle:** override settings in `conf.d/` only when the override is actually different from the default. Defaults are not problems to be solved by re-stating.
+
+**On the rotated password.** During the verification session, the MQTT password was inadvertently captured in plain text in chat logs while pasting command output. Out of professional habit, the password was rotated to a fresh value after testing completed. This is recorded not because the exposure was high-risk (the broker is LAN-only, the chat is private, no exploitable surface was opened), but because the pattern is the one to internalize for systems where the stakes are real: when a secret might have leaked, rotate it.
+
+**Implications for the next steps.**
+- The Shelly Plus Plug US can now be configured to connect to `10.6.19.139:1883` with the `basilpi` username and the current password. The Shelly's MQTT support is built in; this is a configuration step in its web UI, not new code.
+- ESP32 firmware can begin to integrate MQTT publishing for sensor data. The broker is ready to receive.
+- The MQTT password used by both Shelly and ESP32 firmware must be stored as a secret — gitignored secrets file in firmware, never committed. The pattern: a `secrets.h` (or similar) per sketch, present locally, never tracked.
+
+**What this work does not yet verify.**
+- Reboot persistence. The broker is `enabled` in systemd but a full power-cycle test has not been done. Quick verification scheduled before the Shelly integration.
+- Multi-client load. Only one external client (Mac) has connected at a time. Confidence that the broker handles multiple simultaneous connections is based on Mosquitto's general behavior, not direct test.
+- Topic-level access control. Currently any authenticated client can publish or subscribe to any topic. Acceptable for a single-tenant LAN broker but worth tightening later if multiple users ever share the broker.
+- TLS encryption. The broker speaks plain MQTT. Acceptable for LAN-only; required before any external exposure.
+
+**Alternatives considered.**
+- Bind only to the Pi's current LAN IP instead of `0.0.0.0`. Rejected — DHCP makes the IP a moving target.
+- Allow anonymous connections for development, add auth later. Rejected — the cost of retrofitting auth after clients exist is meaningfully higher than configuring it correctly from the start.
+- Use mTLS (mutual TLS) instead of username/password. Rejected for Phase 3 — substantial complexity for marginal gain on a LAN-only broker. May revisit at deployment hardening.
 
 ---
 
