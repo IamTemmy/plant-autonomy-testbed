@@ -105,3 +105,10 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Resolved
 - DL-028 fully resolved — JSU_DEVICE is the deployment network; campus deferral closed
+
+### Validated
+- Shelly Plus Plug US MQTT integration with the project's Mosquitto broker — bidirectional control validated end-to-end from the Mac; the Shelly publishes status and events under \`plant/grow-light/\` and responds to commands; tested at deployment location near the plant (see DL-032)
+
+### Changed
+- MQTT username renamed from \`basilpi\` to \`basilmqtt\` to avoid collision with the Linux user account name
+- DL-030 updated with the username rename note for accuracy

@@ -51,6 +51,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-029](#dl-029) | 2026-05-31 | Mosquitto broker verified via loopback pub/sub | Active |
 | [DL-030](#dl-030) | 2026-06-02 | Mosquitto broker configured for LAN access with authentication | Active |
 | [DL-031](#dl-031) | 2026-06-02 | Shelly Plus Plug US ("basilplug") paired and joined JSU_DEVICE | Active |
+| [DL-032](#dl-032) | 2026-06-02 | Shelly Plus Plug US validated as MQTT client; MQTT username renamed | Active |
 
 ---
 
@@ -782,7 +783,7 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 
 **Rationale — listener interface.** `0.0.0.0` (listen on all interfaces) was chosen over binding to a specific IP. The Pi receives its IP via DHCP and the IP may change across reboots or lease renewals on a network this size. `0.0.0.0` keeps the broker reachable regardless of which IP the Pi currently holds. Other devices find the Pi either by mDNS (`planthub.local`, which is flaky on JSU_DEVICE) or by the current IP. A static DHCP reservation will be requested from campus IT in a future conversation to make `10.6.19.139` (the current address) permanent; until then, the IP is treated as discoverable rather than hardcoded.
 
-**Rationale — authentication.** `allow_anonymous false` enforced from the start, before any client connects. The broker is on a shared campus network with ~200 other devices, MQTT port 1883 is widely scanned, and the cost of adding auth later (after firmware has been written, after the Shelly has been paired, after the dashboard has been built) is substantially higher than the cost of doing it now (one extra config line, one extra command-line flag in client invocations). Username `basilpi` mirrors the Pi user account name for simplicity — this is acceptable because the MQTT password is independent of the Pi user password.
+**Rationale — authentication.** `allow_anonymous false` enforced from the start, before any client connects. The broker is on a shared campus network with ~200 other devices, MQTT port 1883 is widely scanned, and the cost of adding auth later (after firmware has been written, after the Shelly has been paired, after the dashboard has been built) is substantially higher than the cost of doing it now (one extra config line, one extra command-line flag in client invocations). The initial MQTT username chosen was `basilpi` (mirroring the Pi user account name for simplicity); subsequently renamed to `basilmqtt` during DL-032 to remove naming collision with the Linux user, since the two identities serve different purposes and conflating them in firmware code is a likely source of confusion.
 
 **Verification — three tests in increasing scope.**
 1. **Anonymous rejected.** `mosquitto_sub` without credentials → immediate `Connection Refused: not authorised`. Confirms auth is enforced rather than bypassed.
@@ -849,6 +850,65 @@ The initial pairing attempt failed at the Shelly Smart Control app's "Add Device
 - Firmware-imposed provisioning windows are a real failure mode that looks identical to network or app issues. When pairing fails inexplicably, check the device's firmware behavior documentation for time-bound provisioning states before blaming the network.
 
 **Alternatives considered.** None — the Shelly is already chosen per DL-010, and the pairing process is dictated by the device's firmware.
+
+---
+
+<a id="dl-032"></a>
+### DL-032 — Shelly Plus Plug US validated as MQTT client; MQTT username renamed to `basilmqtt`
+
+**Date:** 2026-06-02 · **Status:** Active
+
+**Context.** Following the broker LAN configuration in DL-030 and the Shelly device pairing in DL-031, this entry covers the actual MQTT integration: configuring the Shelly to publish to and subscribe from the project's Mosquitto broker, validating bidirectional control over the LAN, and refining the username scheme based on practical experience. The Shelly is the project's first commercial MQTT client and proves the broker is usable by real devices, not just command-line test tools.
+
+**Decision.** Shelly Plus Plug US is fully integrated with the project's MQTT broker. The plug publishes its status and event stream to topics under `plant/grow-light/` and responds to control commands sent to its command topics. The integration is approved for use; the next-step ESP32 firmware can model its broker-client behavior on this same pattern.
+
+**Rationale — MQTT integration choices.**
+
+- **Topic prefix `plant/grow-light/`.** Hierarchical and human-readable. The trailing slash convention lets us subscribe to `plant/grow-light/#` for everything the plug emits, or to specific sub-topics like `plant/grow-light/status/switch:0` when only the relay state matters. Picking the prefix at the device boundary (configured on the Shelly itself) means the broker stays prefix-agnostic; future devices can have their own prefixes (`plant/sensors/`, `plant/state/`, `plant/commands/`) without any broker-side changes.
+- **Connection type: No TLS.** Plaintext MQTT on port 1883. Acceptable because the broker is LAN-only and JSU_DEVICE is not the public internet. If the broker is ever exposed externally (Cloudflare Tunnel, port forward, etc.), TLS becomes mandatory.
+- **Enable 'MQTT Control', RPC over MQTT, RPC status notifications, generic status updates** — all enabled. These expose the Shelly's full RPC interface over MQTT, which lets the eventual Phase 2 firmware do more than just toggle the relay: it can read live electrical readings (voltage, current, power, frequency), query the device's system status, schedule on/off via the Shelly's own scheduler, and receive event notifications when anything changes. Over-broad for what the project strictly needs today, but the marginal cost of enabling them now is zero and the optionality is valuable.
+- **Cloud connection left enabled.** The Shelly also maintains its own connection to Shelly Cloud, which is unrelated to our broker. Disabling it would require explicitly turning off cloud control in the Shelly settings; the marginal benefit (slightly less network chatter, slight privacy improvement) does not justify the loss of the Shelly mobile app's remote-control feature, which is a useful operator convenience. Cloud control coexists with MQTT control without interfering.
+
+**Verification — bidirectional control.**
+
+The integration was validated end-to-end with two tests, both run from the developer Mac (not the Pi), simulating how the eventual ESP32 firmware will interact with the plug:
+
+- **Receive (Shelly → broker → external client).** Subscribed to `plant/grow-light/#` from the Mac. Within seconds of the Shelly's reboot, observed `plant/grow-light/online true`, `plant/grow-light/status/mqtt {"connected":true}`, `plant/grow-light/status/switch:0 {...}` with full electrical readings, and a continuous stream of `plant/grow-light/events/rpc` notifications. Confirms the plug publishes its complete state and event stream as configured.
+- **Send (external client → broker → Shelly).** Published `'off'` to `plant/grow-light/command/switch:0` from the Mac. Observed the Shelly's relay physically toggle off (LED change, web UI state update), and a corresponding `status/switch:0` message reflecting `"output":false`. Repeated with `'on'`. Confirms the plug receives commands and acts on them.
+
+Both tests were also repeated after physically moving the Shelly from the developer area to its intended location near the plant, confirming WiFi coverage and broker reachability at the deployment location.
+
+**Username rename: `basilpi` → `basilmqtt`.**
+
+The initial MQTT username chosen in DL-030 was `basilpi`, mirroring the Pi's Linux user account name. In practice, having the same name for two unrelated identities — the Linux user (used for SSH, sudo, file ownership) and the MQTT credential (used by MQTT clients) — proved cognitively heavy. The two are completely independent: they have different passwords, are used in different contexts, and have no functional relationship beyond convention. Conflating them in firmware code would also be a likely source of confusion: a developer reading "basilpi" in an ESP32 sketch might reasonably assume it refers to the Linux user, when in fact it refers to the MQTT credential.
+
+Renamed via:
+
+- `sudo mosquitto_passwd /etc/mosquitto/passwd basilmqtt` (add new user with new password)
+- `sudo mosquitto_passwd -D /etc/mosquitto/passwd basilpi` (delete old user)
+- Updated the Shelly's MQTT username field in its web UI from `basilpi` to `basilmqtt`
+
+After both ends were updated and the Shelly rebooted, the integration resumed normally. Verified by subscribing to `plant/grow-light/online` from the Mac using the new credentials and observing `true` within ~30 seconds.
+
+**On the rotations.** This is the third password rotation of the day. The pattern that emerged: password screenshots and terminal pastes are unavoidable during interactive setup, and the disciplined response is to rotate at every visible exposure. The cumulative cost of three rotations today was minimal (each takes ~3 minutes including the Shelly-side update); the cumulative habit of rotating without hesitation is the actual takeaway. For Phase 2 firmware, credentials will be loaded from gitignored secrets files rather than typed into setup commands, which eliminates this particular exposure surface.
+
+**Implications for the next steps.**
+
+- The ESP32 firmware to be developed in Phase 2 will use the same broker (`10.6.19.139:1883`), the same authentication mechanism (`basilmqtt` + current password), and a topic structure parallel to the Shelly's. Suggested ESP32-side prefixes: `plant/sensors/` for sensor publishes, `plant/state/` for the firmware's state-machine state, `plant/commands/` for inbound commands. Final topic structure will be locked in a future DL when the firmware is actually being written.
+- A dashboard or data-logger on the Pi (Python service, Streamlit app) will subscribe to `plant/#` to receive everything from all devices. Subscribe-only consumers do not require a separate MQTT user; they can use `basilmqtt` until the project ever needs role-based topic ACLs.
+- The Shelly's full RPC stream is now consumable by any Phase 2 component that wants live electrical readings — useful both for monitoring (energy use of the grow light over time) and for closed-loop verification (firmware can confirm the grow light actually drew power after issuing an ON command).
+
+**What this entry does not yet record.**
+
+- Plugging the actual grow light into the Shelly. The plug has been controlled empty so far. Once the grow light is physically connected, a quick verification that the relay actually switches the load (and that power readings reflect the load) will close out the deployment readiness for this subsystem.
+- Topic ACLs. Currently any authenticated client can publish or subscribe to any topic. Acceptable for a single-tenant LAN broker; revisit if the broker ever serves multiple uses.
+- Static DHCP reservation for either the Pi or the Shelly. Both currently use DHCP-assigned IPs; if either reboots and gets a new IP, the broker connection still works (because the Shelly initiates outbound to the Pi's IP), but the Mac's web access to the Shelly's UI would need the new IP. Worth requesting from campus IT eventually.
+
+**Alternatives considered.**
+
+- Use the Shelly's cloud relay instead of a direct MQTT integration. Rejected — the project's whole premise is local operation independent of any cloud service, and cloud relays add latency, dependency, and a layer of trust that is not justified for a local automation.
+- Configure the Shelly via the mobile app rather than the web UI. The mobile app does expose MQTT settings but with less detail; the web UI was strictly better for this kind of integration work.
+- Disable HomeKit on the Shelly to avoid dual-control surfaces. Rejected — HomeKit costs nothing to leave running and provides a useful operator-convenience path that doesn't interfere with MQTT in any observable way.
 
 ---
 
