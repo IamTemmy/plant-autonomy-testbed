@@ -52,6 +52,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-030](#dl-030) | 2026-06-02 | Mosquitto broker configured for LAN access with authentication | Active |
 | [DL-031](#dl-031) | 2026-06-02 | Shelly Plus Plug US ("basilplug") paired and joined JSU_DEVICE | Active |
 | [DL-032](#dl-032) | 2026-06-02 | Shelly Plus Plug US validated as MQTT client; MQTT username renamed | Active |
+| [DL-033](#dl-033) | 2026-06-03 | Pi power supply: CanaKit 5.1V/3.5A for permanent independent operation | Active |
 
 ---
 
@@ -922,6 +923,44 @@ The file is deliberately **not** added to `~/.zshrc` for automatic loading. Auto
 - Use the Shelly's cloud relay instead of a direct MQTT integration. Rejected — the project's whole premise is local operation independent of any cloud service, and cloud relays add latency, dependency, and a layer of trust that is not justified for a local automation.
 - Configure the Shelly via the mobile app rather than the web UI. The mobile app does expose MQTT settings but with less detail; the web UI was strictly better for this kind of integration work.
 - Disable HomeKit on the Shelly to avoid dual-control surfaces. Rejected — HomeKit costs nothing to leave running and provides a useful operator-convenience path that doesn't interfere with MQTT in any observable way.
+
+---
+
+<a id="dl-033"></a>
+### DL-033 — Pi power architecture: dedicated USB-C supply for permanent independent operation
+
+**Date:** 2026-06-03 · **Status:** Active
+
+**Context.** Throughout the hub bring-up (DL-027 through DL-032), the Raspberry Pi was powered from the developer's Mac via USB-C. This is convenient during initial setup but architecturally untenable: the Pi is the project's MQTT broker, the broker must be available 24/7 for the Shelly and the eventual ESP32 nodes to reach it, and the developer's Mac is portable and frequently away from the lab. Cutting Mac power means cutting the broker. The "Pi as broker" decision (DL-027) is meaningless without a power architecture that lets the Pi run independently.
+
+**Decision.** The Pi is powered by a dedicated **CanaKit DCAR-RSP-3A5C** wall adapter: 5.1V at 3.5A output over a captive USB-C cable. The Pi now runs continuously, independent of the developer's Mac. This is the project's first deployment-ready hardware decision — the Pi is no longer a portable component.
+
+**Rationale.**
+
+- **The 5.1V output is intentional.** USB-C cables drop a measurable amount of voltage across their length under current load. A supply rated 5.0V at the wall may deliver only 4.7–4.8V at the Pi's input under sustained load, which trips the Pi's under-voltage warning and triggers conservative throttling. Pi-specific supplies output 5.1V at the wall to compensate, landing closer to 5.0V at the board. This is one of the most common silent failure modes for Pi installations — a generic 5V/3A supply often produces "works fine, sometimes throttles for no reason" behavior that is mistakenly attributed to software.
+- **3.5A is comfortably above the Pi 4's 3A minimum** rating. Headroom matters because the Pi's instantaneous current draw spikes during boot, USB peripheral attachment, and high-CPU operations. A supply running near its limit ages faster and is more prone to under-voltage events during transients.
+- **Captive cable** removes one variable (a flaky third-party USB-C cable could otherwise be the difference between stable and unstable). Means no separate cable purchase and no ambiguity about whether the cable is rated for the load.
+- **CanaKit is the same designer/spec as Raspberry Pi's official PSU.** Both target the same 5.1V/3A Pi 4 spec. CanaKit's offering came with the Pi kit; no premium for switching to "official."
+
+**Alternative supply rejected.** A second adapter was available — an Onn brand 2.1A wall charger (5V/2.1A). Rejected because the Pi 4 requires a 3A minimum supply. Using a 2.1A supply would have produced the silent under-voltage symptoms above. Recording the rejection here because "is this charger good enough?" is a recurring question worth a definitive answer: **no charger below 3A at 5V should ever be used with a Pi 4, regardless of the device claims about USB Power Delivery or fast-charging capability.**
+
+**Deployment readiness implications.**
+
+- **The Pi is now treated as a permanent fixture.** It stays plugged in, runs the broker continuously, survives developer travel and Mac unavailability. This was the unstated assumption behind every earlier hub-related DL but was not actually true until this point.
+- **The broker is now able to maintain persistent connections** to the Shelly Plus Plug and the eventual ESP32 nodes without periodic interruption. The Shelly's `online/offline` last-will signaling is now meaningful — going offline now indicates the *Shelly* lost connection, not the broker.
+- **Overnight uptime test.** The Pi was left running overnight on the new power supply. Confirmed reachable the next morning (`ping -c 2 10.6.19.139` returned cleanly), broker still active. Single overnight is not a long-term stability test, but it establishes the baseline.
+
+**What this entry does not yet record.**
+
+- **Battery backup / UPS.** Campus power is not guaranteed stable. A brief outage will cause the Pi to reboot, briefly disconnecting the broker. Acceptable for a research/portfolio project; a real deployment would want a small UPS (or a Pi UPS HAT) to ride through outages and shut down cleanly during extended ones. Worth budgeting for, not blocking.
+- **Power monitoring.** The system does not currently know whether *the Pi itself* is being powered correctly — it can only know it is currently running. Under-voltage events are logged by the kernel and visible via `vcgencmd get_throttled`, but no alerting is set up. If the supply ever degrades, the first symptom will be unexplained reboots; the diagnosis path would be checking the throttled counter and inspecting recent kernel logs.
+- **Surge / lightning protection.** The Pi is plugged into a Belkin surge-protected power strip (visible in earlier deployment photos), which provides basic surge protection. Beyond that, the project is on whatever the building's electrical infrastructure provides.
+
+**Alternatives considered.**
+
+- **PoE HAT** (Power over Ethernet). Cleaner cable management — a single Cat5/6 cable delivers both network and power. Rejected for now because the project uses WiFi, not Ethernet; introducing PoE would require either an unmanaged switch with PoE injection or a PoE injector module, all for a problem that doesn't currently exist. Worth revisiting if the project ever moves to a wired-network configuration.
+- **Continue Mac-powered.** Rejected because incompatible with autonomous operation, which is the entire point of the broker.
+- **Battery / power bank.** Rejected for primary operation because Pi 4 power draw (2–5W typical, more under load) exceeds what's practical for indefinite operation on consumer power banks. Acceptable as an emergency fallback during brief moves.
 
 ---
 
