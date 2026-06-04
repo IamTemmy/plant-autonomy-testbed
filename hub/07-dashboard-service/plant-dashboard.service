@@ -1,0 +1,20 @@
+[Unit]
+Description=Plant Autonomy Testbed - Streamlit dashboard
+Documentation=https://github.com/IamTemmy/plant-autonomy-testbed
+After=network-online.target plant-listener.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=basilpi
+Group=basilpi
+WorkingDirectory=/home/basilpi/plant-hub
+ExecStart=/home/basilpi/plant-hub/venv/bin/streamlit run /home/basilpi/plant-hub/dashboard.py --server.address 0.0.0.0 --server.port 8501 --server.headless true --browser.gatherUsageStats false
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=plant-dashboard
+
+[Install]
+WantedBy=multi-user.target
