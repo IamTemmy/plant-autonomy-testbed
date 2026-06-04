@@ -136,3 +136,7 @@ EOFcat >> CHANGELOG.md << 'EOF'
 
 ### Added
 - \`hub/05-listener-service/\` \u2014 systemd unit promoting the listener to a permanent system service with auto-start at boot, auto-restart on crash, and credentials loaded from root-only \`/etc/plant-hub/credentials\`; validated auto-restart by sending SIGKILL and confirming a new PID appeared (see DL-036, pending)
+
+### Added
+- \`hub/06-dashboard/\` \u2014 Streamlit dashboard (light cream theme, green primary, semantic status colors); LAN-accessible at \`http://10.6.19.139:8501\`; mobile-friendly; reads from \`plant.db\` and refreshes every 10 seconds; timestamps converted from UTC storage to America/Chicago display via \`zoneinfo\` (see DL-037)
+- Dashboard visual references under \`docs/images/05-\*.png\` (desktop) and \`docs/images/06-\*.png\` (iPhone)
