@@ -126,3 +126,6 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Documented
 - DL-035 \u2014 Phase 3 hub services kickoff entry; implementation begins this session
+
+### Added
+- \`hub/04-listener/\` \u2014 Python MQTT-to-SQLite listener with six-table schema (raw + extracted projections), run-aware via RUN_ID/RUN_PHASE env vars; validated end-to-end against the Shelly's live publishing (see DL-035)
