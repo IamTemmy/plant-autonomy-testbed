@@ -57,6 +57,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-035](#dl-035) | 2026-06-03 | Phase 3 hub services kickoff (Python listener, SQLite, Streamlit) | Active |
 | [DL-036](#dl-036) | 2026-06-04 | Promote listener to systemd service; credentials in root-only EnvironmentFile | Active |
 | [DL-037](#dl-037) | 2026-06-04 | Streamlit dashboard with light cream theme; UTC storage, America/Chicago display | Active |
+| [DL-038](#dl-038) | 2026-06-04 | Tailscale for remote dashboard access; tailnet IP adopted as canonical URL | Active |
 
 ---
 
@@ -1295,6 +1296,103 @@ Remote access from outside JSU_DEVICE (e.g., from home, from travel) is **not** 
 **Lesson worth keeping.**
 
 The "store UTC, display local" pattern is a foundational design decision that scales across every part of the system. Recording it now, in this entry, means it stays consistent across future ESP32 publishes, sensor data, log files, and any future dashboard panels. Inconsistency in timestamp handling is one of the most common silent bugs in telemetry systems; making the convention explicit and documented keeps the project on the right side of it.
+
+---
+
+<a id="dl-038"></a>
+### DL-038 — Tailscale for remote dashboard access; tailnet IP as canonical URL
+
+**Date:** 2026-06-04 · **Status:** Active. Remote access working end-to-end; Phase 3's stated remote-access goal achieved.
+
+**Context.** With the broker, listener, dashboard, and their respective systemd services all running on the Pi (DL-027 through DL-037), the LAN-side of Phase 3 was complete. But one of the project's original goals was that the system remain observable while the operator is away from the lab — travel, home, anywhere with internet. LAN-only access doesn't satisfy that. This entry adds remote access via Tailscale and records the network architecture and operational implications.
+
+**Decision.** Tailscale is installed on the Pi, the developer Mac, and the developer iPhone. All three are on the same tailnet, authenticated via Google SSO. The Pi has a stable tailnet IP (`100.79.225.18`) that resolves to the Pi from any device in the tailnet, regardless of which physical network either end is on. **The tailnet IP is now the canonical URL for the dashboard** (`http://100.79.225.18:8501`); the LAN IP remains valid as a fallback but is no longer the recommended access point.
+
+**Rationale — why Tailscale specifically.**
+
+Several remote-access patterns were considered. The shortlist:
+
+- **Tailscale** — chosen. WireGuard-based mesh VPN. Each device gets a private address in the `100.64.0.0/10` range, reachable only by other devices on the same tailnet. The Pi never has a port open to the public internet. The iOS app is well-built and matters because the operator's primary mobile device is iPhone. Free tier supports 100 devices, far beyond what we'll ever need.
+- **Cloudflare Tunnel** — rejected for this project's scope. Would have given the dashboard a public-facing URL (e.g. `dashboard.example.com`), which we don't need; we don't want to share the dashboard with anyone, just access it ourselves. Public URL also raises the bar for authentication — anyone who guesses the URL would otherwise reach it. Tailscale's "only my devices can reach this" model is closer to what we actually want.
+- **ZeroTier** — similar idea to Tailscale, slightly older. Comparable security model, slightly worse iOS UX. Tailscale won the comparison on polish.
+- **Self-hosted WireGuard** — full control, but substantially more setup (running a WireGuard server somewhere with a public IP, managing keys manually). Not justified for this project's scale; Tailscale gives us the same WireGuard transport with managed key distribution and a friendly UI.
+- **SSH tunnel** — works only from one device at a time, doesn't work easily on mobile, not really a remote-access solution at scale.
+- **Ngrok / similar** — public URLs with random subdomains, free tier has time limits and unpredictable URLs. Suitable for sharing a dev preview, not for permanent operational access.
+
+The deciding factors for Tailscale were:
+1. **It punches through NAT and firewalls automatically.** This matters specifically because the Pi is on JSU_DEVICE — a university network the operator does not control. No port forwarding is possible. Tailscale's automatic NAT traversal solves this without any router/firewall changes.
+2. **The Pi is never exposed to the public internet.** Tailscale's connections are end-to-end encrypted and reachable only by authenticated devices on the same tailnet. There is no `dashboard.somewhere.com` URL for an attacker to even find.
+3. **It survives the Pi's IP changing.** The tailnet IP `100.79.225.18` is permanent (until the device is removed from the tailnet). If JSU's DHCP ever reassigns the Pi's LAN IP, the tailnet IP is unaffected.
+
+**Setup procedure (for the record).**
+
+On the Pi:
+
+```text
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+# URL printed to terminal -> open in browser -> Authorize -> Pi appears in admin console
+```
+
+On the Mac and iPhone:
+
+- Install Tailscale from the Mac App Store / iOS App Store
+- Sign in with the same SSO account that owns the tailnet
+- Tailscale automatically joins the existing tailnet
+
+No router configuration, no port forwarding, no Pi-side firewall changes. The Pi's tailnet identity is persistent across reboots because the `tailscaled` daemon runs as a system service that auto-starts.
+
+**Verification — the actual remote-access milestone.**
+
+The deciding test was performed by:
+1. Connecting to the dashboard at `http://100.79.225.18:8501` from the Mac on JSU_DEVICE WiFi — worked.
+2. Connecting from the iPhone on JSU_DEVICE WiFi — worked.
+3. Turning WiFi off on the iPhone, switching to cellular data — Tailscale stayed connected — refreshing the same URL — **dashboard loaded over cellular.** This is the actual proof: the operator is no longer tied to JSU_DEVICE to see the system.
+
+**On the LAN IP behavior with Tailscale installed.**
+
+After Tailscale was installed on the Mac, the LAN IP (`http://10.6.19.139:8501`) became unreliable from some browsers on the Mac. Chrome consistently failed with `ERR_ADDRESS_UNREACHABLE`; Safari was intermittent. The Pi itself remained reachable on the LAN — the listener and dashboard processes are unchanged, Streamlit binds to `0.0.0.0` and listens on every interface — but the Mac's routing decisions for `10.6.19.139` are affected by Tailscale's installed network routes in ways that are browser-dependent and not consistently reproducible.
+
+This is a known interaction pattern with Tailscale on macOS: the OS's routing table is altered, browser network sandboxes cache routing decisions, and the combination produces "the LAN IP sometimes doesn't work from this specific machine" until the cache is cleared or the system network state is refreshed.
+
+The honest assessment: this is a client-side quirk on the Mac, not a server-side problem. The Pi continues to serve `10.6.19.139:8501` correctly to any other LAN client (the iPhone, a fresh-install browser, a different Mac without Tailscale running). It is also not a project-functionality problem: the tailnet IP works from every device on the tailnet, from every network, every time.
+
+**Decision: the tailnet IP becomes the canonical URL.** The LAN IP is no longer the recommended access point; it remains valid as a fallback and is still used by the Shelly to reach the broker, which is unaffected. This change matters in two places:
+
+- The `hub/06-dashboard/README.md` should recommend `http://100.79.225.18:8501` first, with the LAN IP as a footnote.
+- The `docs/explainers/phase3-hub.md` should mention that the building's "front door" is now accessible from anywhere, not just from inside JSU_DEVICE.
+
+**Security posture, honestly.**
+
+Adding Tailscale to a project is not a free pass on security; it shifts the threat model rather than removing it.
+
+- **The dashboard still has no authentication.** Anyone on the tailnet can reach it. Currently the tailnet has three members: the Pi, the Mac, and the iPhone, all owned by the same person. If a future fourth device joined (e.g. for sharing with a collaborator), they would have read access to all current plant telemetry. Acceptable for the current single-operator state; revisit before adding more tailnet members.
+- **The broker still has no TLS.** MQTT traffic between the Shelly and the Pi is plaintext on JSU_DEVICE WiFi. Tailscale only encrypts the dashboard access, not the broker's LAN-side traffic. Adding TLS to mosquitto is tracked as a future hardening step.
+- **The Pi's other services are not exposed via Tailscale by default.** Only services bound to `0.0.0.0` (or to the tailnet interface explicitly) are reachable from the tailnet. SSH is bound to all interfaces and is therefore tailnet-reachable, which is convenient for remote administration but means an attacker who compromised the operator's Google SSO account could SSH into the Pi. This is currently the worst-case scenario; mitigations would be SSH key-only login (already enabled) and Tailscale ACLs (deferred).
+
+**What this entry does not yet commit to.**
+
+- **Tailscale ACLs.** Tailscale supports per-device, per-port access rules. Currently every device on the tailnet can reach every service on every other device. For the current three-device tailnet this is acceptable. Adding ACLs makes sense when more devices join or when collaborators are added.
+- **MagicDNS / friendly hostnames.** Tailscale offers `planthub.tail<random>.ts.net`-style hostnames so you don't have to remember the IP. Useful, but not enabled in this entry; the IP is fine for now.
+- **Cloudflare Tunnel or other public exposure.** Rejected for this project; not needed.
+- **Authentication on the dashboard.** Deferred per the security-posture note above.
+
+**Alternatives considered, rejected.**
+
+- **VPN into JSU's network.** University VPN access is per-user and might not allow the operator to reach LAN devices on JSU_DEVICE. Tailscale sidesteps this entirely by not relying on JSU's network infrastructure.
+- **Port forwarding through a home router** (if the project were at home instead of JSU). Would have required exposing the Pi to the public internet, which categorically increases attack surface. Tailscale's "no public exposure" property is the architectural improvement.
+
+**Phase 3 close-out.**
+
+This entry completes the original Phase 3 plan:
+- Broker + Shelly integration (DL-027, DL-029, DL-030, DL-031, DL-032)
+- Pi power and autonomous operation (DL-033)
+- Listener and SQLite schema (DL-035)
+- Listener as a system service (DL-036)
+- Dashboard with UTC-storage / local-time-display (DL-037)
+- Remote access via Tailscale (this entry)
+
+Phase 3's deliverable — *"a Pi-based hub that runs autonomously, collects telemetry from a real device, persists it queryably, presents it visually, and is observable from anywhere"* — is genuinely done.
 
 ---
 

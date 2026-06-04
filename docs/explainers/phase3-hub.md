@@ -85,13 +85,22 @@ You can ask the notebook how many times the grow light turned on this week, what
 
 The secretary is sitting at her desk filling pages, all day every day, whether or not anyone is asking her about her work. Hours pass, then days, and the notebook fills up with timestamped, structured data.
 
+## What's also already built
+
+A few more pieces of the building got added since the original walkthrough was written.
+
+The **front-desk display board** (a Streamlit dashboard) reads the secretary's notebook and shows the current state on a cream-themed page with charts and status indicators. Anyone with a phone or a laptop can pull it up in a browser and see what's happening with the plant at a glance — current grow light state, recent power consumption, online status, the secretary's run history. It auto-refreshes every ten seconds, so the page is always within ten seconds of being current. Like the secretary, it has its own job description with the building manager and starts automatically whenever the building powers up.
+
+The building also now has a **remote-access door**. Originally, you had to be inside the building (on the same WiFi as the Pi) to see the front-desk display. That's not great if you want to check on the plant while traveling. So we installed Tailscale, a kind of private connector that lets the operator's phone and laptop reach the building from anywhere — coffee shop, hotel, another country — without exposing the building to the public internet. Each authorized device gets a private address that only works for the operator's devices, all encrypted end to end.
+
+Two devices currently have keys to the remote-access door: the operator's Mac and iPhone. Adding a new device requires explicit authorization through the Tailscale admin console. No random visitor can find or knock on the door.
+
 ## What's still to come
 
 The building has space for more workers, and the mail clerk is ready to route their postcards to the secretary. Soon:
 
-- A **sensor monitor** (the ESP32 WROVER firmware) will join the system from a different room. It will report on the basil plant's air temperature, humidity, light levels, soil moisture, and water reservoir level. Postcards to the mail clerk, captured by the secretary, written into the sensor-readings section.
+- A **sensor monitor** (the ESP32 WROVER firmware) will join the system from a different room. It will report on the basil plant's air temperature, humidity, light levels, soil moisture, and water reservoir level. Postcards to the mail clerk, captured by the secretary, written into the sensor-readings section. Once those postcards start arriving, the front-desk display's "Plant environment" panel — currently empty — will populate automatically.
 - A **photographer** (the ESP32-CAM) will eventually take pictures of the plant on a schedule. This worker is delayed because the initial hardware didn't pass its job interview; we're getting replacement equipment.
-- A **front-desk display board** (the Streamlit dashboard) will read the notebook and display charts, graphs, and current status on a screen anyone can look at without needing to know SQL.
 
 The mail clerk and secretary already exist and don't need to change to accommodate any of these. The system is built so the staff can grow without rewriting the building.
 

@@ -66,39 +66,24 @@ streamlit run dashboard.py --server.address 0.0.0.0 --server.port 8501
 The `--server.address 0.0.0.0` flag binds to all interfaces so the dashboard
 is reachable from other devices on the same LAN. Default is localhost-only.
 
-### 5. View from another device on the LAN
+### 5. Access the dashboard
+
+The dashboard binds to all interfaces (`0.0.0.0`) and is reachable via two addresses:
+
+**Recommended — Tailscale tailnet IP (works from anywhere with Tailscale running):**
+
+```text
+http://100.79.225.18:8501
+```
+
+This URL is the canonical access point. It works from the developer Mac, the developer iPhone, or any future device on the same tailnet, regardless of which physical network the device is on (JSU_DEVICE, cellular, home WiFi, hotel WiFi).
+
+**Fallback — LAN IP (only works on JSU_DEVICE):**
 
 ```text
 http://10.6.19.139:8501
 ```
 
-The Pi's IP may differ if DHCP reassigns; the Shelly app or `ip addr` on the
-Pi will show the current address.
+Useful when Tailscale isn't available or for a fresh device that hasn't been added to the tailnet yet. May behave inconsistently on machines that also have Tailscale installed; the tailnet IP is more reliable in that case.
 
-## Timezone handling
-
-The database stores timestamps in **UTC** (ISO 8601). The dashboard converts
-all displayed timestamps to **America/Chicago** at render time via Python's
-`zoneinfo.ZoneInfo("America/Chicago")`. The conversion is daylight-saving-aware,
-so CDT and CST switch automatically with no code changes.
-
-UTC in storage, local time in display is the standard convention for telemetry
-systems. Rationale recorded in DL-037.
-
-## What this layer does not yet handle
-
-- **Not running as a systemd service.** Manual start only; next step.
-- **Not yet remotely accessible.** LAN only. Tailscale comes in a future session.
-- **No control surface.** Read-only by design for v1; remote actuation controls
-  introduce safety and access-control concerns better deferred until the system
-  is more mature.
-- **No authentication.** LAN-accessible without credentials; acceptable given
-  the same LAN already trusts the Pi over MQTT. Revisit when Tailscale lands.
-
-## Future enhancements
-
-- Auto-start at boot as a systemd service (`plant-dashboard.service`)
-- Tailscale for remote access from outside JSU_DEVICE
-- Dark theme as a toggle
-- Sidebar navigation as more pages are added (events log, run history)
-- Sensor panels populated as WROVER firmware comes online
+See [DL-038](../../docs/decision-log.md) for the rationale on the LAN/tailnet distinction and why the tailnet IP is canonical.
