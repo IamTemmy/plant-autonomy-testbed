@@ -129,3 +129,10 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 
 ### Added
 - \`hub/04-listener/\` \u2014 Python MQTT-to-SQLite listener with six-table schema (raw + extracted projections), run-aware via RUN_ID/RUN_PHASE env vars; validated end-to-end against the Shelly's live publishing (see DL-035)
+
+### Added
+- \`hub/05-listener-service/\` \u2014 systemd unit promoting the listener to a permanent system service with auto-start at boot, auto-restart on crash, and credentials loaded from root-only \`/etc/plant-hub/credentials\`; validated auto-restart by sending SIGKILL and confirming a new PID appeared (see DL-036, pending)
+EOFcat >> CHANGELOG.md << 'EOF'
+
+### Added
+- \`hub/05-listener-service/\` \u2014 systemd unit promoting the listener to a permanent system service with auto-start at boot, auto-restart on crash, and credentials loaded from root-only \`/etc/plant-hub/credentials\`; validated auto-restart by sending SIGKILL and confirming a new PID appeared (see DL-036, pending)

@@ -1,0 +1,22 @@
+[Unit]
+Description=Plant Autonomy Testbed - MQTT listener
+Documentation=https://github.com/IamTemmy/plant-autonomy-testbed
+After=network-online.target mosquitto.service
+Wants=network-online.target
+Requires=mosquitto.service
+
+[Service]
+Type=simple
+User=basilpi
+Group=basilpi
+WorkingDirectory=/home/basilpi/plant-hub
+EnvironmentFile=/etc/plant-hub/credentials
+ExecStart=/home/basilpi/plant-hub/venv/bin/python /home/basilpi/plant-hub/listener.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=plant-listener
+
+[Install]
+WantedBy=multi-user.target
