@@ -55,6 +55,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-033](#dl-033) | 2026-06-03 | Pi power supply: CanaKit 5.1V/3.5A for permanent independent operation | Active |
 | [DL-034](#dl-034) | 2026-06-03 | ESP32-CAM bench validation deferred pending hardware replacement | Active |
 | [DL-035](#dl-035) | 2026-06-03 | Phase 3 hub services kickoff (Python listener, SQLite, Streamlit) | Active |
+| [DL-036](#dl-036) | 2026-06-04 | Promote listener to systemd service; credentials in root-only EnvironmentFile | Active |
 
 ---
 
@@ -1118,6 +1119,82 @@ The listener and SQLite schema described above were implemented and validated en
 - Convert the listener into a systemd service so it survives reboots like the broker does
 - Streamlit dashboard reading from the SQLite database
 - Then a separate DL noting "Phase 3 hub services complete"
+
+---
+
+<a id="dl-036"></a>
+### DL-036 — Listener promoted to systemd service with EnvironmentFile credentials
+
+**Date:** 2026-06-04 · **Status:** Active. Listener now runs continuously as a system service.
+
+**Context.** DL-035 implemented the Python listener as a manually-launched script. That was correct for development — you can run it under your shell, watch logs scroll, Ctrl+C when done. But it makes the listener exactly as available as a developer happens to be: closing the SSH session also closes the listener, every Pi reboot loses the listener, and there is no automatic recovery if the listener crashes. The hub's data-collection role is supposed to be 24/7, the same way the broker is 24/7. The listener needs to be promoted from "script the developer runs" to "service the operating system runs."
+
+**Decision.** The listener now runs as a systemd service named `plant-listener.service`. It starts at boot after `mosquitto.service` and the network are ready, restarts itself on crash with a 10-second backoff, runs as the `basilpi` user (not root), and loads MQTT credentials from a root-only file at `/etc/plant-hub/credentials`. The service unit is committed to the repo at `hub/05-listener-service/plant-listener.service` alongside the procedure for installing it on a fresh Pi.
+
+**Rationale — service unit design.**
+
+- **`After=network-online.target mosquitto.service` + `Requires=mosquitto.service`.** The listener cannot do its job without the broker; making the dependency explicit means systemd will not start the listener until mosquitto is up, and will fail loudly if mosquitto disappears, rather than silently looping reconnect attempts. `network-online.target` covers the JSU_DEVICE WiFi being available; without this, the listener would race the WiFi association at boot.
+- **`User=basilpi`, not root.** The listener does nothing that needs root privilege. It reads from the broker, writes to a SQLite file in `~basilpi/plant-hub/`, and reads its credentials from a root-readable env file. Running as a non-privileged user limits the blast radius if the Python code is ever compromised — a credential leak doesn't become a root-shell leak.
+- **`Restart=on-failure` with `RestartSec=10`.** Crashes (paho-mqtt protocol error, OOM, transient SQLite lock) get an automatic restart after a 10-second backoff. The 10 seconds is deliberately long enough to (a) avoid hammering a broken broker with reconnect attempts during a real outage, and (b) leave time for an operator to notice and intervene before a hot-loop restart cycle hides the underlying problem. Not `Restart=always` — clean exits (e.g., the listener choosing to terminate) should stay terminated, not be force-revived.
+- **`EnvironmentFile=/etc/plant-hub/credentials`.** Credentials live in a file owned by `root:root` with permissions `600`. systemd reads the file at service-start time, exports the variables into the listener's environment, and the listener picks them up via `os.environ` exactly as in the manual-run workflow. The credentials file is *not* committed to the repo (`/etc/` is outside the repo entirely); the repo only commits the unit file that *references* the path.
+- **`StandardOutput=journal` + `StandardError=journal`.** Listener log output goes to the systemd journal, queryable via `journalctl -u plant-listener`. This replaces the previous workflow of "watch the listener's stdout in a terminal" with a structured, time-ordered, size-capped log store that the OS manages automatically. Existing Python `logging` calls work unchanged — they write to stdout/stderr, which systemd intercepts.
+- **`SyslogIdentifier=plant-listener`.** Makes the journal entries readable: each line is prefixed with `plant-listener[PID]:` so the source is unambiguous when multiple services are logging concurrently.
+
+**Rationale — credentials in `/etc/plant-hub/credentials`.**
+
+The DL-035 development workflow had the operator set `MQTT_USER` and `MQTT_PASS` in the shell before running `python listener.py`. That was acceptable for ad-hoc bench work, but for a permanent service it has problems: the credentials would have to be set in the listener's parent process at startup, which means either a shell wrapper, hard-coded values in the service file, or an EnvironmentFile.
+
+EnvironmentFile is the standard pattern and the one chosen here. A few specific properties of `/etc/plant-hub/credentials`:
+
+- **Path under `/etc/` rather than `/home/basilpi/`.** `/etc/` is the conventional location for system-level configuration; using it signals that this file belongs to the system, not to any one user. It also keeps the credentials out of any user's home directory backup.
+- **Directory mode `700`, file mode `600`, owned by `root:root`.** Only root can read the file. systemd reads it at service start because systemd itself runs as root. The listener process — running as `basilpi` — never reads the file directly; it inherits the environment variables systemd exports. So even compromising the listener wouldn't directly expose the file.
+- **EnvironmentFile syntax, not shell.** Lines are `KEY=VALUE`, no `export`, no quotes around values, no comments after `#` (systemd is stricter than bash here). This is a small but real footgun — pasting in shell-style `export MQTT_USER="basilmqtt"` would break.
+- **Includes `RUN_PHASE=phase3_hub_service`.** This is non-credential but useful: it changes the listener's auto-generated `run_id` prefix from `auto_...` to `phase3_hub_service_...`, so the runs table tells the truth about which kind of run it is. Putting it in the env file means we don't have to remember to set it manually.
+
+**Verification — auto-restart actually works.**
+
+`systemctl status` reporting `Active: active (running)` is a static check — it only confirms the service is currently up. The harder question is whether systemd will recover from an unexpected death. To test:
+
+```text
+sudo systemctl show plant-listener.service --property=MainPID
+  MainPID=4031
+sudo kill -9 4031
+# Wait 15 seconds (RestartSec + buffer)
+sudo systemctl show plant-listener.service --property=MainPID
+  MainPID=4064
+```
+
+Different PID confirms systemd noticed the death, observed the 10-second restart delay, and started a new instance. The `runs` table also shows two rows after this exercise — the original (no `ended_ts`, because SIGKILL bypasses the listener's graceful shutdown handler), and the restart (no `ended_ts` either, because it's still running). The crashed run's missing `ended_ts` is preserved as a forensic signal, not papered over.
+
+**Implications and what changes for the project.**
+
+- **The listener is no longer tied to a developer session.** Closing all SSH connections, walking away from the lab, restarting the Pi — none of these stop data collection any more.
+- **The runs table is now noisier.** Every Pi reboot starts a fresh run; every service restart (crash or planned) starts a fresh run. This is the right behavior — each run is a distinct continuous-collection window — but it means analyzing data "across all runs since deployment" needs to ignore the run boundaries unless they matter (which they usually don't for telemetry).
+- **Credentials are no longer typed at the shell.** This unblocks the password-rotation policy noted at the end of last session: from here on, the MQTT password lives only in `/etc/plant-hub/credentials` and the Shelly's stored configuration. Operators rarely type it. When we rotate, the procedure is: update the broker, edit the env file, restart the service, update the Shelly. Four steps, no shell history exposure.
+
+**What this entry does not commit to.**
+
+- **No log retention policy.** systemd journal does its own size-capped rotation; if the Pi runs out of disk for any reason, the journal is the first thing to get trimmed. For a long-running deployment, we'd want explicit retention rules. Not blocking.
+- **No alerting if the service fails.** If the listener enters a crash-loop or fails repeatedly, no one is notified. The dashboard (Streamlit, coming next) will eventually surface "no data in the last N minutes" as a visible signal.
+- **No SQLite backup.** Database is on the Pi's SD card. If the card fails, all collected data is lost. Acceptable for a research/portfolio project; a real deployment would back up `plant.db` to external storage periodically.
+- **The credentials file is single-user.** When the project grows to multiple service accounts (e.g., a read-only dashboard user vs. the publish-capable listener user), the env-file approach scales to one file per service; we don't need to redesign now.
+
+**Alternatives considered.**
+
+- **Run the listener under `screen` or `tmux`.** Rejected — these are session managers, not service managers. They survive logout but not reboot, do not restart on crash, and have no integration with system logging. They're for "I want to keep my interactive session alive across disconnects," not "this is a permanent system component."
+- **Hardcode credentials in the .service file's `Environment=` directives.** Rejected — this means the credentials end up in `/etc/systemd/system/plant-listener.service`, which we commit to the repo. EnvironmentFile keeps the path in the unit file and the actual values out of the repo.
+- **Run as root for "simpler" file access.** Rejected categorically — there is no part of the listener's job that needs root. Running services as root is the default mode of every IoT-device security disaster.
+- **Use a different service supervisor (supervisord, runit, custom shell loop).** Rejected — systemd is what the Pi already uses for every other service, has the dependency model we need (`After=`, `Requires=`), and is the operating-system-standard pattern. Adding a second supervisor would mean two ways to start/stop things, two log destinations, and two operator mental models.
+
+**Files committed in this session.**
+
+- `hub/05-listener-service/plant-listener.service` — the systemd unit file
+- `hub/05-listener-service/README.md` — installation procedure, operational reference, rotation procedure
+
+**Files explicitly not committed.**
+
+- `/etc/plant-hub/credentials` — contains the MQTT password. Lives only on the Pi.
+- `/etc/systemd/system/plant-listener.service` — the in-place copy used by systemd. The repo holds the canonical source at `hub/05-listener-service/plant-listener.service`; the Pi's copy is installed from there.
 
 ---
 
