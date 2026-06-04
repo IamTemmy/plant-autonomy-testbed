@@ -1090,6 +1090,35 @@ Each step gets a commit. Each step has its own README under `hub/04-listener/`, 
 - **InfluxDB + Grafana** instead of SQLite + Streamlit. Rejected — substantially more setup and operational overhead for a project of this scale; useful at the "many nodes, long history, multi-user dashboarding" tier but premature here.
 - **Skip the listener, just have Streamlit subscribe directly.** Rejected — the listener-as-persistence separation is exactly what makes the dashboard restart-safe and history-aware. Conflating the two would create reliability problems on the first browser refresh.
 
+**Implementation status as of 2026-06-03.**
+
+The listener and SQLite schema described above were implemented and validated end-to-end this session. Specifically:
+
+- Python virtual environment created at `~/plant-hub/venv` on the Pi with `paho-mqtt` installed
+- Six-table schema written to `~/plant-hub/schema.sql` and applied via `sqlite3 plant.db < schema.sql` — all tables created with the indexes and foreign keys as designed (foreign keys enforced per-connection via `PRAGMA foreign_keys = ON` in the listener)
+- Listener written to `~/plant-hub/listener.py` (~270 lines), subscribed to `plant/#` and ran for ~10 minutes against the live Shelly publishing
+- Real data captured into the database: continuous voltage/current/power/frequency/temperature/cumulative-energy readings in `sensor_readings`; grow-light state changes (init/on/off) in `actuator_events`; online/offline status in `system_status`; raw archive of every message in `mqtt_messages`
+- Operator commands (mosquitto_pub to turn the grow light on/off) round-tripped correctly: command → broker → Shelly → relay closes → status published → listener observes → row written to `actuator_events` with `source="mqtt"`
+- Graceful shutdown (SIGINT/SIGTERM) updates `runs.ended_ts` correctly, verified across multiple runs
+
+**Friction worth recording.**
+
+- A typo in the MQTT password during environment-variable setup caused ~20 minutes of false-trail debugging (initially attributed to paho-mqtt vs mosquitto_sub protocol differences, MQTT 5 vs 3.1.1, broker ACLs, etc.). Root cause was a single-character typo introduced via `read -s` silent input. Fix in this session: switched to an alphanumeric password that can be re-typed accurately under silent-input conditions. Long-term fix: credentials will live in gitignored config files, not be typed at the shell, once the listener becomes a systemd service.
+- The Shelly's UI hides stored passwords on page reload — even with the show-password eye icon — for security. There is no way to re-verify a stored Shelly password by inspection; only by testing whether authentication succeeds. Worth remembering for future credential rotations.
+- The `mosquitto_passwd` command emits a warning about the password file group ownership ("group is not root. Future versions will refuse to load this file"). The current ownership (`root:mosquitto 640`) is intentional per DL-030 — the broker process needs group-read access to validate credentials. The warning may eventually become an error in newer mosquitto versions, which will require a different ownership scheme; not a blocker today.
+
+**Committed in this session.**
+
+- `hub/04-listener/schema.sql` — the six-table schema, idempotent
+- `hub/04-listener/listener.py` — the Python service
+- `hub/04-listener/README.md` — setup procedure, run-identifier rules, example queries
+
+**Still pending — next session(s).**
+
+- Convert the listener into a systemd service so it survives reboots like the broker does
+- Streamlit dashboard reading from the SQLite database
+- Then a separate DL noting "Phase 3 hub services complete"
+
 ---
 
 ## Maintaining this log
