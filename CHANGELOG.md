@@ -117,3 +117,12 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 - Adopted credential-file workflow on developer Mac (\`~/.mqtt/plant-broker.conf\` with environment variables); MQTT passwords no longer passed on command lines
 - DL-032 updated with the credential workflow rationale
 - Verification commands in \`hub/03-broker-config/README.md\` and DL-030 updated to use environment variables instead of literal credentials
+
+### Deferred
+- ESP32-CAM bench validation deferred pending hardware replacement; both available units failed identically with two different USB-to-TTL programmers, plus an out-of-spec 3.9V reading on the 3.3V rail suggesting possible chip damage during diagnostics (see DL-034)
+
+### Added (placeholder)
+- \`firmware/test-sketches/11-esp32-cam/\` \u2014 PlatformIO project for the ESP32-CAM bench test, committed as a starting point for the next attempt; sketch is valid but not validated by execution
+
+### Documented
+- DL-035 \u2014 Phase 3 hub services kickoff entry; implementation begins this session

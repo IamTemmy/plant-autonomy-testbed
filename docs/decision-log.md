@@ -53,6 +53,8 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-031](#dl-031) | 2026-06-02 | Shelly Plus Plug US ("basilplug") paired and joined JSU_DEVICE | Active |
 | [DL-032](#dl-032) | 2026-06-02 | Shelly Plus Plug US validated as MQTT client; MQTT username renamed | Active |
 | [DL-033](#dl-033) | 2026-06-03 | Pi power supply: CanaKit 5.1V/3.5A for permanent independent operation | Active |
+| [DL-034](#dl-034) | 2026-06-03 | ESP32-CAM bench validation deferred pending hardware replacement | Active |
+| [DL-035](#dl-035) | 2026-06-03 | Phase 3 hub services kickoff (Python listener, SQLite, Streamlit) | Active |
 
 ---
 
@@ -961,6 +963,132 @@ The file is deliberately **not** added to `~/.zshrc` for automatic loading. Auto
 - **PoE HAT** (Power over Ethernet). Cleaner cable management — a single Cat5/6 cable delivers both network and power. Rejected for now because the project uses WiFi, not Ethernet; introducing PoE would require either an unmanaged switch with PoE injection or a PoE injector module, all for a problem that doesn't currently exist. Worth revisiting if the project ever moves to a wired-network configuration.
 - **Continue Mac-powered.** Rejected because incompatible with autonomous operation, which is the entire point of the broker.
 - **Battery / power bank.** Rejected for primary operation because Pi 4 power draw (2–5W typical, more under load) exceeds what's practical for indefinite operation on consumer power banks. Acceptable as an emergency fallback during brief moves.
+
+---
+
+<a id="dl-034"></a>
+### DL-034 — ESP32-CAM bench validation deferred pending hardware replacement
+
+**Date:** 2026-06-03 · **Status:** Active. Camera node deferred until known-good hardware is acquired and validated.
+
+**Context.** The ESP32-CAM is the project's vision node per the original architecture — a separate camera-equipped MCU intended to capture periodic images of the plant for monitoring purposes. It is the only remaining unvalidated Phase 1 component after the user-feedback subsystem (DL-025), the leak sensor (DL-026), and the broker integrations (DL-029 through DL-032) all completed successfully. A bench-validation session was attempted to close out Phase 1.
+
+**Decision.** ESP32-CAM bench validation is **explicitly deferred**, not abandoned, pending acquisition of known-good replacement hardware. The remaining Phase 1 inventory is closed at **11 of 12 components validated** with the camera node tracked separately.
+
+**Rationale — what was tried.**
+
+The session attempted standard ESP32-CAM bench bring-up with a USB-to-TTL programmer driving the bare ESP32-CAM module. Wiring followed the well-documented pattern:
+
+- FTDI VCC (5V) → ESP32-CAM 5V
+- FTDI GND → ESP32-CAM GND
+- FTDI TX → ESP32-CAM U0R (RX)
+- FTDI RX → ESP32-CAM U0T (TX)
+- Jumper from ESP32-CAM IO0 to GND (flashing mode)
+
+Two USB-to-TTL programmers were tested: a generic red breakout board (initial attempt) and an FT232-based blue programmer (second attempt). Both were correctly enumerated by macOS (`/dev/cu.usbserial-A5069RR4` and `/dev/cu.usbserial-B0046FJF` respectively). The platformio.ini was correctly configured for the AI-Thinker ESP32-CAM target, and the project compiled cleanly to a valid binary (`firmware.bin`, 11.2% flash used) on every attempt.
+
+The upload step consistently failed with `Failed to connect to ESP32: No serial data received` after esptool exhausted its sync retry attempts. This indicates the chip was silent on its TX line — either not running, or running but not transmitting bootloader handshake responses.
+
+**Diagnostics performed (all failed to identify a single cause).**
+
+- **Wiring continuity** verified with multimeter — both 5V to 5V and IO0-to-GND connections measured continuous, no opens or shorts.
+- **TX/RX swap test** — wires intentionally swapped, then restored. Same failure mode both ways, ruling out an obvious crossover error.
+- **Upload speed reduction** — `upload_speed` dropped from 460800 to 115200 to rule out timing issues with the slower FTDI. No change.
+- **PlatformIO reset-flag adjustments** considered (`--before=no_reset`, `--after=hard_reset`) per online troubleshooting guides, but not all permutations were exhausted.
+- **Spare ESP32-CAM swapped in**, kept identical wiring. **Same failure on both boards** — the strongest signal that the issue is not the individual board but something in the common setup.
+- **Multimeter measurement of the 3.3V rail** while the FT232 was powering the board read **3.9V**. The ESP32 chip is rated to 3.6V absolute maximum. If this reading was accurate and sustained, both chips may have been damaged during the diagnostic sessions today. (The reading was taken once and not repeated under controlled conditions, so it is one data point, not a confirmed diagnosis.)
+
+**Honest assessment.** The combination of:
+- Two boards failing identically with two different programmers
+- An anomalous 3.9V reading on the 3.3V rail
+- A pattern of "compile succeeds, flash fails at sync"
+
+…does not point to a single mechanical fault we can fix. It points to either (a) both ESP32-CAM units were marginal or defective from the start (plausible — they came from the same lot, and one was unused stock), (b) today's 3.9V exposure damaged them during testing, (c) something subtler in the FTDI-to-board interaction we did not isolate, or (d) some combination. Without a known-good ESP32-CAM as a reference, we cannot distinguish among these explanations.
+
+**Path forward.**
+
+Order replacement hardware before resuming. Specifically considering:
+
+1. **ESP32-CAM + ESP32-CAM-MB programmer combo** from a reputable Amazon seller (HiLetgo, AITRIP, DIYables). The MB programmer is a snap-on USB dock with built-in CH340 USB-to-serial, auto-reset, and auto-flash buttons. It eliminates the wiring and timing failure modes that consumed today's session.
+2. **Adafruit ESP32-CAM** as a known-quality alternative — more expensive but zero ambiguity about authenticity.
+3. **Seeed Studio XIAO ESP32-S3 Sense** as a platform alternative — built-in camera, native USB-C programming (no FTDI required at all), modern successor to the ESP32-CAM. Slightly different software libraries; some non-trivial pin and config differences from the AI-Thinker, but eliminates an entire class of failure modes by design.
+
+Decision on which to order is deferred to a separate session focused on the purchase. Until the replacement arrives and validates cleanly, the camera node is treated as a known gap in the project's bench-validation inventory.
+
+**What is committed despite the failure.**
+
+- `firmware/test-sketches/11-esp32-cam/platformio.ini` — the working PlatformIO configuration for the AI-Thinker ESP32-CAM target. Valid configuration; the build succeeded. Kept in the repo so the next attempt has a starting point.
+- `firmware/test-sketches/11-esp32-cam/src/main.cpp` — the minimal bench-test sketch (camera initialization + frame capture, no WiFi, no MQTT). Valid code; compiled cleanly. Did not run because the upload never succeeded, so the sketch is *unvalidated by execution* — important caveat.
+- `docs/images/04-esp32-cam-ftdi-wiring.png` — photo of the wiring used during the session. Documents the setup that did not work, which is useful diagnostic context for the next attempt.
+
+These artifacts are committed because they represent real, valid engineering work that should not be lost. The DL entry above makes clear they did not result in validation.
+
+**What this entry does not commit to.**
+
+- A specific replacement purchase.
+- A timeline for resuming ESP32-CAM work.
+- Whether the camera node will ultimately use AI-Thinker hardware or a different platform (XIAO ESP32-S3 Sense, etc.). That decision is part of the next session.
+
+**Lessons worth keeping.**
+
+- **A 3.6V-rated chip is unforgiving.** When voltage measurements are out of spec, stop immediately and re-check before applying more power. Repeated power-on attempts at out-of-spec voltage can cumulatively damage the chip. Continuing to debug "why won't this respond" without first confirming the supply is in spec wastes both time and components.
+- **Two boards failing identically is a setup problem, not a board problem.** When the second board behaved identically to the first, it should have prompted an earlier pivot to questioning the common variables (FTDI current capacity, wiring, supply quality) rather than continued attempts on the same path.
+- **Compile success is not flash success.** A valid binary that never gets uploaded is functionally equivalent to no work. Reading the actual terminal output (not just "PlatformIO ran") matters.
+- **Bench-validation discipline scales to "could not validate."** This entry is materially the same shape as the successful DL entries — context, what was tried, what was learned, what remains — because the work is the same kind of work. Failure cases are part of engineering, not anti-engineering.
+
+---
+
+<a id="dl-035"></a>
+### DL-035 — Phase 3 hub services kickoff: Python listener, SQLite, dashboard
+
+**Date:** 2026-06-03 · **Status:** Active. Kickoff entry — implementation work begins this session.
+
+**Context.** With the broker fully validated (DL-030) and a real MQTT client publishing telemetry (DL-032), the data flowing through the broker is currently *unobserved* — nothing on the Pi reads, persists, or visualizes the Shelly's status stream. The Phase 3 hub services close this gap: a Python listener subscribes to project topics and writes them to SQLite, and a Streamlit dashboard reads from SQLite to present live system state in a browser. Together they make the project observable.
+
+**Decision.** Begin Phase 3 hub services this session with the Python listener + SQLite layer. Streamlit dashboard follows once the listener is collecting data. Each layer gets its own commit; nothing is done as one monolithic change.
+
+**Rationale — architectural choices.**
+
+- **Python on the Pi**, not on the developer Mac. The hub services need to run continuously alongside the broker, so they belong on the Pi. The developer Mac is portable and frequently away from the bench.
+- **SQLite**, not a heavier database (PostgreSQL, InfluxDB, etc.). Single-file storage, zero administration, plenty fast for one-Hz-ish sensor telemetry from a handful of devices. A real production deployment with hundreds of nodes would warrant a time-series database; this project is one plant.
+- **Streamlit**, not a custom Flask app or a heavy framework. Streamlit is purpose-built for read-only dashboards backed by Python data sources. It produces a working web app from short scripts, which is the right tool for this scale of project.
+- **Subscribe-only consumer pattern.** The listener publishes nothing back to the broker. It only reads. This keeps the data flow direction unambiguous: devices → broker → listener → SQLite → dashboard. The firmware-side decision-making (state machine, fault handling) stays on the WROVER; the Pi is purely an observer until later integration work requires otherwise.
+
+**Topic structure plan (subject to refinement during implementation).**
+
+| Topic prefix | Purpose | Source |
+|---|---|---|
+| `plant/grow-light/#` | Shelly Plus Plug telemetry | already publishing (DL-032) |
+| `plant/sensors/#` | ESP32 WROVER sensor publishes | future Phase 2 firmware |
+| `plant/state/#` | WROVER state-machine state | future Phase 2 firmware |
+| `plant/commands/#` | inbound commands to WROVER | future Phase 2 firmware |
+| `plant/camera/#` | image metadata / triggers | future ESP32-CAM firmware (deferred per DL-034) |
+
+The listener subscribes to `plant/#` and routes incoming messages by topic prefix into appropriate SQLite tables.
+
+**Implementation order.**
+
+1. Python venv on the Pi for hub service dependencies (paho-mqtt, sqlite3 from stdlib, streamlit).
+2. SQLite schema for the topic categories above.
+3. Listener script that subscribes, parses, writes. Tested initially against the Shelly's existing publishing — that's a live data source we already have.
+4. Listener as a systemd service so it survives reboots like the broker does.
+5. Streamlit dashboard reading from SQLite. Initial scope: grow-light status, recent power readings, system uptime.
+6. Streamlit as a second systemd service.
+
+Each step gets a commit. Each step has its own README under `hub/04-listener/`, `hub/05-dashboard/`, etc.
+
+**What this entry does not commit to.**
+
+- The exact SQLite schema. That gets locked in when the schema is actually written, with whatever pragmatic adjustments emerge during implementation.
+- Specific dashboard layout. That gets iterated based on what the data actually looks like.
+- Authentication for the dashboard. The Streamlit app will initially be LAN-accessible without authentication, same security model as the broker. Adding auth is a future hardening step.
+- Remote access. Cloudflare Tunnel or Tailscale (per the original project plan) is deferred until the LAN-side dashboard is working and the question "is this even useful enough to expose externally?" can be answered honestly.
+
+**Alternatives considered.**
+
+- **No persistent storage, dashboard reads live from MQTT.** Rejected — loses all history, can't show trends, can't survive page reload.
+- **InfluxDB + Grafana** instead of SQLite + Streamlit. Rejected — substantially more setup and operational overhead for a project of this scale; useful at the "many nodes, long history, multi-user dashboarding" tier but premature here.
+- **Skip the listener, just have Streamlit subscribe directly.** Rejected — the listener-as-persistence separation is exactly what makes the dashboard restart-safe and history-aware. Conflating the two would create reliability problems on the first browser refresh.
 
 ---
 
