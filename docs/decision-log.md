@@ -56,6 +56,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-034](#dl-034) | 2026-06-03 | ESP32-CAM bench validation deferred pending hardware replacement | Active |
 | [DL-035](#dl-035) | 2026-06-03 | Phase 3 hub services kickoff (Python listener, SQLite, Streamlit) | Active |
 | [DL-036](#dl-036) | 2026-06-04 | Promote listener to systemd service; credentials in root-only EnvironmentFile | Active |
+| [DL-037](#dl-037) | 2026-06-04 | Streamlit dashboard with light cream theme; UTC storage, America/Chicago display | Active |
 
 ---
 
@@ -1195,6 +1196,105 @@ Different PID confirms systemd noticed the death, observed the 10-second restart
 
 - `/etc/plant-hub/credentials` — contains the MQTT password. Lives only on the Pi.
 - `/etc/systemd/system/plant-listener.service` — the in-place copy used by systemd. The repo holds the canonical source at `hub/05-listener-service/plant-listener.service`; the Pi's copy is installed from there.
+
+---
+
+<a id="dl-037"></a>
+### DL-037 — Streamlit dashboard with UTC-storage / local-time-display convention
+
+**Date:** 2026-06-04 · **Status:** Active. Dashboard is LAN-accessible read-only; further enhancements (systemd service, Tailscale remote access) tracked separately.
+
+**Context.** With the listener writing structured telemetry to SQLite (DL-035) and running autonomously as a systemd service (DL-036), the project has a continuous stream of data but no way to look at it without writing SQL queries by hand. The dashboard closes that gap: a browser-accessible view that any operator (developer or otherwise) can read at a glance, on a phone or laptop, on the same LAN as the broker. The dashboard is the visible product — until it exists, the hub services are difficult to demonstrate.
+
+**Decision.** A read-only Streamlit dashboard runs on the Pi, binds to `0.0.0.0:8501`, and is reachable from any device on JSU_DEVICE WiFi at `http://10.6.19.139:8501`. The dashboard refreshes every 10 seconds via `streamlit-autorefresh`. It reads the SQLite database in read-only mode (`file:...?mode=ro&uri=true`) so it cannot interfere with the listener's writes. The visual design follows a light cream botanical theme with green as the primary color and semantic status colors (green / amber / red / gray) for state communication.
+
+**Rationale — Streamlit instead of a custom web framework.**
+
+The mockup that informed the visual design (ChatGPT-generated reference) is genuinely well-composed and could be replicated more precisely with a Flask or FastAPI backend serving custom HTML/CSS. That was considered and rejected for this phase. Streamlit gets to roughly 80% of the mockup's polish in roughly 5% of the implementation time. The remaining 20% of polish (pixel-perfect sidebar, decorative botanical elements, custom-styled tables) is not load-bearing for the project's portfolio or demonstration value. The honest trade-off: Streamlit imposes layout constraints that a custom frontend would not, but at this phase of the project the time savings are worth more than the design control. Phase 4 or later could revisit if needed.
+
+**Rationale — read-only v1.**
+
+The dashboard could include controls (toggle grow light, send pump command, acknowledge fault). Those are deliberately excluded from v1. Reasons:
+
+- **Safety surface area.** A dashboard with controls is a security and access-control problem. Anyone who can reach the URL can turn things on and off. LAN-only access partially mitigates this, but adding controls would push us to "we need auth before this is acceptable," which is a meaningful additional scope.
+- **The system is still being validated.** A read-only dashboard is a passive observer of the system; it cannot make the system worse. Controls would make the dashboard part of the system's safety-critical path, which raises the bar for testing.
+- **Existing control paths work.** Operator control already works via `mosquitto_pub` from the command line, the Shelly mobile app, and HomeKit. The dashboard doesn't need to be the third control surface today.
+
+Controls are tracked as a future enhancement and will be added after the system is more mature and an authentication story exists.
+
+**Rationale — light cream theme rather than dark.**
+
+For a project-presentation context (portfolio review, demo to a non-technical audience), light themes read more professional and more like a polished consumer product. They photograph better in screenshots. They project credibility — "this is a real thing someone built" — more strongly than dark themes, which read as developer tools. Dark mode is a reasonable later enhancement once the dashboard is live, but it's not the first impression we want today.
+
+Green primary follows from the project's identity. The color choice is not arbitrary — it's thematically appropriate, conveys "living systems," and reads well against the cream background. Semantic status colors layered on top (amber for warning, red for fault, gray for unknown) follow universal operator-dashboard conventions and were not optional — without them, every state reads the same, which makes the dashboard useless during incidents.
+
+**Rationale — store UTC in the database, display America/Chicago in the UI.**
+
+This is the single most important non-aesthetic decision in this entry and worth recording carefully because it applies to every timestamp the project will ever generate, including future ESP32 publishes, sensor data, and event logs.
+
+**Why UTC in storage.**
+
+- **Daylight saving creates ambiguous local timestamps.** When CDT falls back to CST in November, the hour from 1:00 AM to 2:00 AM local repeats. A row written at "2026-11-01 01:30:00" local time could refer to either pass through that hour; there is no way to tell from the local timestamp alone. UTC has no daylight saving, so every UTC instant maps to exactly one moment in time. The database can answer "what happened between time A and time B" with no ambiguity.
+- **Devices in different timezones can all write to the same database without coordination.** The Shelly publishes UTC. The Pi runs UTC internally. The eventual ESP32 nodes will publish UTC. If they each wrote local time, comparing their timestamps would require knowing what timezone each device was in at the time of writing — which the database would not record.
+- **Moving the deployment doesn't corrupt historical data.** If the Pi ever moves to a different timezone (lab relocation, travel, daylight saving transition), UTC timestamps in past rows remain correct. Local-time storage would make every historical row mean something different.
+- **It is the universal industry convention.** Every cloud telemetry platform (AWS CloudWatch, Datadog, InfluxDB, Grafana) follows this pattern. The systemd journal stores UTC. Mosquitto logs are UTC. Storing UTC keeps the project consistent with the rest of the ecosystem and makes future integrations straightforward.
+
+**Why America/Chicago in display.**
+
+- The Pi is physically deployed in Jackson, Mississippi, which is Central Time. Operators looking at the dashboard expect to see times in the timezone where the events actually happened locally.
+- Hardcoding to `America/Chicago` (not `CST` or `CDT` as fixed offsets) lets Python's `zoneinfo` library handle daylight saving transitions automatically. The dashboard displays CDT in summer and CST in winter without any code changes or operator action.
+- Hardcoding the timezone rather than auto-detecting from the viewer's browser is the right choice for this project's scope. Auto-detection adds JavaScript complexity and makes the dashboard "mean different things to different viewers," which is confusing when troubleshooting. "All times shown are Central, where the system lives" is mentally simpler.
+
+**Implementation: a single helper function in the dashboard.**
+
+```text
+LOCAL_TZ = ZoneInfo("America/Chicago")
+
+def format_local(ts_str: str) -> str:
+    ts = pd.to_datetime(ts_str, utc=True)
+    return ts.tz_convert(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
+```
+
+Every timestamp the dashboard shows passes through this function or its pandas equivalent (`pd.to_datetime(..., utc=True).dt.tz_convert(LOCAL_TZ)` for chart axes). The database is untouched; storage stays UTC; display becomes local.
+
+**The Pi's system clock.** The Pi itself runs UTC at the OS level (verifiable with `timedatectl`). This was not changed for this entry. Keeping the Pi on UTC means everything — kernel log timestamps, systemd journal entries, mosquitto logs, the listener's `datetime.now(timezone.utc)` — agrees on the same time reference. Operators occasionally SSH into the Pi and need to read these logs; "all logs are UTC" is the disciplined convention. Local-time display is purely a dashboard rendering concern.
+
+**Mobile-friendly layout.**
+
+The dashboard was designed with a mobile-first sensibility: single-column-friendly card layouts, large tap targets, font sizes that remain legible on iPhone Safari without zoom. Streamlit's wide layout reflows reasonably on narrow viewports; custom CSS in the dashboard tightens the mobile case further (smaller card padding on screens below 768px). Validated visually on an iPhone via Safari.
+
+**LAN-only for now; Tailscale planned.**
+
+The dashboard binds to `0.0.0.0`, meaning it accepts connections on any network interface. On JSU_DEVICE this means any device on the same WiFi network can reach `http://10.6.19.139:8501`. This is acceptable because the same network already has unauthenticated access to mosquitto on port 1883, and the dashboard exposes strictly less attack surface than direct broker access (read-only SQLite queries vs. the broker's full pub/sub capability).
+
+Remote access from outside JSU_DEVICE (e.g., from home, from travel) is **not** addressed by this entry and is deferred to a future session. The planned approach is **Tailscale** — a zero-trust VPN that gives each device a private address reachable only by other devices on the same tailnet, with no public-internet exposure of the Pi. Cloudflare Tunnel was also considered but rejected for this project's scope; we don't need a public URL, just personal access.
+
+**What this entry does not yet commit to.**
+
+- Auto-start of the dashboard at boot. Currently the dashboard is manually launched. The next step is a `plant-dashboard.service` systemd unit following the same pattern as `plant-listener.service` (DL-036).
+- Tailscale setup. Deferred to a separate session.
+- Authentication. Not present; not needed for LAN read-only.
+- Dark mode. Mentioned as a future polish item; not in scope here.
+- Sidebar navigation. The mockup shows a sidebar with multiple pages (Overview, Environment, Events, Alerts, Settings); the v1 dashboard is single-page. Sidebar comes later if and when more pages exist.
+
+**Alternatives considered.**
+
+- **Custom Flask/FastAPI backend with hand-written HTML/CSS.** Rejected for this phase — substantially more implementation work, separate deployment story, and the gains (pixel-perfect design control) are not load-bearing for the project's value.
+- **Grafana fronting an InfluxDB time-series database.** Rejected — both Grafana and InfluxDB are excellent at this category of work, but introducing them now would require migrating data out of SQLite, learning two new systems, and managing their lifecycles. SQLite + Streamlit gives 80% of the experience at 10% of the operational complexity for our scale.
+- **Node-RED or Home Assistant.** Both could be made to work for this use case. Both are heavier than this project needs, and both impose their own opinionated data models that the project would have to adapt to.
+- **Auto-detect viewer's local timezone via JavaScript.** Rejected per the rationale above — adds complexity, makes the dashboard mean different things to different viewers, and isn't worth it for a single-deployment-location project.
+
+**Files committed.**
+
+- `hub/06-dashboard/dashboard.py` — the Streamlit app (~340 lines)
+- `hub/06-dashboard/.streamlit/config.toml` — Streamlit theme configuration
+- `hub/06-dashboard/README.md` — setup, operational reference, visual examples
+- `docs/images/05-dashboard-desktop-{1,2,3}.png` — desktop browser screenshots
+- `docs/images/06-dashboard-mobile-{1,2}.png` — iPhone Safari screenshots
+
+**Lesson worth keeping.**
+
+The "store UTC, display local" pattern is a foundational design decision that scales across every part of the system. Recording it now, in this entry, means it stays consistent across future ESP32 publishes, sensor data, log files, and any future dashboard panels. Inconsistency in timestamp handling is one of the most common silent bugs in telemetry systems; making the convention explicit and documented keeps the project on the right side of it.
 
 ---
 
