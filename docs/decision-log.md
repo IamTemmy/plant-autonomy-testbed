@@ -1483,6 +1483,12 @@ Returns the most recent ten short-uptime samples, each of which is likely a rebo
 - **Add a periodic "ping" from the Pi that re-asserts the desired relay state.** Rejected — adds complexity, doesn't address other reboot scenarios, and creates a polling loop on top of an already-reactive system.
 - **Investigate firmware-side instrumentation in the Shelly to determine reboot cause.** Rejected for this entry — the Shelly is closed-source; we can read what it publishes but cannot get a kernel-level reboot reason. Worth revisiting only if reboots become a chronic issue.
 
+**Rejected: inferring actuator events from power readings.**
+
+A proposal was raised to synthesize rows into `actuator_events` from power-reading transitions (low→high = inferred ON, high→low = inferred OFF, tagged `source = inferred_power`). Rejected because it conflates *commanded state* with *measured electrical behavior* — two semantically different things the current schema correctly separates. It would also double-count real toggles and hide physical anomalies under what looks like a normal state transition.
+
+The real underlying need — detecting when reality and intent disagree — belongs in `fault_events`, not `actuator_events`, and requires a notion of *intent* that doesn't exist yet. That comes in Phase 2 when the WROVER state machine asserts desired state. Revisit then.
+
 **Files touched.** None this session — the change was a setting on the Shelly's own configuration interface, not project code. The decision log entry is the durable record.
 
 ---
