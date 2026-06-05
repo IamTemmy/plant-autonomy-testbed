@@ -58,6 +58,8 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-036](#dl-036) | 2026-06-04 | Promote listener to systemd service; credentials in root-only EnvironmentFile | Active |
 | [DL-037](#dl-037) | 2026-06-04 | Streamlit dashboard with light cream theme; UTC storage, America/Chicago display | Active |
 | [DL-038](#dl-038) | 2026-06-04 | Tailscale for remote dashboard access; tailnet IP adopted as canonical URL | Active |
+| [DL-039](#dl-039) | 2026-06-05 | Shelly unexpected reboot diagnosed from telemetry; "Restore last state" mitigation applied | Active |
+
 
 ---
 
@@ -1393,6 +1395,95 @@ This entry completes the original Phase 3 plan:
 - Remote access via Tailscale (this entry)
 
 Phase 3's deliverable — *"a Pi-based hub that runs autonomously, collects telemetry from a real device, persists it queryably, presents it visually, and is observable from anywhere"* — is genuinely done.
+
+---
+
+<a id="dl-039"></a>
+### DL-039 — Shelly unexpected reboot diagnosed from telemetry; "Restore last state" mitigation applied
+
+**Date:** 2026-06-05 · **Status:** Active. Mitigation deployed; root cause undetermined but observable if it recurs.
+
+**Context.** While reviewing the dashboard the day after the Phase 3 close-out, an unexplained gap was observed in the power-draw chart: the grow light had been ON, drew ~15W for several hours, then dropped to 0W for over twelve hours overnight, and came back ON the following morning. The Recent Activity log showed a corresponding row at 10:12 CDT with `source: init`. This was unexpected — the grow light should have stayed on. The system's own telemetry was the diagnostic tool.
+
+**What the telemetry showed.**
+
+Querying `system_status` for the surrounding window:
+
+```text
+sqlite3 plant.db "SELECT ts, status, metric, value FROM system_status
+                  WHERE device='grow-light'
+                  AND ts BETWEEN '2026-06-05T14:50:00Z' AND '2026-06-05T15:30:00Z'
+                  ORDER BY ts;"
+```
+
+Returned (UTC times):
+
+| ts | status | metric | value |
+|---|---|---|---|
+| 15:11:07 | offline | — | — |
+| 15:11:07 | online | — | — |
+| 15:11:07 | online | broker_connected | 1.0 |
+| 15:11:07 | online | cloud_connected | 1.0 |
+| 15:11:08 | online | uptime | 6.0 |
+| 15:11:08 | online | ram_free | 174832.0 |
+
+The story these rows tell: at 15:11:07 UTC (10:11 CDT) the Shelly's MQTT last-will fired (`offline`), followed almost immediately by a fresh `online` status. One second later, the Shelly was publishing system status with `uptime: 6.0`. A six-second uptime conclusively means the Shelly had just completed a power-on cycle — this was a full reboot, not a network blip. When a Shelly reconnects from a network-only outage, its uptime continues from where it was; only a hard restart resets the counter.
+
+Roughly one minute later, the Shelly published its `status/switch:0` message with `output: false, source: init`, which the listener captured into `actuator_events`. The `init` source explicitly indicates the relay state at boot, distinct from operator-driven (`mqtt`, `HTTP_in`, `SHC`) state changes.
+
+**Why the relay was off after the reboot.**
+
+By default, Shelly relays initialize to the OFF position when their firmware boots, regardless of the relay's state before the reboot. This is a configurable setting in the Shelly's per-output configuration — typically labeled "Default mode" or "Power-on default" — and is controllable from the device's own web UI. The default value is "Always off," which is the safe choice from the Shelly's perspective (a power-cycled device shouldn't surprise the operator by drawing load) but the wrong choice for a project that expects the grow light to stay on across unexpected reboots.
+
+**Mitigation applied.**
+
+Changed the Shelly's output default-state setting from "Always off" to **"Restore last state"** (equivalent labels across firmware versions: "Match last state," "Last known state"). With this change, the Shelly's relay state is preserved across reboots — if the grow light was on before a reboot, it comes back on automatically after the reboot.
+
+This is the right setting for any output that participates in an autonomous control loop. The "Always off" default makes sense for a smart plug controlling a single user-facing appliance (a lamp, a fan) where the user wants explicit control; it does not make sense for an output that is part of a longer-running automation that should be self-healing.
+
+**Root cause — honest assessment.**
+
+The telemetry tells us **that** the Shelly rebooted but not **why**. Plausible causes ranked by likelihood:
+
+1. **Brief power glitch at the wall outlet.** JSU's mains is not guaranteed clean. A sub-second voltage sag could trigger the Shelly's internal under-voltage protection and force a reboot. Not investigable after the fact. The Shelly is plugged into a surge-protected power strip but surge protection ≠ UPS.
+2. **Internal firmware watchdog.** Shelly devices include a watchdog timer that reboots the device if the firmware becomes unresponsive (memory leak, deadlock, internal fault). This is a self-recovery mechanism, not a malfunction. The 6-second clean boot is consistent with a watchdog reboot.
+3. **WiFi-related watchdog.** If WiFi association is lost for an extended period, some Shelly firmware versions will reboot to attempt re-connection. The MQTT last-will fired at the same second as the new online status, which doesn't fit a long WiFi outage but doesn't rule out a brief one followed by a reboot.
+4. **Firmware auto-update.** Eliminated. Auto-update is confirmed disabled in the Shelly's settings, and the firmware version was unchanged before and after the event.
+5. **Manual reboot via the app.** Eliminated. No deliberate reboot occurred.
+
+The root cause is undetermined and may remain so unless the event recurs frequently enough to correlate with another observable factor (time of day, weather, building-wide power events).
+
+**What this entry establishes for future operations.**
+
+- **Telemetry-driven diagnosis works.** The listener captured exactly what was needed to understand the event — last-will timing, uptime reset, init-source state change — without anyone needing to be present when the event happened. This is the actual payoff of the Phase 3 hub: events that would otherwise have been mysteries are observable in retrospect.
+- **The `init` source value in `actuator_events` is meaningful.** Until this entry, "init" was just one of several possible values for the `source` column. Now it's clear: `init` means "the Shelly published its state because it just booted, not because anyone or anything asked it to change state." Future analysis should treat `init` rows as reboot markers, not as user actions.
+- **A small subset of `system_status` rows are reboot indicators.** Specifically: an `online` status with a small `uptime` value (less than ~30 seconds) following a recent `offline` row is a strong reboot signature. This is queryable.
+- **Mitigation does not equal explanation.** "Restore last state" makes the system robust to future reboots but does not prevent them. If the reboots become frequent, that's a separate problem requiring further investigation.
+
+**A reusable query pattern for "did the Shelly reboot recently?"**
+
+```text
+sqlite3 plant.db "SELECT ts, value AS uptime_seconds
+                  FROM system_status
+                  WHERE device='grow-light' AND metric='uptime' AND value < 60
+                  ORDER BY ts DESC LIMIT 10;"
+```
+
+Returns the most recent ten short-uptime samples, each of which is likely a reboot. Useful for trend analysis if reboots become frequent.
+
+**What this entry does not yet commit to.**
+
+- **No UPS or battery backup for the Shelly.** A small in-line UPS at the wall outlet would absorb brief power glitches and likely eliminate the most likely root cause. Not justified for a research/portfolio project; revisit if reboots become frequent.
+- **No automatic alerting on reboot detection.** Currently a reboot is detectable only by manual query. A future enhancement could publish a fault_event when an `init`-source actuator event arrives, or when an uptime row resets, so the dashboard's faults panel surfaces it.
+- **No corresponding firmware-side action.** When Phase 2 firmware is being designed, its state machine should not assume the grow light's relay state is preserved across its own restarts; it should query the current state from the broker on startup. The "Restore last state" setting is helpful but not a substitute for firmware that handles the case correctly.
+
+**Alternatives considered, rejected.**
+
+- **Leave the default "Always off" and let the firmware re-enable the relay.** Rejected — the firmware doesn't exist yet, and even when it does, relying on a separate process to recover is more failure-prone than letting the Shelly handle it natively.
+- **Add a periodic "ping" from the Pi that re-asserts the desired relay state.** Rejected — adds complexity, doesn't address other reboot scenarios, and creates a polling loop on top of an already-reactive system.
+- **Investigate firmware-side instrumentation in the Shelly to determine reboot cause.** Rejected for this entry — the Shelly is closed-source; we can read what it publishes but cannot get a kernel-level reboot reason. Worth revisiting only if reboots become a chronic issue.
+
+**Files touched.** None this session — the change was a setting on the Shelly's own configuration interface, not project code. The decision log entry is the durable record.
 
 ---
 
