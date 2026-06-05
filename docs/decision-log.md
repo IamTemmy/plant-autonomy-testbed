@@ -59,6 +59,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-037](#dl-037) | 2026-06-04 | Streamlit dashboard with light cream theme; UTC storage, America/Chicago display | Active |
 | [DL-038](#dl-038) | 2026-06-04 | Tailscale for remote dashboard access; tailnet IP adopted as canonical URL | Active |
 | [DL-039](#dl-039) | 2026-06-05 | Shelly unexpected reboot diagnosed from telemetry; "Restore last state" mitigation applied | Active |
+| [DL-040](#dl-040) | 2026-06-05 | Phase 2 WROVER firmware architecture | Active |
 
 
 ---
@@ -1490,6 +1491,66 @@ A proposal was raised to synthesize rows into `actuator_events` from power-readi
 The real underlying need — detecting when reality and intent disagree — belongs in `fault_events`, not `actuator_events`, and requires a notion of *intent* that doesn't exist yet. That comes in Phase 2 when the WROVER state machine asserts desired state. Revisit then.
 
 **Files touched.** None this session — the change was a setting on the Shelly's own configuration interface, not project code. The decision log entry is the durable record.
+
+---
+
+<a id="dl-040"></a>
+### DL-040 — Phase 2 WROVER firmware architecture
+
+**Date:** 2026-06-05 · **Status:** Accepted
+
+**Context**
+
+Phase 1 validated eleven of twelve components individually; the twelfth, the ESP32-CAM, is deferred (DL-034) and is a separate node that the WROVER firmware never touches. Phase 3 — the hub — is already complete and running autonomously: broker, listener, and dashboard. Phase 2 now integrates the WROVER firmware that ties the sensors and the control state machine together, with actuation following later in the phase.
+
+The hub being finished ahead of the firmware is the unusual feature of the situation, and it shapes the work. The firmware is not being built into a vacuum; it is being built into a live system that already expects to be told what the plant is doing. Before any code is written, the firmware's architecture is fixed here so that everything else in Phase 2 hangs off a stable backbone rather than being reshaped mid-flight.
+
+**Decision**
+
+The integrated firmware is a single PlatformIO project at `firmware/integrated/` using the standard layout (`platformio.ini`, `src/`, `include/`, `lib/`).
+
+Three architectural commitments:
+
+1. **Non-blocking cooperative scheduler.** No `delay()` anywhere in the control path. All timing — sensor read intervals, the settling wait, dose duration, network keepalive — runs off `millis()`-based timers so that concurrent concerns coexist coherently.
+
+2. **Explicit six-state finite state machine.** States: Initializing, Monitoring, Watering, Settling, Reservoir-empty, Fault. A single state variable; transitions occur only through one `transition()` chokepoint. Implemented as `enum` + `switch`, not a function-pointer or table-driven dispatch.
+
+3. **Graceful-degradation posture, asymmetric by design.** Sensor failure, an impossible reading, or a closed-loop verification failure sends the system to Fault and stops watering — that is the dangerous path. Loss of WiFi or MQTT is non-fatal: the control loop and watering continue with the broker down, and telemetry resumes on reconnect. The firmware is authoritative; the broker is only where it announces what it is doing.
+
+The work proceeds backbone first, telemetry second, actuation last: the integration backbone (scheduler, FSM scaffold with the non-Monitoring states stubbed, the `Initializing → Monitoring` path made real, sensor reads to serial), then the telemetry contract and publishing, then the pump path with dose calibration and closed-loop verification behind the verification it depends on. How that work is partitioned into commits is left to the build itself.
+
+**Rationale**
+
+#### Non-blocking scheduler
+
+`delay()` blocks the entire processor. With network keepalive, a timed settling period, and several sensor cadences that must run on their own clocks, a blocking design cannot keep them coherent, and converting a blocking codebase to non-blocking after the fact is expensive and bug-prone. This is the one architectural choice that is painful to retrofit, so it is established first and everything is written against it from the start.
+
+#### enum + switch over a table
+
+Six states is small. A `switch` keeps the entire control flow visible and greppable in one place and is straightforward to step through in a debugger. Table-driven dispatch buys a flexibility this control loop does not need and costs the traceability it does — and inspectable, explicit behavior is a standing value of this project.
+
+#### Backbone-first ordering
+
+Keeping the pump until last keeps the only physically dangerous path away from an unproven backbone. Settling the telemetry contract on its own, after the backbone runs, lets the message shapes get a deliberate design pass rather than being frozen under time pressure. And the backbone alone is demonstrable — it closes the loop with the already-running hub before any actuator is wired in.
+
+#### Asymmetric degradation
+
+The device must keep a plant alive for weeks unattended. A dead sensor means the firmware is blind and could overwater — it must stop. A dead broker means only that no one is watching — the plant is fine, so the firmware must keep caring for it. Treating the two symmetrically would either make the system fragile to ordinary network blips or unsafe in the face of a sensor fault.
+
+**Verification**
+
+The backbone is verifiable on its own: the board boots, self-tests every sensor, connects to WiFi, and parks in Monitoring printing live sensor values to serial; pulling the network leaves the control loop running. Telemetry is verified against the live hub and dashboard. The watering path is verified against measured dose volumes and a deliberately failed watering that must drive the system to Fault.
+
+**What this entry does not commit to**
+
+The concrete MQTT topic strings and JSON schemas (deferred to the telemetry work and its own entry); pump dose timing and calibration constants; the grow-light Daily Light Integral logic (parallel logic, handled separately); any camera or vision work (DL-034; separate node; out of Phase 2 entirely); the watchdog timer and daily-water-limit failsafe (Phase 5 hardening); and the local OLED, LED, and buzzer behavior beyond stubs.
+
+**Alternatives considered**
+
+- **FreeRTOS tasks instead of a cooperative scheduler.** Rejected for v1: more concurrency machinery than a single-plant control loop needs, harder to reason about and debug, and the cooperative `millis()` pattern is sufficient and more inspectable. Worth revisiting only if multi-plant scaling (deferred to v2) is ever pursued.
+- **Table-driven / function-pointer FSM.** Rejected as above — flexibility not needed, traceability lost.
+- **Numbered subdirectories mirroring `hub/0N-…/`.** Rejected. Firmware is one evolving artifact, not a sequence of discrete setup steps; a single standard PlatformIO project is cleaner and avoids implying there are several separate firmwares.
+- **Treating connectivity loss as a fault.** Rejected. It would make a weeks-unattended device fragile to routine network interruptions.
 
 ---
 
