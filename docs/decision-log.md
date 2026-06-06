@@ -64,6 +64,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-042](#dl-042) | 2026-06-06 | Soil moisture: % mapping from 3-condition data, single far-from-inflow probe, closed-loop handles growth | Active |
 | [DL-043](#dl-043) | 2026-06-06 | Float + leak sensors: report-only modules, fault interpretation deferred to FSM | Active |
 | [DL-044](#dl-044) | 2026-06-06 | Third status LED (yellow, GPIO23): green/yellow/red traffic-light state indication | Active |
+| [DL-045](#dl-045) | 2026-06-06 | Traffic-light LEDs bench-validated after rewire (green 18 / yellow 19 / red 23) | Active |
 
 ---
 
@@ -1692,6 +1693,8 @@ These are all implementation decisions that will be made as code is written, rec
 **Alternatives considered.** Two LEDs + blink patterns (rejected: ambiguous, especially blocked-vs-fault on one red LED). OLED alone for state (it is additive detail; a glanceable colour signal is still wanted). GPIO5 (rejected: strapping-pin boot flicker).
 
 **Files.** `config.h` (pins). The FSM (DL-045) drives it.
+
+---
 
 
 
