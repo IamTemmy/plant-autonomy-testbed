@@ -48,6 +48,11 @@ static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
 
 // ---- ADC ------------------------------------------------------------------
 static constexpr uint16_t ADC_MAX = 4095;  // 12-bit
+// ---- Network / MQTT broker (non-secret; credentials live in secrets.h) ----
+// WROVER is a plain LAN client on JSU_DEVICE, so it reaches the broker at the
+// Pi's LAN IP. The tailnet IP is for remote dashboard access, not the ESP32.
+static constexpr char     MQTT_BROKER_HOST[] = "10.6.19.139";
+static constexpr uint16_t MQTT_BROKER_PORT   = 1883;
 
 // ---- Calibration: MEASURED references from the decision log ---------------
 // These describe what the hardware reads in known conditions. Do not invent.

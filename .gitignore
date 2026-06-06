@@ -34,3 +34,7 @@ venv/
 # Build artifacts
 build/
 dist/
+
+# Firmware credentials (never commit real values)
+secrets.h
+!secrets.h.example
