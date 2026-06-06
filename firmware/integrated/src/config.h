@@ -35,9 +35,10 @@ static constexpr uint8_t BTN_MANUAL = 26;  // INPUT_PULLUP
 static constexpr uint8_t BUZZER     = 4;   // active buzzer via NPN driver
 
 // ---- I2C device addresses -------------------------------------------------
-static constexpr uint8_t BME280_ADDR = 0x76;  // driver auto-detects 0x76/0x77
-static constexpr uint8_t BH1750_ADDR = 0x23;
-static constexpr uint8_t OLED_ADDR   = 0x3C;
+static constexpr uint8_t BME280_ADDR     = 0x76;  // primary
+static constexpr uint8_t BME280_ADDR_ALT = 0x77;  // some BME280 modules ship here
+static constexpr uint8_t BH1750_ADDR     = 0x23;
+static constexpr uint8_t OLED_ADDR       = 0x3C;
 
 // ---- Timing / scheduling intervals (ms) -----------------------------------
 // All periodic-task timing lives here. Scheduling pattern: see main.cpp loop().
@@ -45,9 +46,9 @@ static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
 static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS    = 10000;  // boot connect wait
 static constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 5000;   // loop reconnect cadence
 static constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 5000;   // loop reconnect cadence
-// Reserved for upcoming tasks (not yet scheduled):
-// static constexpr uint32_t SENSOR_READ_INTERVAL_MS  = 2000;
-// static constexpr uint32_t MQTT_PUBLISH_INTERVAL_MS = 5000;
+static constexpr uint32_t SENSOR_READ_INTERVAL_MS    = 2000;   // sensor sampling cadence
+// Reserved (separate telemetry publish rate set when sensor publishing lands):
+// static constexpr uint32_t MQTT_PUBLISH_INTERVAL_MS = 30000;
 
 // ---- ADC ------------------------------------------------------------------
 static constexpr uint16_t ADC_MAX = 4095;  // 12-bit
@@ -59,6 +60,16 @@ static constexpr char     MQTT_BROKER_HOST[] = "10.6.19.139";
 static constexpr uint16_t MQTT_BROKER_PORT   = 1883;
 static constexpr char     MQTT_CLIENT_ID[]   = "wrover";
 static constexpr char     MQTT_TOPIC_STATUS[] = "plant/status/wrover";  // retained presence
+
+// ---- Sensor validity bounds (plausibility guards) -------------------------
+// A reading outside these ranges signals a sensor fault, not a real value;
+// the sensor's read() sets valid=false. BME280 bounds from DL-018.
+static constexpr float BME280_TEMP_MIN_C   =   -5.0f;
+static constexpr float BME280_TEMP_MAX_C   =   60.0f;
+static constexpr float BME280_HUM_MIN_PCT  =    0.0f;
+static constexpr float BME280_HUM_MAX_PCT  =  100.0f;
+static constexpr float BME280_PRES_MIN_HPA =  800.0f;
+static constexpr float BME280_PRES_MAX_HPA = 1100.0f;
 
 // ---- Calibration: MEASURED references from the decision log ---------------
 // These describe what the hardware reads in known conditions. Do not invent.
