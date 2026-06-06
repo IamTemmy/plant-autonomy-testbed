@@ -421,18 +421,41 @@ else:
 # ----------------------------------------------------------------------
 
 st.markdown("## Plant environment")
-st.caption("Sensor data will populate once the ESP32 WROVER firmware is publishing.")
+st.caption("Live readings from the ESP32 WROVER; cards fill in as each sensor comes online.")
+
+# Pull latest BME280 metrics published by the WROVER (device='bme280').
+air_temp = latest_sensor("temperature", "bme280")
+air_hum  = latest_sensor("humidity", "bme280")
+air_pres = latest_sensor("pressure", "bme280")
+
+
+def _fmt(reading, digits=1):
+    if not reading:
+        return "—", "unknown"
+    return f"{reading['value']:.{digits}f} {reading['unit']}", "ok"
+
 
 cols = st.columns(3)
-placeholders = [
-    ("Air temperature", "BME280"),
-    ("Humidity", "BME280"),
-    ("Light level", "BH1750"),
-    ("Soil moisture", "Capacitive sensor"),
-    ("Reservoir level", "Float switch"),
-    ("Leak sensor", "Conductive strip"),
+
+# Live cards (BME280)
+temp_val, temp_status = _fmt(air_temp)
+hum_val, hum_status   = _fmt(air_hum)
+pres_val, pres_status = _fmt(air_pres, digits=0)
+
+live_cards = [
+    ("Air temperature", temp_val, "BME280", temp_status),
+    ("Humidity",        hum_val,  "BME280", hum_status),
+    ("Pressure",        pres_val, "BME280", pres_status),
 ]
 
-for i, (label, meta) in enumerate(placeholders):
+# Sensors not yet publishing — still placeholders until their modules land.
+placeholder_cards = [
+    ("Light level", "—", "BH1750", "unknown"),
+    ("Soil moisture", "—", "Capacitive sensor", "unknown"),
+    ("Reservoir level", "—", "Float switch", "unknown"),
+    ("Leak sensor", "—", "Conductive strip", "unknown"),
+]
+
+for i, (label, value, meta, status) in enumerate(live_cards + placeholder_cards):
     with cols[i % 3]:
-        render_card(label, "—", meta, "unknown")
+        render_card(label, value, meta, status)

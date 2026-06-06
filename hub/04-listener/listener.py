@@ -114,6 +114,35 @@ def route_message(
         # Most Shelly topics carry JSON; some (online) carry plain text.
         parts = topic.split("/")
 
+        # plant/sensors/<device> -> sensor_readings (EAV fan-out)
+        # WROVER telemetry: one JSON blob per sensor device, projected into one
+        # sensor_readings row per metric. Added when BME280 publishing landed.
+        if len(parts) == 3 and parts[1] == "sensors":
+            device = parts[2]
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError:
+                log.warning("Non-JSON sensor payload on %s: %r", topic, payload[:80])
+                return
+            sensor_map = [
+                ("temperature", "C",   data.get("temperature_c")),
+                ("humidity",    "%",   data.get("humidity_pct")),
+                ("pressure",    "hPa", data.get("pressure_hpa")),
+            ]
+            rows = [
+                (ts, message_id, run_id, device, sensor, float(value), unit)
+                for sensor, unit, value in sensor_map
+                if value is not None
+            ]
+            if rows:
+                conn.executemany(
+                    """INSERT INTO sensor_readings
+                       (ts, message_id, run_id, device, sensor, value, unit)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    rows,
+                )
+            return
+
         # plant/grow-light/online -> system_status
         if len(parts) == 3 and parts[2] == "online":
             device = parts[1]
