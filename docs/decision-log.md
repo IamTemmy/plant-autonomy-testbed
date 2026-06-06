@@ -68,6 +68,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-046](#dl-046) | 2026-06-06 | Watering state machine: safety-first FSM, stubbed pump, validated on bench | Active |
 | [DL-047](#dl-047) | 2026-06-06 | Buzzer alarm (leak only) + OLED status display, FSM-driven | Active |
 | [DL-048](#dl-048) | 2026-06-06 | Pump flow calibrated at ~1.0 mL/s; daily cap set to 200 mL | Active |
+| [DL-049](#dl-049) | 2026-06-06 | Real pump enabled (GPIO25); dosing tuned (~5 mL pulse / 10 s settle); autonomous loop validated | Active |
 
 ---
 
@@ -1786,6 +1787,27 @@ These are all implementation decisions that will be made as code is written, rec
 **Alternatives considered.** 250 mL (leaning candidate, deferred as slightly less conservative for a first run); 300/500 mL (more headroom, rejected as too loose for an unattended debut). True mL accounting + NTP midnight reset still deferred (DL-046).
 
 **Files.** `firmware/test-sketches/13-pump-calibration/{platformio.ini, src/main.cpp}`, `config.h` (cap value).
+
+---
+
+<a id="dl-049"></a>
+### DL-049 — Real pump enabled and watering dosing tuned
+
+**Date:** 2026-06-06 · **Status:** Active. Full autonomous watering loop validated on the bench.
+
+**Context.** With the FSM and all safety guards validated (DL-046/047) and the pump calibrated at ~1.0 mL/s (DL-048), the final step was to flip the pump from stub to real GPIO25 output and set the watering dosing.
+
+**Decision.**
+- `pump.cpp` now drives the MOSFET gate: `pump_begin()` sets GPIO25 OUTPUT and LOW; `pump_on/off` `digitalWrite` HIGH/LOW. The stub (log-only, GPIO untouched) is retired now that the logic is proven and the pump is calibrated — the deliberate "pump lands last" sequencing.
+- Dosing: `WATER_PULSE_MS` = 5000 (~5 mL per pulse at 1.0 mL/s), `WATER_SETTLE_MS` = 10000 (10 s). One pulse-cycle ≈ 15 s delivering ~5 mL; the pump runs only a third of each cycle.
+
+**Rationale.** Small pulses with a generous settle let water spread and wick to the off-center soil probe before re-reading, avoiding overshoot (the closed-loop lag the user flagged). 5 mL (vs an initial 2 mL) reaches a real watering volume in fewer cycles while staying small enough that the 200 mL daily cap (DL-048) backstops any over-pumping. Settle raised from 5 s to 10 s for the same spreading-lag reason. Underwatering a cycle is recoverable; overwatering a small basil in ~4" soil is not — so the conservative dosing is intentional for the first autonomous run.
+
+**Validation (real water under FSM control).** First live run with the outlet into a cup: soil probe lifted to air (dry) → FSM `monitoring -> watering`, pump physically pulsed ON ~5 s / OFF ~10 s; probe returned to moist → pump stopped cleanly and FSM returned to monitoring. LEDs tracked state throughout. Pump stops reliably on OFF; STOP button available as kill switch.
+
+**Follow-ups (tune on the real plant).** Confirm `WATER_SETTLE_MS` is long enough for water to reach the probe in real soil (lengthen if it over-pumps); verify probe-to-outlet spacing; position outlet over the root zone, not at the stem. Raise daily cap toward 250–300 mL only if the soil dries too fast.
+
+**Files.** `pump.cpp`, `config.h`.
 
 ---
 
