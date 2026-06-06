@@ -59,8 +59,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-037](#dl-037) | 2026-06-04 | Streamlit dashboard with light cream theme; UTC storage, America/Chicago display | Active |
 | [DL-038](#dl-038) | 2026-06-04 | Tailscale for remote dashboard access; tailnet IP adopted as canonical URL | Active |
 | [DL-039](#dl-039) | 2026-06-05 | Shelly unexpected reboot diagnosed from telemetry; "Restore last state" mitigation applied | Active |
-| [DL-040](#dl-040) | 2026-06-05 | Phase 2 WROVER firmware architecture | Active |
-
+| [DL-040](#dl-040) | 2026-06-05 | Phase 2 WROVER integrated firmware: architectural principles | Active |
 
 ---
 
@@ -1495,62 +1494,117 @@ The real underlying need — detecting when reality and intent disagree — belo
 ---
 
 <a id="dl-040"></a>
-### DL-040 — Phase 2 WROVER firmware architecture
+### DL-040 — Phase 2 WROVER integrated firmware: architectural principles
 
-**Date:** 2026-06-05 · **Status:** Accepted
+**Date:** 2026-06-05 · **Status:** Active. Phase 2 begins; this entry establishes the principles the firmware will be built around, before any code is committed.
 
-**Context**
+**Context.** Phase 1 validated 11 of 12 hardware components individually on the WROVER bench (DL-015 through DL-026). Phase 3 brought the Pi-side infrastructure online: broker, listener, dashboard, all autonomous (DL-027 through DL-038). The hub already expects messages from devices; the Shelly is the only one publishing today. Phase 2 produces the firmware that turns the WROVER from a collection of validated bench components into an actual plant-care system that reads sensors, makes decisions, controls actuators, publishes telemetry, and operates autonomously for weeks at a time.
 
-Phase 1 validated eleven of twelve components individually; the twelfth, the ESP32-CAM, is deferred (DL-034) and is a separate node that the WROVER firmware never touches. Phase 3 — the hub — is already complete and running autonomously: broker, listener, and dashboard. Phase 2 now integrates the WROVER firmware that ties the sensors and the control state machine together, with actuation following later in the phase.
+The project is in an unusual position — Phase 3 was built before Phase 2. This means the firmware is being designed into a *running* system, not into a vacuum. The broker is up, the listener is waiting, the dashboard's "Plant environment" panels are sitting empty waiting to populate. That changes the design space: the firmware doesn't have to invent everything from scratch, but it does have to honor the conventions Phase 3 established.
 
-The hub being finished ahead of the firmware is the unusual feature of the situation, and it shapes the work. The firmware is not being built into a vacuum; it is being built into a live system that already expects to be told what the plant is doing. Before any code is written, the firmware's architecture is fixed here so that everything else in Phase 2 hangs off a stable backbone rather than being reshaped mid-flight.
+**Decision.** Phase 2 firmware is built around the principles below. Specific implementation choices (state count, exact module boundaries, sensor read intervals, watering algorithm) will emerge as code is written; this entry captures the *principles* that should remain stable across the implementation. The firmware lives at `firmware/integrated/` as a single PlatformIO project.
 
-**Decision**
+**Principle 1 — Non-blocking design.**
 
-The integrated firmware is a single PlatformIO project at `firmware/integrated/` using the standard layout (`platformio.ini`, `src/`, `include/`, `lib/`).
+The firmware must never call `delay()` in the main loop. All timing is millis()-based: each periodic task tracks its own "next due" timestamp and runs when due. The loop body checks each scheduled task, runs whatever's ready, and returns immediately.
 
-Three architectural commitments:
+This matters because the firmware has many concurrent responsibilities — read sensors at one rate, blink status LEDs at another, check buttons constantly, publish MQTT periodically, update the OLED, respond to watering decisions, handle faults. A blocking `delay()` in any of these would stall everything else. A single `delay(1000)` while waiting for a sensor would mean the STOP button has up to a one-second response time, which is unacceptable for a safety control. The cost of getting this wrong is high and the cost of retrofitting it later is even higher, so we lock it in from the start.
 
-1. **Non-blocking cooperative scheduler.** No `delay()` anywhere in the control path. All timing — sensor read intervals, the settling wait, dose duration, network keepalive — runs off `millis()`-based timers so that concurrent concerns coexist coherently.
+**Principle 2 — Module decomposition.**
 
-2. **Explicit six-state finite state machine.** States: Initializing, Monitoring, Watering, Settling, Reservoir-empty, Fault. A single state variable; transitions occur only through one `transition()` chokepoint. Implemented as `enum` + `switch`, not a function-pointer or table-driven dispatch.
+The firmware is not a single `main.cpp`. It is structured as a set of modules with clear responsibilities:
 
-3. **Graceful-degradation posture, asymmetric by design.** Sensor failure, an impossible reading, or a closed-loop verification failure sends the system to Fault and stops watering — that is the dangerous path. Loss of WiFi or MQTT is non-fatal: the control loop and watering continue with the broker down, and telemetry resumes on reconnect. The firmware is authoritative; the broker is only where it announces what it is doing.
+- **Sensors** — one logical interface per sensor (BME280, BH1750, soil moisture, float switch, leak sensor). Each returns a struct with the reading and a validity flag.
+- **Actuators** — pump, status LEDs, buzzer, OLED. Each exposes simple operations (start/stop, on/off, set display).
+- **State machine** — the control logic. What the firmware should be doing right now lives here, separate from how to do it.
+- **Telemetry** — MQTT connect, publish, subscribe. Sole owner of the broker connection.
+- **Config** — pin assignments, thresholds, timing constants, calibration values. Tuning happens in one file.
+- **Secrets** — WiFi credentials, MQTT credentials. Gitignored. An example template (`secrets.h.example`) is committed.
 
-The work proceeds backbone first, telemetry second, actuation last: the integration backbone (scheduler, FSM scaffold with the non-Monitoring states stubbed, the `Initializing → Monitoring` path made real, sensor reads to serial), then the telemetry contract and publishing, then the pump path with dose calibration and closed-loop verification behind the verification it depends on. How that work is partitioned into commits is left to the build itself.
+The exact file layout will be informed by what makes sense in PlatformIO — likely `src/main.cpp` plus headers/implementations in `src/` or `lib/` depending on whether we want PlatformIO's library finder to manage them. The principle is that the firmware is decomposed; the exact decomposition is implementation detail.
 
-**Rationale**
+**Principle 3 — Sensors return readings with validity flags.**
 
-#### Non-blocking scheduler
+Every sensor read returns a structured result: the value, the unit, and a boolean indicating whether the reading is trustworthy. A failed I²C read, an out-of-range ADC value, an obviously-broken sensor (e.g. soil moisture reading 0 ADC counts forever) — all set the validity flag to false. The reading itself may still be present, but downstream code is required to check validity before acting on it.
 
-`delay()` blocks the entire processor. With network keepalive, a timed settling period, and several sensor cadences that must run on their own clocks, a blocking design cannot keep them coherent, and converting a blocking codebase to non-blocking after the fact is expensive and bug-prone. This is the one architectural choice that is painful to retrofit, so it is established first and everything is written against it from the start.
+This is what makes graceful degradation possible. Without per-sensor validity, the firmware would have to guess whether a value is real, or worse, treat clearly broken readings as truth and water the plant based on a soil sensor that just disconnected. With validity flags, the state machine has the information it needs to refuse to act on bad data.
 
-#### enum + switch over a table
+**Principle 4 — State machine for control flow.**
 
-Six states is small. A `switch` keeps the entire control flow visible and greppable in one place and is straightforward to step through in a debugger. Table-driven dispatch buys a flexibility this control loop does not need and costs the traceability it does — and inspectable, explicit behavior is a standing value of this project.
+The firmware's behavior at any instant is captured by a finite state machine. "What should we be doing right now" is encoded as a state; transitions between states have explicit conditions; the loop runs the current state's logic each tick.
 
-#### Backbone-first ordering
+The specific states will emerge as the implementation comes together. Likely candidates include Initializing, Monitoring (normal sensor-reading operation), Watering (pump active), Settling (post-water grace period before next read is trusted), Fault (unrecoverable problem requiring operator ACK), and possibly others. DL-040 does not commit to a specific state count; it commits to the FSM *pattern* as the right structure for the control logic.
 
-Keeping the pump until last keeps the only physically dangerous path away from an unproven backbone. Settling the telemetry contract on its own, after the backbone runs, lets the message shapes get a deliberate design pass rather than being frozen under time pressure. And the backbone alone is demonstrable — it closes the loop with the already-running hub before any actuator is wired in.
+The implementation should make the FSM debuggable: state transitions should be loggable to serial, the current state should be visible on the OLED and publishable as telemetry. A future operator looking at the dashboard should be able to see "the firmware is in Monitoring" or "the firmware faulted because the leak sensor tripped."
 
-#### Asymmetric degradation
+**Principle 5 — Graceful degradation: what is fatal and what is not.**
 
-The device must keep a plant alive for weeks unattended. A dead sensor means the firmware is blind and could overwater — it must stop. A dead broker means only that no one is watching — the plant is fine, so the firmware must keep caring for it. Treating the two symmetrically would either make the system fragile to ordinary network blips or unsafe in the face of a sensor fault.
+This is the most operationally important principle in the document, because it determines whether the plant survives unattended failures.
 
-**Verification**
+**Sensor invalidity is fatal to watering**, but not to the firmware overall. If the soil moisture sensor returns invalid for sustained reads, watering is halted. The firmware continues to run, continues to read other sensors, continues to publish telemetry, continues to respond to operator commands — but it does not water until the sensor is valid again or the fault is explicitly cleared. The reasoning: watering is the only path that can physically harm the plant (overwatering, root rot, flooding the bench). Without trustworthy moisture data, watering becomes guessing, which is unsafe.
 
-The backbone is verifiable on its own: the board boots, self-tests every sensor, connects to WiFi, and parks in Monitoring printing live sensor values to serial; pulling the network leaves the control loop running. Telemetry is verified against the live hub and dashboard. The watering path is verified against measured dose volumes and a deliberately failed watering that must drive the system to Fault.
+**WiFi and MQTT loss are non-fatal.** If the broker disappears or WiFi drops, the firmware keeps running. The control loop continues. Sensors are still read. Watering decisions are still made. The plant continues to be cared for. Telemetry that would have been published is either dropped or queued (decision deferred to implementation); when connectivity returns, telemetry resumes from that point. The firmware is the authority on what the plant needs; the broker is just where the firmware announces what it's doing.
 
-**What this entry does not commit to**
+**Hard faults — leak detected, reservoir empty for too long, sensor stuck-broken for hours — halt all actuation and require operator ACK.** These are conditions where continuing automatic operation would likely cause harm. The firmware lights the red LED, posts a fault to the broker, and waits for the operator to press the physical ACK button before resuming.
 
-The concrete MQTT topic strings and JSON schemas (deferred to the telemetry work and its own entry); pump dose timing and calibration constants; the grow-light Daily Light Integral logic (parallel logic, handled separately); any camera or vision work (DL-034; separate node; out of Phase 2 entirely); the watchdog timer and daily-water-limit failsafe (Phase 5 hardening); and the local OLED, LED, and buzzer behavior beyond stubs.
+**Principle 6 — Centralized configuration.**
 
-**Alternatives considered**
+Pin assignments, sensor read intervals, soil moisture thresholds for watering decisions, pump dose volumes, calibration constants, timing values — all live in one `config.h`. Tuning the system means editing one file, not hunting through code for magic numbers. This also means the file becomes a readable summary of the system's tunable behavior, useful for review and for future-you who has forgotten what the values mean.
 
-- **FreeRTOS tasks instead of a cooperative scheduler.** Rejected for v1: more concurrency machinery than a single-plant control loop needs, harder to reason about and debug, and the cooperative `millis()` pattern is sufficient and more inspectable. Worth revisiting only if multi-plant scaling (deferred to v2) is ever pursued.
-- **Table-driven / function-pointer FSM.** Rejected as above — flexibility not needed, traceability lost.
-- **Numbered subdirectories mirroring `hub/0N-…/`.** Rejected. Firmware is one evolving artifact, not a sequence of discrete setup steps; a single standard PlatformIO project is cleaner and avoids implying there are several separate firmwares.
-- **Treating connectivity loss as a fault.** Rejected. It would make a weeks-unattended device fragile to routine network interruptions.
+**Principle 7 — Credentials never committed.**
+
+A gitignored `secrets.h` holds WiFi SSID, WiFi password, MQTT username, MQTT password. A committed `secrets.h.example` shows the structure with placeholder values. Same pattern as the Pi-side `/etc/plant-hub/credentials` (DL-036): real values stay on the developer machine and the deployed device, the repo never sees them.
+
+**On the broker-side conventions the firmware must honor.**
+
+Phase 3 established a loose topic namespace plan: `plant/sensors/...`, `plant/state/...`, `plant/commands/...`. The exact JSON shapes and topic structure under these prefixes are *not* fixed by Phase 3 — the listener parses by topic prefix and writes to the raw archive regardless of message shape, and the projection logic for ESP32 publishes hasn't been written yet. So the firmware is free to propose specific shapes; the listener will be updated to project them into the structured tables.
+
+This means message-shape design becomes part of the firmware work, not a constraint from Phase 3. When the firmware is ready to publish, we design the topic structure and JSON shapes together and update both ends.
+
+**On the directory choice — `firmware/integrated/` rather than numbered subdirectories.**
+
+Phase 1's `firmware/test-sketches/01-bme280/` through `firmware/test-sketches/10-leak-sensor/` were independent test sketches, each its own PlatformIO project, each validating one component in isolation. Phase 3's `hub/01-pi-setup/` through `hub/07-dashboard-service/` were distinct logical components (broker, listener, dashboard) that happen to be sequenced.
+
+Phase 2 is different in kind. It is *one* firmware that evolves over many commits. Numbering subdirectories would create the illusion of separate firmwares; a single PlatformIO project at `firmware/integrated/` matches the actual nature of the work and follows standard PlatformIO conventions. The directory contains `platformio.ini`, `src/`, and possibly `include/` and `lib/` as the firmware grows.
+
+**On commit sequencing.**
+
+The firmware is not built according to a pre-planned three-commit (or N-commit) sequence. Each commit is whatever natural unit of working code emerges next: project skeleton; WiFi connect; one sensor integrated; state machine scaffold; telemetry publishing; pump path; etc. Some will be small; some will be substantial. The discipline is "real progress per commit," not "stick to a plan."
+
+The one ordering constraint worth recording: **the watering path is the last major piece to land.** The pump is the only actuator that can physically harm the plant (overwatering, flooding). Watering depends on calibration work (dose volume → milliliters) that hasn't been done yet. It also depends on the state machine and the moisture-sensor logic being trustworthy. Adding watering before these foundations are solid would be putting the dangerous capability into the system before its safety guards are real.
+
+**Verification approach.**
+
+The firmware is verifiable at several layers:
+
+- **Serial output.** Every state transition, every sensor read, every decision logged to serial. The first sanity check at every commit.
+- **OLED display.** Shows current state + most recent readings, allowing visual verification without a serial console.
+- **MQTT telemetry.** Once published, the dashboard's currently-empty "Plant environment" panels start populating. Visual confirmation in the browser.
+- **Database queries.** The same kind of telemetry-driven diagnostic that revealed the Shelly reboot in DL-039 will work for the WROVER firmware. If something goes wrong, the database will show what happened.
+
+**What this entry does not commit to.**
+
+- The number of states in the FSM.
+- The exact module/file layout under `firmware/integrated/src/`.
+- The specific JSON message shapes for telemetry.
+- The watering decision algorithm (threshold-based? hysteresis? proportional dose?).
+- The dose calibration values (will be empirically measured in a future commit).
+- Specific sensor read intervals.
+- The handling of MQTT telemetry during disconnects (drop vs. queue, queue size if queued).
+- The OLED layout and what gets displayed in each state.
+- Whether sensors run in their own task on the ESP32's second core or all in the main loop.
+
+These are all implementation decisions that will be made as code is written, recorded in subsequent DL entries when they are non-obvious or constitute reversible-but-costly choices.
+
+**Alternatives considered.**
+
+- **One giant `main.cpp` with no modules.** Faster to start writing, much harder to maintain or reason about beyond a few hundred lines. Rejected — even a one-person project benefits from decomposition, and this project is portfolio-visible.
+- **`delay()`-based timing for "simplicity."** Common in Arduino-style sketches. Rejected — incompatible with the concurrent responsibilities the firmware has. The "simplicity" of `delay()` evaporates the moment you need two things to happen at different intervals.
+- **Skip the FSM, use ad-hoc conditionals.** Workable for very simple control flow; rapidly becomes unreadable as states multiply. The FSM pattern was already validated as the right structure during Phase 1 work (DL-025, the user-feedback subsystem's four-state IDLE/ACTION/FAULT/CRITICAL FSM). Continuing that pattern is the natural choice.
+- **WiFi/MQTT as fatal to operation.** Would simplify the firmware (no need to handle disconnect gracefully) but would mean the plant dies any time the broker has a hiccup. Categorically wrong given the project's "weeks unattended" goal.
+- **Watering as the first major piece to land.** Sometimes recommended in "get the dangerous thing working first" school of thought. Rejected here because the dangerous thing is what you need to be most sure of, which means it should land *after* the supporting safety infrastructure (FSM, valid-sensor checks, fault handling) is in place.
+
+**Files committed in this DL.** None — this is an architecture entry. Code follows in subsequent commits.
 
 ---
 
