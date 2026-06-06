@@ -65,6 +65,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-043](#dl-043) | 2026-06-06 | Float + leak sensors: report-only modules, fault interpretation deferred to FSM | Active |
 | [DL-044](#dl-044) | 2026-06-06 | Third status LED (yellow, GPIO23): green/yellow/red traffic-light state indication | Active |
 | [DL-045](#dl-045) | 2026-06-06 | Traffic-light LEDs bench-validated after rewire (green 18 / yellow 19 / red 23) | Active |
+| [DL-046](#dl-046) | 2026-06-06 | Watering state machine: safety-first FSM, stubbed pump, validated on bench | Active |
 
 ---
 
@@ -1696,7 +1697,50 @@ These are all implementation decisions that will be made as code is written, rec
 
 ---
 
+<a id="dl-045"></a>
+### DL-045 — Traffic-light status LEDs bench-validated
 
+**Date:** 2026-06-06 · **Status:** Active.
+
+**Context.** DL-044 added a third LED and rewired the set (green GPIO18, yellow GPIO19, red GPIO23) into a vertical traffic light. The rewire — a new GPIO23 and a red↔yellow move — was unproven, and the state machine (DL-046) will depend on these pins driving the right LEDs.
+
+**Decision.** Validated with a dedicated bench sketch (`firmware/test-sketches/12-traffic-light-leds`) before integration: each LED lit alone in physical top-to-bottom order (red, yellow, green) with serial labels, then all three blinked together. Confirmed each GPIO drives its intended LED in the correct position, no shorts/swaps, and GPIO23 (the new wire) works.
+
+**Rationale.** Consistent with the project's phase-gated discipline — bench-validate each subsystem in isolation before integrating, so a wiring fault is caught on its own rather than masked as a logic bug inside the FSM. The sketch is committed (not throwaway) alongside the other Phase 1 component tests.
+
+**Result.** Pass — all three LEDs correct in position and individually addressable.
+
+**Files.** `firmware/test-sketches/12-traffic-light-leds/{platformio.ini, src/main.cpp}`.
+
+---
+
+<a id="dl-046"></a>
+### DL-046 — Watering state machine
+
+**Date:** 2026-06-06 · **Status:** Active. Built, flashed, and bench-validated with the pump stubbed.
+
+**Context.** With all six sensors reporting (DL-042/043) and the LEDs validated (DL-045), the system needed the decision layer that turns telemetry into autonomous watering, safely and unattended.
+
+**Decision.** A seven-state machine in `fsm.{h,cpp}`, ticked every loop with the latest soil/float/leak readings:
+- States: monitoring, watering, manual, reservoir_empty, daily_limit, leak_fault, stopped.
+- Safety-first evaluation order every tick, overriding all states: a debounced leak (must persist `LEAK_DEBOUNCE_MS` = 3s) → leak_fault; STOP button → stopped. Both latch and clear only on ACK (leak_fault also requires the leak to have cleared).
+- Recoverable gating below safety: reservoir empty → blocked (auto-clears on refill); daily pump-time cap reached → blocked (auto-clears on window reset).
+- Core loop: soil dries past `SOIL_THRESHOLD_TRIGGER` → watering; pump runs in pulses (`WATER_PULSE_MS` on, `WATER_SETTLE_MS` settle) so water wicks to the probe between reads (no overshoot) until soil re-wets to `SOIL_THRESHOLD_STOP` → monitoring. MANUAL button forces a watering cycle by hand, subject to the same gates.
+- LEDs (DL-044/045) mirror state: green steady = monitoring, green blink = watering/manual, yellow steady = reservoir_empty, yellow blink = daily_limit, red steady = leak_fault, red blink = stopped.
+- Buttons debounced (`BUTTON_DEBOUNCE_MS`, active-LOW edge): STOP GPIO32, ACK GPIO33, MANUAL GPIO26.
+- State published retained to `plant/state/wrover` on change and every 30s: `{state, pump, daily_pump_ms}`.
+
+**Pump deliberately stubbed.** `pump.{h,cpp}` logs `[PUMP] ON/OFF (stub)` and tracks state for daily accounting but does NOT drive GPIO25. The pump is the only actuator that can harm the plant, so it stays stubbed until the logic is validated and the pump is calibrated. "Pump lands last."
+
+**Daily cap as run-time, not volume.** Implemented as cumulative pump-on milliseconds over a rolling 24h window (`MAX_DAILY_PUMP_MS`, placeholder 60s), not a calendar-midnight mL budget. Rationale: the failsafe (a single fault can't drain the reservoir into the pot) works immediately without pump calibration or NTP. Relabel to mL after calibration; true-midnight reset via NTP is a deferred refinement.
+
+**Validation (pump stubbed, no water moved).** Confirmed on the bench: monitoring (green steady); auto-watering on a dry soil reading with the pulse cycle visible in serial; manual via button; reservoir_empty on float-down and auto-recovery on refill; leak_fault after sustained wet pad (and a sub-3s splash correctly ignored); stopped via STOP; ACK clearing both faults to monitoring. daily_limit not exercised live (structurally identical to the other gated states; needs a temporary low cap to trigger).
+
+**Alternatives considered.** Build with the real pump from the start (rejected: unsafe before calibration and logic validation). NTP + mL budget now (rejected: more moving parts before the logic was proven). Safety as ordinary states rather than a first-evaluated override (rejected: a leak mid-watering must cut the pump immediately, not wait for a transition).
+
+**Files.** `fsm.{h,cpp}`, `pump.{h,cpp}`, `config.h`, `net_mqtt.{h,cpp}`, `main.cpp`.
+
+---
 
 ## Maintaining this log
 
