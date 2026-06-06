@@ -429,12 +429,22 @@ air_hum  = latest_sensor("humidity", "bme280")
 air_pres = latest_sensor("pressure", "bme280")
 light    = latest_sensor("lux", "bh1750")
 soil     = latest_sensor("moisture", "soil")
+reservoir = latest_sensor("reservoir_empty", "float")
+leak      = latest_sensor("leak_detected", "leak")
 
 
 def _fmt(reading, digits=1):
     if not reading:
         return "—", "unknown"
     return f"{reading['value']:.{digits}f} {reading['unit']}", "ok"
+
+
+def _fmt_state(reading, true_label, false_label, true_status, false_status):
+    # Boolean-style sensor: value 1.0 => true_label, 0.0 => false_label.
+    if not reading:
+        return "—", "unknown"
+    is_true = reading["value"] >= 0.5
+    return (true_label, true_status) if is_true else (false_label, false_status)
 
 
 cols = st.columns(3)
@@ -445,6 +455,8 @@ hum_val, hum_status   = _fmt(air_hum)
 pres_val, pres_status   = _fmt(air_pres, digits=0)
 light_val, light_status = _fmt(light, digits=0)
 soil_val, soil_status   = _fmt(soil, digits=0)
+res_val, res_status     = _fmt_state(reservoir, "Empty", "OK", "warn", "ok")
+leak_val, leak_status   = _fmt_state(leak, "Leak!", "Dry", "fault", "ok")
 
 live_cards = [
     ("Air temperature", temp_val,  "BME280", temp_status),
@@ -452,14 +464,10 @@ live_cards = [
     ("Pressure",        pres_val,  "BME280", pres_status),
     ("Light level",     light_val, "BH1750", light_status),
     ("Soil moisture",   soil_val,  "Capacitive sensor", soil_status),
+    ("Reservoir level", res_val,   "Float switch", res_status),
+    ("Leak sensor",     leak_val,  "Conductive strip", leak_status),
 ]
 
-# Sensors not yet publishing — still placeholders until their modules land.
-placeholder_cards = [
-    ("Reservoir level", "—", "Float switch", "unknown"),
-    ("Leak sensor", "—", "Conductive strip", "unknown"),
-]
-
-for i, (label, value, meta, status) in enumerate(live_cards + placeholder_cards):
+for i, (label, value, meta, status) in enumerate(live_cards):
     with cols[i % 3]:
         render_card(label, value, meta, status)

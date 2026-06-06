@@ -131,6 +131,9 @@ def route_message(
                 ("lux",         "lx",  data.get("lux")),
                 ("soil_raw",    "adc", data.get("soil_raw")),
                 ("moisture",    "%",   data.get("moisture_pct")),
+                ("reservoir_empty", "bool", data.get("reservoir_empty")),
+                ("leak_raw",        "adc",  data.get("leak_raw")),
+                ("leak_detected",   "bool", data.get("leak_detected")),
             ]
             rows = [
                 (ts, message_id, run_id, device, sensor, float(value), unit)
