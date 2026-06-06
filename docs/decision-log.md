@@ -61,6 +61,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-039](#dl-039) | 2026-06-05 | Shelly unexpected reboot diagnosed from telemetry; "Restore last state" mitigation applied | Active |
 | [DL-040](#dl-040) | 2026-06-05 | Phase 2 WROVER integrated firmware: architectural principles | Active |
 | [DL-041](#dl-041) | 2026-06-06 | WROVER telemetry convention: topics, presence + Last Will, per-sensor payload, EAV projection | Active |
+| [DL-042](#dl-042) | 2026-06-06 | Soil moisture: % mapping from 3-condition data, single far-from-inflow probe, closed-loop handles growth | Active |
 
 ---
 
@@ -1628,6 +1629,29 @@ These are all implementation decisions that will be made as code is written, rec
 **Alternatives considered.** Per-metric topics (more messages, no atomicity — rejected). Minimal ping without Last Will (no truthful offline signal — rejected). `device`=node with a 4-part topic (more scalable but unneeded for one node; noted as the extension path — briefly mis-wired as `wrover` and corrected to `bme280`). Publishing at read cadence (DB bloat — rejected).
 
 **Files.** Firmware: `config.h`, `net_mqtt.{h,cpp}`, `main.cpp`. Hub: `listener.py`, `dashboard.py`.
+
+---
+
+<a id="dl-042"></a>
+### DL-042 — Soil moisture: percentage mapping, sensor count, and placement
+
+**Date:** 2026-06-06 · **Status:** Active. Sensor integrated and publishing; watering thresholds tuned later on the live plant.
+
+**Context.** Bringing the capacitive soil probe (GPIO34) online required deciding how to report it, how many to use, and where to place it. Calibration data is the three DL-020 conditions: air ~2854, dry soil ~2523, wet soil ~1953 ADC (lower = wetter), each fluctuating ~10–16 counts.
+
+**Decision.**
+- Report both `soil_raw` (ground truth for the watering logic) and `moisture_pct` (human-readable). Percent maps dry anchor (2523) = 0% to wet anchor (1953) = 100%, clamped; in-air clamps to 0%.
+- Average 16 samples per read to tame ADC jitter. Plausibility band 800–3200; outside it the probe is treated as disconnected.
+- Use one sensor for the 5–6" pot, placed on the far side from the water inflow.
+- Watering is closed-loop on moisture (drive soil to a setpoint, then stop), not a fixed dose.
+
+**Rationale.** The 3 conditions already give a full dry→wet scale; "healthy" is a chosen setpoint on that line (the DL-020 trigger/stop pair), not a fourth measurement. The wet anchor was non-waterlogged, so it is conservative: readings wetter than it simply clamp to 100% rather than driving the soil to saturation — the safe direction. One sensor suffices in a small uniform pot; a second doubles failure surface for little gain. Placing it away from the inflow means it reads "wet enough" only once moisture has migrated across the root zone, not when a slug of water hits the inlet — avoiding early pump cutoff. Closed-loop control means a growing plant is handled automatically: it dries out faster and is watered more often, but each watering returns the soil to the same setpoint, so growth changes frequency, not dose.
+
+**Alternatives considered.** Raw-only reporting (less readable — rejected; we publish both). Provisional percent flagged as untrustworthy (unnecessary — the dry/wet anchors are solid measurements). A second probe (deferred to larger/multi-plant setups). Open-loop timed dosing (rejected: fixed volume drifts wrong as the plant grows).
+
+**What this entry does not commit to.** Exact trigger/stop values and pulse-then-wait pump behaviour — finalized on the live plant with the state machine (water wicks to the probe with a lag, so pumping must pulse-and-settle, not run to threshold in one shot). A future vision layer may nudge the setpoint, never drive the pump directly.
+
+**Files.** Firmware: `soil.{h,cpp}`, `config.h`, `net_mqtt.{h,cpp}`, `main.cpp`. Hub: `listener.py`, `dashboard.py`.
 
 ---
 
