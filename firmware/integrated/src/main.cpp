@@ -1,5 +1,5 @@
 // Plant Autonomy Testbed — Phase 2 integrated firmware
-// Entry point: scheduler + (so far) heartbeat and WiFi management.
+// Entry point: scheduler + heartbeat, WiFi, and MQTT telemetry.
 // All periodic tasks follow the same non-blocking millis() pattern
 // established by the heartbeat. See DL-040 Principles 1 & 5.
 
@@ -7,6 +7,7 @@
 
 #include "config.h"
 #include "net_wifi.h"
+#include "net_mqtt.h"
 
 // Per-task "next due" timestamps. One per scheduled task.
 // Initialized to 0 so each task runs once shortly after boot.
@@ -23,21 +24,23 @@ void setup() {
     Serial.println();
     Serial.println("=================================================");
     Serial.println("Plant Autonomy Testbed - Phase 2 firmware");
-    Serial.println("Build: heartbeat + WiFi (per DL-040)");
+    Serial.println("Build: heartbeat + WiFi + MQTT (per DL-040)");
     Serial.println("=================================================");
     Serial.println();
 
     wifi_begin();  // bounded blocking connect at boot, then non-fatal
+    mqtt_begin();  // configure broker; connects once WiFi is up (in loop)
 }
 
 void loop() {
     const unsigned long now_ms = millis();
 
-    wifi_tick();  // non-blocking: services reconnects on its own cadence
+    wifi_tick();  // non-blocking: services WiFi reconnects on its cadence
+    mqtt_tick();  // non-blocking: connects/reconnects + pumps the client
 
-    // Heartbeat task: prints a tick line every HEARTBEAT_INTERVAL_MS ms.
-    // The scheduling pattern below is the template for all later
-    // periodic tasks: compare now to next-due, run if due, update next-due.
+    // Heartbeat task: prints a tick line every HEARTBEAT_INTERVAL_MS ms and
+    // publishes a retained presence message. The scheduling pattern below is
+    // the template for all later periodic tasks.
     if (now_ms >= heartbeat_next_ms) {
         heartbeat_count++;
         Serial.print("heartbeat #");
@@ -45,6 +48,8 @@ void loop() {
         Serial.print(" @ ");
         Serial.print(now_ms);
         Serial.println(" ms");
+
+        mqtt_publish_status(heartbeat_count);  // no-op if not connected
 
         heartbeat_next_ms = now_ms + HEARTBEAT_INTERVAL_MS;
     }
