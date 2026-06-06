@@ -62,6 +62,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-040](#dl-040) | 2026-06-05 | Phase 2 WROVER integrated firmware: architectural principles | Active |
 | [DL-041](#dl-041) | 2026-06-06 | WROVER telemetry convention: topics, presence + Last Will, per-sensor payload, EAV projection | Active |
 | [DL-042](#dl-042) | 2026-06-06 | Soil moisture: % mapping from 3-condition data, single far-from-inflow probe, closed-loop handles growth | Active |
+| [DL-043](#dl-043) | 2026-06-06 | Float + leak sensors: report-only modules, fault interpretation deferred to FSM | Active |
 
 ---
 
@@ -1654,6 +1655,27 @@ These are all implementation decisions that will be made as code is written, rec
 **Files.** Firmware: `soil.{h,cpp}`, `config.h`, `net_mqtt.{h,cpp}`, `main.cpp`. Hub: `listener.py`, `dashboard.py`.
 
 ---
+
+<a id="dl-043"></a>
+### DL-043 — Float switch and leak sensor: report-only, faults deferred to FSM
+
+**Date:** 2026-06-06 · **Status:** Active. Both integrated, publishing, and physically verified.
+
+**Context.** The reservoir float (GPIO27, digital) and leak sensor (GPIO39, analog) complete the sensing layer. Unlike the continuous sensors, both are effectively stateful/safety signals, which raised where they belong in the DL-035 schema.
+
+**Decision.**
+- Both are treated as plain sensors: they publish on `plant/sensors/float` and `plant/sensors/leak` and project into `sensor_readings` (booleans stored as 0/1), same path as every other sensor.
+- The float reports `reservoir_empty`; polarity is set by `FLOAT_EMPTY_WHEN_CLOSED` in config.h (INPUT_PULLUP: HIGH=open, LOW=closed), made flippable because the empty↔closed mapping depends on the physical switch. Verified by lift/drop test.
+- The leak module averages 16 samples and applies `LEAK_THRESHOLD` (200, DL-026); higher raw = wetter. It publishes both `leak_raw` and a `leak_detected` flag so the threshold stays authoritative in firmware config.
+- Fault interpretation (leak detected → critical; reservoir empty → block the pump) is NOT done here. The sensor layer only reports; the state machine consumes these and is what will write `fault_events`.
+
+**Rationale.** Keeping the sensor layer pure (report, don't decide) matches the separation held throughout Phase 2 and keeps each module independently testable. `fault_events` is reserved and rightly written by the decision-making layer, not by a sensor. Publishing `leak_detected` from firmware keeps the single source of truth for the threshold in config.h rather than duplicating it on the dashboard. The flippable float polarity avoids hard-coding an assumption that depends on physical mounting.
+
+**Alternatives considered.** Routing leak to `fault_events` / float to `system_status` directly from the listener (rejected: that puts decision logic in the ingest layer before the FSM exists, and a raw "wet pad" reading is not yet a declared fault). Publishing only `leak_raw` and thresholding on the dashboard (rejected: splits the threshold's source of truth).
+
+**Files.** Firmware: `float_switch.{h,cpp}`, `leak.{h,cpp}`, `config.h`, `net_mqtt.{h,cpp}`, `main.cpp`. Hub: `listener.py`, `dashboard.py`.
+
+
 
 ## Maintaining this log
 
