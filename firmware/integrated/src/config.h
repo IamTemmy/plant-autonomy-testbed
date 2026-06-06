@@ -42,6 +42,8 @@ static constexpr uint8_t OLED_ADDR   = 0x3C;
 // ---- Timing / scheduling intervals (ms) -----------------------------------
 // All periodic-task timing lives here. Scheduling pattern: see main.cpp loop().
 static constexpr uint32_t HEARTBEAT_INTERVAL_MS = 5000;
+static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS    = 10000;  // boot connect wait
+static constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 5000;   // loop reconnect cadence
 // Reserved for upcoming tasks (not yet scheduled):
 // static constexpr uint32_t SENSOR_READ_INTERVAL_MS  = 2000;
 // static constexpr uint32_t MQTT_PUBLISH_INTERVAL_MS = 5000;
