@@ -49,6 +49,14 @@ static constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 5000;   // loop reconnect
 static constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 5000;   // loop reconnect cadence
 static constexpr uint32_t SENSOR_READ_INTERVAL_MS    = 2000;   // sensor sampling cadence
 static constexpr uint32_t MQTT_PUBLISH_INTERVAL_MS   = 30000;  // telemetry publish cadence
+// State machine (DL-046)
+static constexpr uint32_t LED_BLINK_MS        = 400;    // status LED blink period
+static constexpr uint32_t BUTTON_DEBOUNCE_MS  = 50;     // pushbutton debounce
+static constexpr uint32_t LEAK_DEBOUNCE_MS    = 3000;   // leak must persist this long to latch
+static constexpr uint32_t WATER_PULSE_MS      = 2000;   // pump-on duration per watering pulse
+static constexpr uint32_t WATER_SETTLE_MS     = 5000;   // wait for water to wick before re-reading
+static constexpr uint32_t DAILY_WINDOW_MS     = 86400000UL;  // rolling 24h window
+static constexpr uint32_t MAX_DAILY_PUMP_MS   = 60000UL;     // daily pump-on cap (placeholder; relabel to mL after calibration)
 
 // ---- ADC ------------------------------------------------------------------
 static constexpr uint16_t ADC_MAX = 4095;  // 12-bit
@@ -65,6 +73,7 @@ static constexpr char     MQTT_TOPIC_SENSORS_BH1750[] = "plant/sensors/bh1750"; 
 static constexpr char     MQTT_TOPIC_SENSORS_SOIL[]   = "plant/sensors/soil";    // soil moisture
 static constexpr char     MQTT_TOPIC_SENSORS_FLOAT[]  = "plant/sensors/float";   // reservoir level
 static constexpr char     MQTT_TOPIC_SENSORS_LEAK[]   = "plant/sensors/leak";    // leak detection
+static constexpr char     MQTT_TOPIC_STATE[]          = "plant/state/wrover";    // FSM state (retained)
 
 // ---- Sensor validity bounds (plausibility guards) -------------------------
 // A reading outside these ranges signals a sensor fault, not a real value;

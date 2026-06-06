@@ -37,5 +37,9 @@ void mqtt_publish_float(bool reservoir_empty);
 // Publish leak reading (raw + detected flag). NOT retained. No-op if not connected.
 void mqtt_publish_leak(uint16_t raw, bool detected);
 
+// Publish FSM state (retained: dashboard always has current state). No-op if
+// not connected.
+void mqtt_publish_state(const char* state, bool pump_on, unsigned long daily_pump_ms);
+
 // True if currently connected to the broker.
 bool mqtt_connected();

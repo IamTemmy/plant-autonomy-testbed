@@ -90,6 +90,17 @@ void mqtt_publish_leak(uint16_t raw, bool detected) {
     mqtt.publish(MQTT_TOPIC_SENSORS_LEAK, payload);  // not retained
 }
 
+void mqtt_publish_state(const char* state, bool pump_on, unsigned long daily_pump_ms) {
+    if (!mqtt.connected()) {
+        return;
+    }
+    char payload[96];
+    snprintf(payload, sizeof(payload),
+             "{\"state\":\"%s\",\"pump\":%d,\"daily_pump_ms\":%lu}",
+             state, pump_on ? 1 : 0, daily_pump_ms);
+    mqtt.publish(MQTT_TOPIC_STATE, payload, true);  // retained
+}
+
 void mqtt_tick() {
     // MQTT depends on WiFi; nothing to do until the link is up.
     if (!wifi_connected()) {

@@ -13,6 +13,7 @@
 #include "soil.h"
 #include "float_switch.h"
 #include "leak.h"
+#include "fsm.h"
 
 // Per-task "next due" timestamps. One per scheduled task.
 static unsigned long heartbeat_next_ms      = 0;
@@ -47,6 +48,7 @@ void setup() {
     soil_begin();     // capacitive soil moisture (analog)
     float_switch_begin();  // reservoir float (digital)
     leak_begin();          // leak detection (analog)
+    fsm_begin();           // state machine: LEDs, buttons, stubbed pump
 }
 
 void loop() {
@@ -54,6 +56,10 @@ void loop() {
 
     wifi_tick();  // non-blocking: services WiFi reconnects on its cadence
     mqtt_tick();  // non-blocking: connects/reconnects + pumps the client
+
+    // State machine runs every loop for responsive buttons/LEDs, using the
+    // latest cached sensor readings (updated by the sensor-read task below).
+    fsm_tick(last_soil, last_float, last_leak);
 
     // Sensor-read task: sample and cache. Prints for bench visibility.
     if (now_ms >= sensor_read_next_ms) {
