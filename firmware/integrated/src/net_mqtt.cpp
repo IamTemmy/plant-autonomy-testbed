@@ -70,6 +70,26 @@ void mqtt_publish_soil(uint16_t raw, float moisture_pct) {
     mqtt.publish(MQTT_TOPIC_SENSORS_SOIL, payload);  // not retained
 }
 
+void mqtt_publish_float(bool reservoir_empty) {
+    if (!mqtt.connected()) {
+        return;
+    }
+    char payload[40];
+    snprintf(payload, sizeof(payload),
+             "{\"reservoir_empty\":%d}", reservoir_empty ? 1 : 0);
+    mqtt.publish(MQTT_TOPIC_SENSORS_FLOAT, payload);  // not retained
+}
+
+void mqtt_publish_leak(uint16_t raw, bool detected) {
+    if (!mqtt.connected()) {
+        return;
+    }
+    char payload[64];
+    snprintf(payload, sizeof(payload),
+             "{\"leak_raw\":%u,\"leak_detected\":%d}", raw, detected ? 1 : 0);
+    mqtt.publish(MQTT_TOPIC_SENSORS_LEAK, payload);  // not retained
+}
+
 void mqtt_tick() {
     // MQTT depends on WiFi; nothing to do until the link is up.
     if (!wifi_connected()) {

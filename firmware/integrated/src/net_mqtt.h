@@ -31,5 +31,11 @@ void mqtt_publish_bh1750(float lux);
 // No-op if not connected.
 void mqtt_publish_soil(uint16_t raw, float moisture_pct);
 
+// Publish reservoir float state. NOT retained. No-op if not connected.
+void mqtt_publish_float(bool reservoir_empty);
+
+// Publish leak reading (raw + detected flag). NOT retained. No-op if not connected.
+void mqtt_publish_leak(uint16_t raw, bool detected);
+
 // True if currently connected to the broker.
 bool mqtt_connected();

@@ -11,6 +11,8 @@
 #include "bme280.h"
 #include "light_sensor.h"
 #include "soil.h"
+#include "float_switch.h"
+#include "leak.h"
 
 // Per-task "next due" timestamps. One per scheduled task.
 static unsigned long heartbeat_next_ms      = 0;
@@ -24,6 +26,8 @@ static unsigned long heartbeat_count = 0;
 static Bme280Reading last_air{NAN, NAN, NAN, false};
 static Bh1750Reading last_light{NAN, false};
 static SoilReading   last_soil{0, NAN, false};
+static FloatReading  last_float{false, false};
+static LeakReading   last_leak{0, false, false};
 
 void setup() {
     Serial.begin(115200);
@@ -32,7 +36,7 @@ void setup() {
     Serial.println();
     Serial.println("=================================================");
     Serial.println("Plant Autonomy Testbed - Phase 2 firmware");
-    Serial.println("Build: WiFi + MQTT + BME280 telemetry (per DL-040)");
+    Serial.println("Build: WiFi + MQTT + sensors BME280/BH1750/soil/float/leak (DL-040)");
     Serial.println("=================================================");
     Serial.println();
 
@@ -41,6 +45,8 @@ void setup() {
     bme280_begin();   // I2C bus + air sensor init
     bh1750_begin();   // light sensor on the same bus
     soil_begin();     // capacitive soil moisture (analog)
+    float_switch_begin();  // reservoir float (digital)
+    leak_begin();          // leak detection (analog)
 }
 
 void loop() {
@@ -78,6 +84,16 @@ void loop() {
         } else {
             Serial.println("Soil: invalid reading (probe disconnected?)");
         }
+
+        last_float = float_switch_read();
+        Serial.print("Float: reservoir ");
+        Serial.println(last_float.reservoir_empty ? "EMPTY" : "ok");
+
+        last_leak = leak_read();
+        Serial.print("Leak: raw ");
+        Serial.print(last_leak.raw);
+        Serial.println(last_leak.detected ? "  LEAK DETECTED" : "  (dry)");
+
         sensor_read_next_ms = now_ms + SENSOR_READ_INTERVAL_MS;
     }
 
@@ -94,6 +110,12 @@ void loop() {
         }
         if (last_soil.valid) {
             mqtt_publish_soil(last_soil.raw, last_soil.moisture_pct);
+        }
+        if (last_float.valid) {
+            mqtt_publish_float(last_float.reservoir_empty);
+        }
+        if (last_leak.valid) {
+            mqtt_publish_leak(last_leak.raw, last_leak.detected);
         }
         sensor_publish_next_ms = now_ms + MQTT_PUBLISH_INTERVAL_MS;
     }

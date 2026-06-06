@@ -62,6 +62,8 @@ static constexpr char     MQTT_TOPIC_STATUS[]         = "plant/status/wrover";  
 static constexpr char     MQTT_TOPIC_SENSORS_BME280[] = "plant/sensors/bme280";  // air telemetry
 static constexpr char     MQTT_TOPIC_SENSORS_BH1750[] = "plant/sensors/bh1750";  // light telemetry
 static constexpr char     MQTT_TOPIC_SENSORS_SOIL[]   = "plant/sensors/soil";    // soil moisture
+static constexpr char     MQTT_TOPIC_SENSORS_FLOAT[]  = "plant/sensors/float";   // reservoir level
+static constexpr char     MQTT_TOPIC_SENSORS_LEAK[]   = "plant/sensors/leak";    // leak detection
 
 // ---- Sensor validity bounds (plausibility guards) -------------------------
 // A reading outside these ranges signals a sensor fault, not a real value;
@@ -80,6 +82,10 @@ static constexpr float BH1750_LUX_MAX = 100000.0f;
 static constexpr uint8_t  SOIL_SAMPLES        = 16;
 static constexpr uint16_t SOIL_RAW_VALID_MIN  = 800;
 static constexpr uint16_t SOIL_RAW_VALID_MAX  = 3200;
+static constexpr uint8_t  LEAK_SAMPLES        = 16;
+// Float switch polarity: true if a CLOSED switch (pin LOW) means empty.
+// Flip this if a physical lift/drop test shows the opposite. (DL-043)
+static constexpr bool     FLOAT_EMPTY_WHEN_CLOSED = true;
 
 // ---- Calibration: MEASURED references from the decision log ---------------
 // These describe what the hardware reads in known conditions. Do not invent.
