@@ -2,7 +2,8 @@
 // BME280 air sensor (temperature, humidity, pressure) on the shared I2C bus.
 // Per DL-040 Principle 3, read() returns a struct with a validity flag;
 // downstream code must check `valid` before using the values. Validated in
-// DL-018; plausibility bounds (in config.h) reused from that bench test.
+// DL-015 (re-validated on the integrated bench in DL-019); plausibility bounds
+// (in config.h) reused from that bench test.
 
 struct Bme280Reading {
     float temperature_c;

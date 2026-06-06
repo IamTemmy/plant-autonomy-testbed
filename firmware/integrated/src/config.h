@@ -64,7 +64,7 @@ static constexpr char     MQTT_TOPIC_SENSORS_BH1750[] = "plant/sensors/bh1750"; 
 
 // ---- Sensor validity bounds (plausibility guards) -------------------------
 // A reading outside these ranges signals a sensor fault, not a real value;
-// the sensor's read() sets valid=false. BME280 bounds from DL-018.
+// the sensor's read() sets valid=false. BME280 bounds from DL-015.
 static constexpr float BME280_TEMP_MIN_C   =   -5.0f;
 static constexpr float BME280_TEMP_MAX_C   =   60.0f;
 static constexpr float BME280_HUM_MIN_PCT  =    0.0f;

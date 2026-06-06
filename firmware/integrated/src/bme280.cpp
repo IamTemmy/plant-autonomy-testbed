@@ -30,7 +30,7 @@ static void i2c_scan() {
 void bme280_begin() {
     Wire.begin(I2C_SDA, I2C_SCL);
 
-    // DL-018 validated the sensor via auto-detect; try primary then alternate.
+    // DL-015/DL-019 validated the sensor; try primary then alternate (auto-detect).
     if (bme.begin(BME280_ADDR)) {
         bme_ready = true;
         Serial.println("BME280: initialized at 0x76.");
@@ -55,7 +55,7 @@ Bme280Reading bme280_read() {
     const float h = bme.readHumidity();            // %RH
     const float p = bme.readPressure() / 100.0f;   // Pa -> hPa
 
-    // Plausibility bounds from DL-018. Out-of-range => sensor fault, not data.
+    // Plausibility bounds from DL-015. Out-of-range => sensor fault, not data.
     const bool plausible =
         t >= BME280_TEMP_MIN_C   && t <= BME280_TEMP_MAX_C  &&
         h >= BME280_HUM_MIN_PCT  && h <= BME280_HUM_MAX_PCT &&
