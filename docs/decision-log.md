@@ -63,6 +63,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-041](#dl-041) | 2026-06-06 | WROVER telemetry convention: topics, presence + Last Will, per-sensor payload, EAV projection | Active |
 | [DL-042](#dl-042) | 2026-06-06 | Soil moisture: % mapping from 3-condition data, single far-from-inflow probe, closed-loop handles growth | Active |
 | [DL-043](#dl-043) | 2026-06-06 | Float + leak sensors: report-only modules, fault interpretation deferred to FSM | Active |
+| [DL-044](#dl-044) | 2026-06-06 | Third status LED (yellow, GPIO23): green/yellow/red traffic-light state indication | Active |
 
 ---
 
@@ -1674,6 +1675,23 @@ These are all implementation decisions that will be made as code is written, rec
 **Alternatives considered.** Routing leak to `fault_events` / float to `system_status` directly from the listener (rejected: that puts decision logic in the ingest layer before the FSM exists, and a raw "wet pad" reading is not yet a declared fault). Publishing only `leak_raw` and thresholding on the dashboard (rejected: splits the threshold's source of truth).
 
 **Files.** Firmware: `float_switch.{h,cpp}`, `leak.{h,cpp}`, `config.h`, `net_mqtt.{h,cpp}`, `main.cpp`. Hub: `listener.py`, `dashboard.py`.
+
+---
+
+<a id="dl-044"></a>
+### DL-044 — Third status LED for traffic-light state indication
+
+**Date:** 2026-06-06 · **Status:** Active.
+
+**Context.** The state machine (DL-045) drives the on-board LEDs as a glanceable state indicator. Two LEDs (validated in Phase 1 sketches 07-feedback-io / 08-buttons) force encoding 6+ states via blink patterns, which is hard to read and conflates recoverable-blocked states with latched faults.
+
+**Decision.** Add a third LED so the board shows three colors, wired and physically arranged as a vertical traffic light: red GPIO23 (top), yellow GPIO19 (middle), green GPIO18 (bottom). Map the three semantic tiers to color: green = normal / watering, yellow = blocked-but-recoverable (reservoir empty, daily limit), red = fault-latched (leak, emergency stop). This mirrors the dashboard's color tiers.
+
+**Rationale.** Colour-per-tier reads at a glance without decoding blink patterns, and matches the dashboard so board and screen tell the same story. GPIO23 is the newly-wired pin (red moved there, yellow took red's old GPIO19) because GPIO23 has no strapping role; GPIO5 was rejected as a strapping pin that pulses at reset (LED flicker on boot). GPIO16/17 are unavailable on the WROVER (internal PSRAM). Physical top-to-bottom red/yellow/green arrangement makes the traffic-light metaphor literal.
+
+**Alternatives considered.** Two LEDs + blink patterns (rejected: ambiguous, especially blocked-vs-fault on one red LED). OLED alone for state (it is additive detail; a glanceable colour signal is still wanted). GPIO5 (rejected: strapping-pin boot flicker).
+
+**Files.** `config.h` (pins). The FSM (DL-045) drives it.
 
 
 
