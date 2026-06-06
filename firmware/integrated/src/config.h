@@ -28,7 +28,8 @@ static constexpr uint8_t PUMP_GATE_PIN = 25;  // IRLB8721 gate; 1N4007 flyback a
 
 // User I/O
 static constexpr uint8_t LED_GREEN  = 18;  // 270 ohm series
-static constexpr uint8_t LED_RED    = 19;  // 270 ohm series
+static constexpr uint8_t LED_YELLOW = 19;  // 270 ohm series (DL-044)
+static constexpr uint8_t LED_RED    = 23;  // 270 ohm series (DL-044)
 static constexpr uint8_t BTN_STOP   = 32;  // INPUT_PULLUP
 static constexpr uint8_t BTN_ACK    = 33;  // INPUT_PULLUP
 static constexpr uint8_t BTN_MANUAL = 26;  // INPUT_PULLUP
