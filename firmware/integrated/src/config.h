@@ -47,8 +47,7 @@ static constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS    = 10000;  // boot connect w
 static constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 5000;   // loop reconnect cadence
 static constexpr uint32_t MQTT_RECONNECT_INTERVAL_MS = 5000;   // loop reconnect cadence
 static constexpr uint32_t SENSOR_READ_INTERVAL_MS    = 2000;   // sensor sampling cadence
-// Reserved (separate telemetry publish rate set when sensor publishing lands):
-// static constexpr uint32_t MQTT_PUBLISH_INTERVAL_MS = 30000;
+static constexpr uint32_t MQTT_PUBLISH_INTERVAL_MS   = 30000;  // telemetry publish cadence
 
 // ---- ADC ------------------------------------------------------------------
 static constexpr uint16_t ADC_MAX = 4095;  // 12-bit
@@ -59,7 +58,8 @@ static constexpr uint16_t ADC_MAX = 4095;  // 12-bit
 static constexpr char     MQTT_BROKER_HOST[] = "10.6.19.139";
 static constexpr uint16_t MQTT_BROKER_PORT   = 1883;
 static constexpr char     MQTT_CLIENT_ID[]   = "wrover";
-static constexpr char     MQTT_TOPIC_STATUS[] = "plant/status/wrover";  // retained presence
+static constexpr char     MQTT_TOPIC_STATUS[]         = "plant/status/wrover";   // retained presence
+static constexpr char     MQTT_TOPIC_SENSORS_BME280[] = "plant/sensors/bme280";  // air telemetry
 
 // ---- Sensor validity bounds (plausibility guards) -------------------------
 // A reading outside these ranges signals a sensor fault, not a real value;

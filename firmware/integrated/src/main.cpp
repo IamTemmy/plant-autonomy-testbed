@@ -1,7 +1,7 @@
 // Plant Autonomy Testbed — Phase 2 integrated firmware
 // Entry point: scheduler + heartbeat, WiFi, MQTT telemetry, sensor reads.
-// All periodic tasks follow the same non-blocking millis() pattern
-// established by the heartbeat. See DL-040 Principles 1, 3 & 5.
+// Reads run at SENSOR_READ_INTERVAL_MS; telemetry publishes at the slower
+// MQTT_PUBLISH_INTERVAL_MS to keep the database lean. See DL-040 P1, 3 & 5.
 
 #include <Arduino.h>
 
@@ -11,13 +11,15 @@
 #include "bme280.h"
 
 // Per-task "next due" timestamps. One per scheduled task.
-// Initialized to 0 so each task runs once shortly after boot.
-static unsigned long heartbeat_next_ms   = 0;
-static unsigned long sensor_read_next_ms = 0;
+static unsigned long heartbeat_next_ms      = 0;
+static unsigned long sensor_read_next_ms    = 0;
+static unsigned long sensor_publish_next_ms = 0;
 
-// Counter for the heartbeat ticks — useful for confirming the timing
-// is consistent across boots and for spotting missed ticks.
 static unsigned long heartbeat_count = 0;
+
+// Most recent reading, cached at the read cadence and published at the
+// (slower) telemetry cadence. valid=false until the first good read.
+static Bme280Reading last_air{NAN, NAN, NAN, false};
 
 void setup() {
     Serial.begin(115200);
@@ -26,7 +28,7 @@ void setup() {
     Serial.println();
     Serial.println("=================================================");
     Serial.println("Plant Autonomy Testbed - Phase 2 firmware");
-    Serial.println("Build: heartbeat + WiFi + MQTT + BME280 (per DL-040)");
+    Serial.println("Build: WiFi + MQTT + BME280 telemetry (per DL-040)");
     Serial.println("=================================================");
     Serial.println();
 
@@ -41,23 +43,32 @@ void loop() {
     wifi_tick();  // non-blocking: services WiFi reconnects on its cadence
     mqtt_tick();  // non-blocking: connects/reconnects + pumps the client
 
-    // Sensor-read task: sample the air sensor and print. No MQTT publish yet;
-    // telemetry envelope + publishing is the next step.
+    // Sensor-read task: sample and cache. Prints for bench visibility.
     if (now_ms >= sensor_read_next_ms) {
-        const Bme280Reading air = bme280_read();
-        if (air.valid) {
+        last_air = bme280_read();
+        if (last_air.valid) {
             Serial.print("BME280: ");
-            Serial.print(air.temperature_c, 1); Serial.print(" C, ");
-            Serial.print(air.humidity_pct, 1);  Serial.print(" %RH, ");
-            Serial.print(air.pressure_hpa, 1);  Serial.println(" hPa");
+            Serial.print(last_air.temperature_c, 1); Serial.print(" C, ");
+            Serial.print(last_air.humidity_pct, 1);  Serial.print(" %RH, ");
+            Serial.print(last_air.pressure_hpa, 1);  Serial.println(" hPa");
         } else {
             Serial.println("BME280: invalid reading (sensor fault or out of bounds)");
         }
         sensor_read_next_ms = now_ms + SENSOR_READ_INTERVAL_MS;
     }
 
-    // Heartbeat task: prints a tick line every HEARTBEAT_INTERVAL_MS ms and
-    // publishes a retained presence message.
+    // Telemetry-publish task: publish the latest valid reading. Withholds
+    // invalid readings entirely rather than sending garbage (Principle 3/5).
+    if (now_ms >= sensor_publish_next_ms) {
+        if (last_air.valid) {
+            mqtt_publish_bme280(last_air.temperature_c,
+                                last_air.humidity_pct,
+                                last_air.pressure_hpa);
+        }
+        sensor_publish_next_ms = now_ms + MQTT_PUBLISH_INTERVAL_MS;
+    }
+
+    // Heartbeat task: presence + liveness.
     if (now_ms >= heartbeat_next_ms) {
         heartbeat_count++;
         Serial.print("heartbeat #");

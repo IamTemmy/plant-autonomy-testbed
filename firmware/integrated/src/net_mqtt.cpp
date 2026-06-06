@@ -40,6 +40,17 @@ void mqtt_publish_status(unsigned long heartbeat) {
     mqtt.publish(MQTT_TOPIC_STATUS, payload, true);
 }
 
+void mqtt_publish_bme280(float temperature_c, float humidity_pct, float pressure_hpa) {
+    if (!mqtt.connected()) {
+        return;
+    }
+    char payload[128];
+    snprintf(payload, sizeof(payload),
+             "{\"temperature_c\":%.2f,\"humidity_pct\":%.2f,\"pressure_hpa\":%.2f}",
+             temperature_c, humidity_pct, pressure_hpa);
+    mqtt.publish(MQTT_TOPIC_SENSORS_BME280, payload);  // not retained
+}
+
 void mqtt_tick() {
     // MQTT depends on WiFi; nothing to do until the link is up.
     if (!wifi_connected()) {

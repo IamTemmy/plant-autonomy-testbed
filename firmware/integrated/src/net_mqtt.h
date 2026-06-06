@@ -17,5 +17,10 @@ void mqtt_tick();
 // connected. Call on the heartbeat cadence from the main loop.
 void mqtt_publish_status(unsigned long heartbeat);
 
+// Publish one BME280 reading as a JSON blob to the sensors topic. NOT retained
+// (sensor data is time-series; the listener archives it). No-op if not
+// connected. Call on the telemetry publish cadence from the main loop.
+void mqtt_publish_bme280(float temperature_c, float humidity_pct, float pressure_hpa);
+
 // True if currently connected to the broker.
 bool mqtt_connected();
