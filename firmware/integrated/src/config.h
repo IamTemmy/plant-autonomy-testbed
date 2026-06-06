@@ -61,6 +61,7 @@ static constexpr char     MQTT_CLIENT_ID[]   = "wrover";
 static constexpr char     MQTT_TOPIC_STATUS[]         = "plant/status/wrover";   // retained presence
 static constexpr char     MQTT_TOPIC_SENSORS_BME280[] = "plant/sensors/bme280";  // air telemetry
 static constexpr char     MQTT_TOPIC_SENSORS_BH1750[] = "plant/sensors/bh1750";  // light telemetry
+static constexpr char     MQTT_TOPIC_SENSORS_SOIL[]   = "plant/sensors/soil";    // soil moisture
 
 // ---- Sensor validity bounds (plausibility guards) -------------------------
 // A reading outside these ranges signals a sensor fault, not a real value;
@@ -74,6 +75,11 @@ static constexpr float BME280_PRES_MAX_HPA = 1100.0f;
 // BH1750 bounds from DL-021.
 static constexpr float BH1750_LUX_MIN = 0.0f;
 static constexpr float BH1750_LUX_MAX = 100000.0f;
+// Soil: samples to average per read, and plausible raw band (DL-020). Outside
+// this band the probe is likely disconnected. Air ~2854, dry ~2523, wet ~1953.
+static constexpr uint8_t  SOIL_SAMPLES        = 16;
+static constexpr uint16_t SOIL_RAW_VALID_MIN  = 800;
+static constexpr uint16_t SOIL_RAW_VALID_MAX  = 3200;
 
 // ---- Calibration: MEASURED references from the decision log ---------------
 // These describe what the hardware reads in known conditions. Do not invent.

@@ -60,6 +60,16 @@ void mqtt_publish_bh1750(float lux) {
     mqtt.publish(MQTT_TOPIC_SENSORS_BH1750, payload);  // not retained
 }
 
+void mqtt_publish_soil(uint16_t raw, float moisture_pct) {
+    if (!mqtt.connected()) {
+        return;
+    }
+    char payload[64];
+    snprintf(payload, sizeof(payload),
+             "{\"soil_raw\":%u,\"moisture_pct\":%.1f}", raw, moisture_pct);
+    mqtt.publish(MQTT_TOPIC_SENSORS_SOIL, payload);  // not retained
+}
+
 void mqtt_tick() {
     // MQTT depends on WiFi; nothing to do until the link is up.
     if (!wifi_connected()) {

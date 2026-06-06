@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 // MQTT telemetry for the Plant Autonomy Testbed.
 // Mirrors net_wifi: non-blocking, non-fatal on loss (DL-040 Principles 1 & 5).
 // Connects to the broker once WiFi is up, maintains a RETAINED presence
@@ -25,6 +26,10 @@ void mqtt_publish_bme280(float temperature_c, float humidity_pct, float pressure
 // Publish one BH1750 reading as a JSON blob to the light sensors topic. NOT
 // retained. No-op if not connected.
 void mqtt_publish_bh1750(float lux);
+
+// Publish one soil reading (raw ADC + moisture %) as a JSON blob. NOT retained.
+// No-op if not connected.
+void mqtt_publish_soil(uint16_t raw, float moisture_pct);
 
 // True if currently connected to the broker.
 bool mqtt_connected();

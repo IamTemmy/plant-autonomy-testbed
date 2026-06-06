@@ -10,6 +10,7 @@
 #include "net_mqtt.h"
 #include "bme280.h"
 #include "light_sensor.h"
+#include "soil.h"
 
 // Per-task "next due" timestamps. One per scheduled task.
 static unsigned long heartbeat_next_ms      = 0;
@@ -22,6 +23,7 @@ static unsigned long heartbeat_count = 0;
 // (slower) telemetry cadence. valid=false until the first good read.
 static Bme280Reading last_air{NAN, NAN, NAN, false};
 static Bh1750Reading last_light{NAN, false};
+static SoilReading   last_soil{0, NAN, false};
 
 void setup() {
     Serial.begin(115200);
@@ -38,6 +40,7 @@ void setup() {
     mqtt_begin();     // configure broker; connects once WiFi is up (in loop)
     bme280_begin();   // I2C bus + air sensor init
     bh1750_begin();   // light sensor on the same bus
+    soil_begin();     // capacitive soil moisture (analog)
 }
 
 void loop() {
@@ -65,6 +68,16 @@ void loop() {
         } else {
             Serial.println("BH1750: invalid reading (sensor fault or out of bounds)");
         }
+
+        last_soil = soil_read();
+        if (last_soil.valid) {
+            Serial.print("Soil: raw ");
+            Serial.print(last_soil.raw);
+            Serial.print(", ");
+            Serial.print(last_soil.moisture_pct, 1); Serial.println(" %");
+        } else {
+            Serial.println("Soil: invalid reading (probe disconnected?)");
+        }
         sensor_read_next_ms = now_ms + SENSOR_READ_INTERVAL_MS;
     }
 
@@ -78,6 +91,9 @@ void loop() {
         }
         if (last_light.valid) {
             mqtt_publish_bh1750(last_light.lux);
+        }
+        if (last_soil.valid) {
+            mqtt_publish_soil(last_soil.raw, last_soil.moisture_pct);
         }
         sensor_publish_next_ms = now_ms + MQTT_PUBLISH_INTERVAL_MS;
     }
