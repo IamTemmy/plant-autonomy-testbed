@@ -128,6 +128,7 @@ def route_message(
                 ("temperature", "C",   data.get("temperature_c")),
                 ("humidity",    "%",   data.get("humidity_pct")),
                 ("pressure",    "hPa", data.get("pressure_hpa")),
+                ("lux",         "lx",  data.get("lux")),
             ]
             rows = [
                 (ts, message_id, run_id, device, sensor, float(value), unit)
