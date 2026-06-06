@@ -7,28 +7,26 @@
 static bool pump_state = false;
 
 void pump_begin() {
-    // STUB: the GPIO is intentionally NOT configured or driven yet. The pump is
-    // the only actuator that can physically harm the plant, so it stays stubbed
-    // until the watering logic is validated and the pump is calibrated (DL-046).
-    // To enable real output later:
-    //   pinMode(PUMP_GATE_PIN, OUTPUT); digitalWrite(PUMP_GATE_PIN, LOW);
+    // Real output: configure the MOSFET gate and ensure the pump starts OFF.
+    pinMode(PUMP_GATE_PIN, OUTPUT);
+    digitalWrite(PUMP_GATE_PIN, LOW);
     pump_state = false;
-    Serial.println("[PUMP] stub mode - GPIO not driven");
+    Serial.println("[PUMP] ready (GPIO25 live)");
 }
 
 void pump_on() {
     if (!pump_state) {
         pump_state = true;
-        Serial.println("[PUMP] ON (stub)");
-        // TODO real output: digitalWrite(PUMP_GATE_PIN, HIGH);
+        digitalWrite(PUMP_GATE_PIN, HIGH);
+        Serial.println("[PUMP] ON");
     }
 }
 
 void pump_off() {
     if (pump_state) {
         pump_state = false;
-        Serial.println("[PUMP] OFF (stub)");
-        // TODO real output: digitalWrite(PUMP_GATE_PIN, LOW);
+        digitalWrite(PUMP_GATE_PIN, LOW);
+        Serial.println("[PUMP] OFF");
     }
 }
 
