@@ -22,5 +22,9 @@ void mqtt_publish_status(unsigned long heartbeat);
 // connected. Call on the telemetry publish cadence from the main loop.
 void mqtt_publish_bme280(float temperature_c, float humidity_pct, float pressure_hpa);
 
+// Publish one BH1750 reading as a JSON blob to the light sensors topic. NOT
+// retained. No-op if not connected.
+void mqtt_publish_bh1750(float lux);
+
 // True if currently connected to the broker.
 bool mqtt_connected();

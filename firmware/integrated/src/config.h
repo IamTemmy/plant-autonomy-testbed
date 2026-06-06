@@ -60,6 +60,7 @@ static constexpr uint16_t MQTT_BROKER_PORT   = 1883;
 static constexpr char     MQTT_CLIENT_ID[]   = "wrover";
 static constexpr char     MQTT_TOPIC_STATUS[]         = "plant/status/wrover";   // retained presence
 static constexpr char     MQTT_TOPIC_SENSORS_BME280[] = "plant/sensors/bme280";  // air telemetry
+static constexpr char     MQTT_TOPIC_SENSORS_BH1750[] = "plant/sensors/bh1750";  // light telemetry
 
 // ---- Sensor validity bounds (plausibility guards) -------------------------
 // A reading outside these ranges signals a sensor fault, not a real value;
@@ -70,6 +71,9 @@ static constexpr float BME280_HUM_MIN_PCT  =    0.0f;
 static constexpr float BME280_HUM_MAX_PCT  =  100.0f;
 static constexpr float BME280_PRES_MIN_HPA =  800.0f;
 static constexpr float BME280_PRES_MAX_HPA = 1100.0f;
+// BH1750 bounds from DL-021.
+static constexpr float BH1750_LUX_MIN = 0.0f;
+static constexpr float BH1750_LUX_MAX = 100000.0f;
 
 // ---- Calibration: MEASURED references from the decision log ---------------
 // These describe what the hardware reads in known conditions. Do not invent.

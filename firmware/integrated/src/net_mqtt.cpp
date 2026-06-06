@@ -51,6 +51,15 @@ void mqtt_publish_bme280(float temperature_c, float humidity_pct, float pressure
     mqtt.publish(MQTT_TOPIC_SENSORS_BME280, payload);  // not retained
 }
 
+void mqtt_publish_bh1750(float lux) {
+    if (!mqtt.connected()) {
+        return;
+    }
+    char payload[64];
+    snprintf(payload, sizeof(payload), "{\"lux\":%.1f}", lux);
+    mqtt.publish(MQTT_TOPIC_SENSORS_BH1750, payload);  // not retained
+}
+
 void mqtt_tick() {
     // MQTT depends on WiFi; nothing to do until the link is up.
     if (!wifi_connected()) {
