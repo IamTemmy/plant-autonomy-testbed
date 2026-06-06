@@ -67,6 +67,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-045](#dl-045) | 2026-06-06 | Traffic-light LEDs bench-validated after rewire (green 18 / yellow 19 / red 23) | Active |
 | [DL-046](#dl-046) | 2026-06-06 | Watering state machine: safety-first FSM, stubbed pump, validated on bench | Active |
 | [DL-047](#dl-047) | 2026-06-06 | Buzzer alarm (leak only) + OLED status display, FSM-driven | Active |
+| [DL-048](#dl-048) | 2026-06-06 | Pump flow calibrated at ~1.0 mL/s; daily cap set to 200 mL | Active |
 
 ---
 
@@ -1760,6 +1761,31 @@ These are all implementation decisions that will be made as code is written, rec
 **Validation.** Buzzer beeps on a sustained wet leak pad and silences on ACK. OLED shows the live status screen and tracks state transitions and readings.
 
 **Files.** `buzzer.{h,cpp}`, `oled.{h,cpp}`, `fsm.{h,cpp}`, `main.cpp`, `config.h`, `platformio.ini`.
+
+---
+
+<a id="dl-048"></a>
+### DL-048 — Pump flow calibration and daily water cap
+
+**Date:** 2026-06-06 · **Status:** Active.
+
+**Context.** The daily cap (DL-046) was implemented as a pump-run-time budget with a placeholder value, pending the pump's measured flow rate. Enabling the real pump also needs a known mL/s.
+
+**Method.** Standalone bench sketch (`firmware/test-sketches/13-pump-calibration`) drove the real pump (GPIO25) for fixed timed dispenses into a measuring cup. Tube primed to a steady stream first (peristaltic pump holds prime; occasional air bubbles from the inline barb connectors were judged negligible at this volume). Cumulative readings taken at eye level on the oz scale to avoid parallax (oz lines were the clearest graduations):
+
+| Elapsed | Reading | Volume | Rate |
+|--------|---------|--------|------|
+| 90 s   | 3.0 oz  | 88.7 mL  | 0.99 mL/s |
+| 180 s  | 6.0 oz  | 177.4 mL | 0.99 mL/s |
+| 270 s  | 9.5 oz  | 280.9 mL | 1.04 mL/s |
+
+**Result.** Flow rate ≈ **1.0 mL/s**. The first two points are identical; the third is ~5% higher, within reading tolerance on a coarse cup (the half-oz increment is at the resolution limit) — treated as measurement noise, not a real change in rate. Overall slope (280.9 mL / 270 s) = 1.04 mL/s; tight two-point figure = 0.99 mL/s. Recorded as 1.0 mL/s.
+
+**Decision.** Daily water cap set to **200 mL/day** → `MAX_DAILY_PUMP_MS = 200000` (200 s at 1.0 mL/s). Conservative for the first autonomous run given a small basil plant in ~4" soil depth; chosen below a "drain the reservoir into the pot" catastrophe and above one normal watering. Revisit upward (250–300 mL) if the soil dries too quickly in testing. The cap remains stored as run-time; mL is the human-facing interpretation via the calibrated rate.
+
+**Alternatives considered.** 250 mL (leaning candidate, deferred as slightly less conservative for a first run); 300/500 mL (more headroom, rejected as too loose for an unattended debut). True mL accounting + NTP midnight reset still deferred (DL-046).
+
+**Files.** `firmware/test-sketches/13-pump-calibration/{platformio.ini, src/main.cpp}`, `config.h` (cap value).
 
 ---
 
