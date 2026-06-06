@@ -18,3 +18,7 @@ void fsm_begin();
 // Advance the state machine one step. Call every loop() iteration with the
 // latest cached sensor readings. Non-blocking.
 void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReading& leak);
+
+// Accessors for the display layer.
+const char* fsm_state_name();
+unsigned long fsm_daily_pump_ms();

@@ -57,6 +57,9 @@ static constexpr uint32_t WATER_PULSE_MS      = 2000;   // pump-on duration per 
 static constexpr uint32_t WATER_SETTLE_MS     = 5000;   // wait for water to wick before re-reading
 static constexpr uint32_t DAILY_WINDOW_MS     = 86400000UL;  // rolling 24h window
 static constexpr uint32_t MAX_DAILY_PUMP_MS   = 60000UL;     // daily pump-on cap (placeholder; relabel to mL after calibration)
+static constexpr uint32_t OLED_REFRESH_MS     = 500;    // status display refresh cadence
+static constexpr uint32_t BUZZER_ON_MS        = 200;    // alarm beep on duration
+static constexpr uint32_t BUZZER_OFF_MS       = 600;    // alarm beep gap
 
 // ---- ADC ------------------------------------------------------------------
 static constexpr uint16_t ADC_MAX = 4095;  // 12-bit

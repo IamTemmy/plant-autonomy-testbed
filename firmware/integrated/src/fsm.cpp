@@ -5,6 +5,7 @@
 #include "config.h"
 #include "pump.h"
 #include "net_mqtt.h"
+#include "buzzer.h"
 
 enum State {
     ST_MONITORING,
@@ -132,6 +133,7 @@ void fsm_begin() {
     button_init(btn_manual, BTN_MANUAL);
 
     pump_begin();
+    buzzer_begin();
 
     state = ST_MONITORING;
     last_tick_ms = millis();
@@ -217,6 +219,7 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
     }
 
     drive_leds();
+    buzzer_update(state == ST_LEAK_FAULT, now);
 
     // Publish state on change, and refresh periodically (retained).
     const bool changed = (state != prev);
@@ -230,4 +233,12 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
         mqtt_publish_state(state_name(state), pump_is_on(), daily_pump_ms);
         state_pub_next_ms = now + MQTT_PUBLISH_INTERVAL_MS;
     }
+}
+
+const char* fsm_state_name() {
+    return state_name(state);
+}
+
+unsigned long fsm_daily_pump_ms() {
+    return daily_pump_ms;
 }

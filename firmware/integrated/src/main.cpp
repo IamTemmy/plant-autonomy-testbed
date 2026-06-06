@@ -14,9 +14,12 @@
 #include "float_switch.h"
 #include "leak.h"
 #include "fsm.h"
+#include "pump.h"
+#include "oled.h"
 
 // Per-task "next due" timestamps. One per scheduled task.
 static unsigned long heartbeat_next_ms      = 0;
+static unsigned long oled_next_ms           = 0;
 static unsigned long sensor_read_next_ms    = 0;
 static unsigned long sensor_publish_next_ms = 0;
 
@@ -48,7 +51,8 @@ void setup() {
     soil_begin();     // capacitive soil moisture (analog)
     float_switch_begin();  // reservoir float (digital)
     leak_begin();          // leak detection (analog)
-    fsm_begin();           // state machine: LEDs, buttons, stubbed pump
+    fsm_begin();           // state machine: LEDs, buttons, stubbed pump, buzzer
+    oled_begin();          // status display (shared I2C bus; non-fatal if absent)
 }
 
 void loop() {
@@ -124,6 +128,13 @@ void loop() {
             mqtt_publish_leak(last_leak.raw, last_leak.detected);
         }
         sensor_publish_next_ms = now_ms + MQTT_PUBLISH_INTERVAL_MS;
+    }
+
+    // OLED status display task: shows current state + readings.
+    if (now_ms >= oled_next_ms) {
+        oled_render(fsm_state_name(), last_air, last_soil, last_float, last_leak,
+                    pump_is_on(), fsm_daily_pump_ms(), MAX_DAILY_PUMP_MS);
+        oled_next_ms = now_ms + OLED_REFRESH_MS;
     }
 
     // Heartbeat task: presence + liveness.
