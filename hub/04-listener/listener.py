@@ -129,6 +129,8 @@ def route_message(
                 ("humidity",    "%",   data.get("humidity_pct")),
                 ("pressure",    "hPa", data.get("pressure_hpa")),
                 ("lux",         "lx",  data.get("lux")),
+                ("soil_raw",    "adc", data.get("soil_raw")),
+                ("moisture",    "%",   data.get("moisture_pct")),
             ]
             rows = [
                 (ts, message_id, run_id, device, sensor, float(value), unit)

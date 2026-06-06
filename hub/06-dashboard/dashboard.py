@@ -428,6 +428,7 @@ air_temp = latest_sensor("temperature", "bme280")
 air_hum  = latest_sensor("humidity", "bme280")
 air_pres = latest_sensor("pressure", "bme280")
 light    = latest_sensor("lux", "bh1750")
+soil     = latest_sensor("moisture", "soil")
 
 
 def _fmt(reading, digits=1):
@@ -443,17 +444,18 @@ temp_val, temp_status = _fmt(air_temp)
 hum_val, hum_status   = _fmt(air_hum)
 pres_val, pres_status   = _fmt(air_pres, digits=0)
 light_val, light_status = _fmt(light, digits=0)
+soil_val, soil_status   = _fmt(soil, digits=0)
 
 live_cards = [
     ("Air temperature", temp_val,  "BME280", temp_status),
     ("Humidity",        hum_val,   "BME280", hum_status),
     ("Pressure",        pres_val,  "BME280", pres_status),
     ("Light level",     light_val, "BH1750", light_status),
+    ("Soil moisture",   soil_val,  "Capacitive sensor", soil_status),
 ]
 
 # Sensors not yet publishing — still placeholders until their modules land.
 placeholder_cards = [
-    ("Soil moisture", "—", "Capacitive sensor", "unknown"),
     ("Reservoir level", "—", "Float switch", "unknown"),
     ("Leak sensor", "—", "Conductive strip", "unknown"),
 ]
