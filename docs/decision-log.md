@@ -60,6 +60,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-038](#dl-038) | 2026-06-04 | Tailscale for remote dashboard access; tailnet IP adopted as canonical URL | Active |
 | [DL-039](#dl-039) | 2026-06-05 | Shelly unexpected reboot diagnosed from telemetry; "Restore last state" mitigation applied | Active |
 | [DL-040](#dl-040) | 2026-06-05 | Phase 2 WROVER integrated firmware: architectural principles | Active |
+| [DL-041](#dl-041) | 2026-06-06 | WROVER telemetry convention: topics, presence + Last Will, per-sensor payload, EAV projection | Active |
 
 ---
 
@@ -1605,6 +1606,28 @@ These are all implementation decisions that will be made as code is written, rec
 - **Watering as the first major piece to land.** Sometimes recommended in "get the dangerous thing working first" school of thought. Rejected here because the dangerous thing is what you need to be most sure of, which means it should land *after* the supporting safety infrastructure (FSM, valid-sensor checks, fault handling) is in place.
 
 **Files committed in this DL.** None — this is an architecture entry. Code follows in subsequent commits.
+
+---
+
+<a id="dl-041"></a>
+### DL-041 — WROVER telemetry convention
+
+**Date:** 2026-06-06 · **Status:** Active. Proven end-to-end with the first sensor (BME280).
+
+**Context.** DL-035 built the hub but left the WROVER's topic structure and JSON shapes undefined, to be designed in Phase 2. With WiFi, MQTT, and BME280 now publishing, that convention is settled and recorded here so every later sensor follows it.
+
+**Decision.**
+- Topics: `plant/sensors/<device>` for readings, `plant/status/wrover` for presence. `plant/commands/...` and `plant/state/...` reserved for later.
+- Presence: retained `{"online":true,"uptime_s","rssi","heartbeat"}` on the heartbeat cadence, plus an MQTT Last Will (retained `{"online":false}`) so the broker marks the node offline if it drops uncleanly.
+- Payload: one JSON blob per sensor device (e.g. `plant/sensors/bme280` = `{"temperature_c","humidity_pct","pressure_hpa"}`), not retained.
+- Projection: the listener fans each blob into one EAV `sensor_readings` row per metric. The `device` column holds the sensor-component identity (`bme280`, later `bh1750`/soil/leak/float), paralleling the existing `grow-light` device.
+- Cadence: read at 2 s for control freshness, publish at 30 s to keep the archive lean; invalid readings are withheld, not published.
+
+**Rationale.** A per-sensor blob is one atomic publish whose metrics share a timestamp and fan cleanly into the EAV table DL-035 built. Retained presence + Last Will gives a truthful online/offline signal for an unattended system. `device`=component reuses the existing schema pattern and keeps dashboard queries uniform. Read/publish decoupling avoids ~43k rows/day/metric for slow-moving air values.
+
+**Alternatives considered.** Per-metric topics (more messages, no atomicity — rejected). Minimal ping without Last Will (no truthful offline signal — rejected). `device`=node with a 4-part topic (more scalable but unneeded for one node; noted as the extension path — briefly mis-wired as `wrover` and corrected to `bme280`). Publishing at read cadence (DB bloat — rejected).
+
+**Files.** Firmware: `config.h`, `net_mqtt.{h,cpp}`, `main.cpp`. Hub: `listener.py`, `dashboard.py`.
 
 ---
 
