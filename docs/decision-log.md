@@ -66,6 +66,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-044](#dl-044) | 2026-06-06 | Third status LED (yellow, GPIO23): green/yellow/red traffic-light state indication | Active |
 | [DL-045](#dl-045) | 2026-06-06 | Traffic-light LEDs bench-validated after rewire (green 18 / yellow 19 / red 23) | Active |
 | [DL-046](#dl-046) | 2026-06-06 | Watering state machine: safety-first FSM, stubbed pump, validated on bench | Active |
+| [DL-047](#dl-047) | 2026-06-06 | Buzzer alarm (leak only) + OLED status display, FSM-driven | Active |
 
 ---
 
@@ -1739,6 +1740,26 @@ These are all implementation decisions that will be made as code is written, rec
 **Alternatives considered.** Build with the real pump from the start (rejected: unsafe before calibration and logic validation). NTP + mL budget now (rejected: more moving parts before the logic was proven). Safety as ordinary states rather than a first-evaluated override (rejected: a leak mid-watering must cut the pump immediately, not wait for a transition).
 
 **Files.** `fsm.{h,cpp}`, `pump.{h,cpp}`, `config.h`, `net_mqtt.{h,cpp}`, `main.cpp`.
+
+---
+
+<a id="dl-047"></a>
+### DL-047 — Buzzer alarm and OLED status display
+
+**Date:** 2026-06-06 · **Status:** Active. Both bench-validated.
+
+**Context.** The FSM (DL-046) drove the LEDs and stubbed pump; the buzzer (GPIO4) and OLED (SSD1306, I2C 0x3C) were the remaining feedback devices from Phase 1 (sketches 09-buzzer, 06-oled) still to integrate.
+
+**Decision.**
+- Buzzer (`buzzer.{h,cpp}`): active buzzer driven HIGH = sound (no PWM). Sounds an intermittent beep (`BUZZER_ON_MS`/`BUZZER_OFF_MS`) only in `leak_fault`; silent in every other state. The FSM calls `buzzer_update(state == leak_fault, now)` each tick; non-blocking.
+- OLED (`oled.{h,cpp}`): a status screen refreshed every `OLED_REFRESH_MS` (500 ms) showing the current state plus pump, soil (% and raw), reservoir, leak, air (temp/humidity), and the daily pump-time budget. Composed in main.cpp from the FSM state getter and the sensor caches. Non-fatal: if the display is absent, `oled_render` is a no-op.
+- FSM exposes `fsm_state_name()` and `fsm_daily_pump_ms()` so the display layer reads state without owning it.
+
+**Rationale.** The buzzer is reserved for the one autonomous emergency that demands immediate attention while unattended (a leak / water pooling); STOP is user-initiated and reservoir-empty / daily-limit are non-urgent (yellow LED suffices), so sounding for them would only train the alarm to be ignored. Keeping OLED composition in main (which holds all caches) preserves separation: the FSM decides state, the display only renders it. Non-fatal init matches the project's non-blocking ethos — a missing screen never stalls control.
+
+**Validation.** Buzzer beeps on a sustained wet leak pad and silences on ACK. OLED shows the live status screen and tracks state transitions and readings.
+
+**Files.** `buzzer.{h,cpp}`, `oled.{h,cpp}`, `fsm.{h,cpp}`, `main.cpp`, `config.h`, `platformio.ini`.
 
 ---
 
