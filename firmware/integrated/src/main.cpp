@@ -1,14 +1,12 @@
 // Plant Autonomy Testbed — Phase 2 integrated firmware
-// Heartbeat commit: non-blocking periodic task using millis() scheduling.
-// Establishes the scheduling pattern that all subsequent periodic tasks
-// (sensor reads, MQTT publish, LED blink, FSM tick) will follow.
-// See DL-040 Principle 1.
+// Entry point: scheduler + (so far) heartbeat and WiFi management.
+// All periodic tasks follow the same non-blocking millis() pattern
+// established by the heartbeat. See DL-040 Principles 1 & 5.
 
 #include <Arduino.h>
 
-// Scheduling intervals (milliseconds). All periodic-task timing lives here
-// until a dedicated config.h is introduced.
-static constexpr unsigned long HEARTBEAT_INTERVAL_MS = 5000;
+#include "config.h"
+#include "net_wifi.h"
 
 // Per-task "next due" timestamps. One per scheduled task.
 // Initialized to 0 so each task runs once shortly after boot.
@@ -25,13 +23,17 @@ void setup() {
     Serial.println();
     Serial.println("=================================================");
     Serial.println("Plant Autonomy Testbed - Phase 2 firmware");
-    Serial.println("Build: heartbeat + scheduling pattern (per DL-040)");
+    Serial.println("Build: heartbeat + WiFi (per DL-040)");
     Serial.println("=================================================");
     Serial.println();
+
+    wifi_begin();  // bounded blocking connect at boot, then non-fatal
 }
 
 void loop() {
     const unsigned long now_ms = millis();
+
+    wifi_tick();  // non-blocking: services reconnects on its own cadence
 
     // Heartbeat task: prints a tick line every HEARTBEAT_INTERVAL_MS ms.
     // The scheduling pattern below is the template for all later
