@@ -22,7 +22,7 @@ static const uint8_t  BTN_PRIME = 32;
 static const uint8_t  BTN_RUN   = 26;
 static const uint8_t  BTN_ABORT = 33;
 
-static const unsigned long RUN_MS = 90000;  // 2 min per press
+static const unsigned long RUN_MS = 90000;  // 90 s per timed dispense
 
 static bool          timed_running = false;
 static unsigned long run_start = 0;
