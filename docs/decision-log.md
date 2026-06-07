@@ -1907,6 +1907,8 @@ These are all implementation decisions that will be made as code is written, rec
 
 **Alternatives considered.** Pi-side cron sending commands (rejected: adds a Pi/network dependency for a fixed schedule, no benefit). Closed-loop control off BH1750 lux (deferred: needs lux→meaning calibration; unnecessary for a fixed photoperiod). On-time only without an off-time (rejected: no dark period; stresses the plant).
 
+**Device note.** Unit confirmed via `Shelly.GetDeviceInfo` as a Shelly Plug US **Gen4** (model S4PL-00116US, app PlugUSG4), not the "Plus Plug US" named in earlier entries — the BOM should be corrected. RPC auth is disabled (`auth_en:false`), so the schedule calls need no credentials. IP `10.6.17.32` (DHCP; verify before re-running the script).
+
 **Files.** `hub/grow-light/set-schedule.sh`.
 
 ---
