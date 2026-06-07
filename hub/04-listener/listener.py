@@ -180,6 +180,28 @@ def route_message(
                 )
             return
 
+        # plant/status/<device> -> system_status (device presence)
+        # The WROVER publishes {"online":true,...} on connect (retained) and a
+        # Last-Will {"online":false} the broker emits on ungraceful disconnect
+        # (power loss / crash). Recorded as online/offline with metric NULL so
+        # device_online_status() reads it.
+        if len(parts) == 3 and parts[1] == "status":
+            device = parts[2]
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError:
+                log.warning("Non-JSON status payload on %s: %r", topic, payload[:80])
+                return
+            online = data.get("online")
+            if online is not None:
+                conn.execute(
+                    """INSERT INTO system_status
+                       (ts, message_id, run_id, device, status)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (ts, message_id, run_id, device, "online" if online else "offline"),
+                )
+            return
+
         # plant/grow-light/online -> system_status
         if len(parts) == 3 and parts[2] == "online":
             device = parts[1]

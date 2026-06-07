@@ -281,6 +281,7 @@ STATE_DISPLAY = {
     "daily_limit":     ("Daily limit reached", "warn",  "Paused until the daily window resets"),
     "leak_fault":      ("Leak fault",          "fault", "Leak detected \u2014 pump stopped, needs ACK"),
     "stopped":         ("Emergency stop",      "fault", "Halted \u2014 needs ACK"),
+    "watering_fault":  ("Watering fault",      "fault", "Soil not responding \u2014 pump stopped, needs ACK"),
 }
 
 _BANNER_PALETTE = {
@@ -293,7 +294,16 @@ _BANNER_PALETTE = {
 
 def render_state_banner():
     fsm = latest_fsm_state()
-    if not fsm or not fsm["state"]:
+    if device_online_status("wrover") == "offline":
+        bg, bd, col = _BANNER_PALETTE["unknown"]
+        label = "WROVER offline"
+        if fsm and fsm["state"]:
+            last = STATE_DISPLAY.get(fsm["state"], (fsm["state"],))[0]
+            meta = (f"No telemetry &middot; last state \u201c{last}\u201d "
+                    f"at {format_local(fsm['ts'])}")
+        else:
+            meta = "No telemetry from the WROVER"
+    elif not fsm or not fsm["state"]:
         bg, bd, col = _BANNER_PALETTE["unknown"]
         label, meta = "No state received yet", "Waiting for the WROVER to report"
     else:
@@ -323,9 +333,12 @@ def render_state_banner():
 
 faults_df = unacked_faults()
 online = device_online_status("grow-light")
+wrover_online = device_online_status("wrover")
 
 if not faults_df.empty:
     overall_pill = render_status_pill(f"{len(faults_df)} active fault(s)", "fault")
+elif wrover_online == "offline":
+    overall_pill = render_status_pill("WROVER offline", "fault")
 elif online == "offline":
     overall_pill = render_status_pill("Shelly offline", "warn")
 elif online == "online":
