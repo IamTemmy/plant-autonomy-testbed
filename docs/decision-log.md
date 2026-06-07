@@ -1900,7 +1900,7 @@ These are all implementation decisions that will be made as code is written, rec
 
 **Context.** The grow light needed to come on by itself daily so the plant gets consistent light without manual intervention. This is the "schedule-based" path from the deferred lighting decision (vs. closed-loop control on the BH1750), which suits basil — it needs a steady photoperiod, not reactive dimming.
 
-**Decision.** Run a fixed daily photoperiod, 07:00 ON → 19:00 OFF (12h light / 12h dark), on the **Shelly's own built-in scheduler**, configured via its RPC API (`Schedule.Create`) from a committed script (`hub/grow-light/set-schedule.sh`). The BH1750 stays report-only, verifying actual light.
+**Decision.** Run a fixed daily photoperiod, 07:00 ON → 19:00 OFF (12h light / 12h dark), on the **Shelly's own built-in scheduler**, configured via its RPC API (`Schedule.Create`) from a committed script (`hub/08-grow-light/set-schedule.sh`). The BH1750 stays report-only, verifying actual light.
 
 **Rationale.** Device-side scheduling is autonomous and robust — the light keeps its schedule even if the Pi, WROVER, or network is down, with no runtime dependency. Setting it via RPC (not hand-tapping the app) keeps the schedule reproducible and documented in the repo. A full photoperiod (on AND off) gives the required dark period; 12h is a sensible, slightly conservative window given supplementary ambient lab light. Lighting stays architecturally separate from the watering FSM (independent concerns).
 
@@ -1910,7 +1910,7 @@ These are all implementation decisions that will be made as code is written, rec
 
 **Device note.** Unit confirmed via `Shelly.GetDeviceInfo` as a Shelly Plug US **Gen4** (model S4PL-00116US, app PlugUSG4), not the "Plus Plug US" named in earlier entries — the BOM should be corrected. RPC auth is disabled (`auth_en:false`), so the schedule calls need no credentials. IP `10.6.17.32` (DHCP; verify before re-running the script).
 
-**Files.** `hub/grow-light/set-schedule.sh`.
+**Files.** `hub/08-grow-light/set-schedule.sh`.
 
 ---
 
