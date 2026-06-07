@@ -15,6 +15,7 @@ enum State {
     ST_DAILY_LIMIT,
     ST_LEAK_FAULT,
     ST_STOPPED,
+    ST_WATERING_FAULT,
 };
 
 static State state = ST_MONITORING;
@@ -33,6 +34,10 @@ static unsigned long blink_last_ms = 0;
 // Watering pulse machine: alternate pump-on (pulse) and pump-off (settle).
 static bool          pulse_phase_on = false;
 static unsigned long phase_start_ms = 0;
+
+// Watering-effectiveness watchdog (DL-053): fault if the soil isn't responding.
+static uint16_t      watchdog_ref_raw   = 0;
+static uint8_t       no_progress_streak = 0;
 
 // Debounced, edge-detected buttons (active LOW with INPUT_PULLUP).
 struct Button {
@@ -55,6 +60,7 @@ static const char* state_name(State s) {
         case ST_DAILY_LIMIT:     return "daily_limit";
         case ST_LEAK_FAULT:      return "leak_fault";
         case ST_STOPPED:         return "stopped";
+        case ST_WATERING_FAULT:  return "watering_fault";
     }
     return "unknown";
 }
@@ -81,14 +87,16 @@ static void button_update(Button& b, unsigned long now) {
     }
 }
 
-static void enter_watering(State s, unsigned long now) {
+static void enter_watering(State s, unsigned long now, uint16_t ref_raw) {
     state = s;
     pump_on();
     pulse_phase_on = true;
     phase_start_ms = now;
+    watchdog_ref_raw = ref_raw;
+    no_progress_streak = 0;
 }
 
-static void run_pulse(unsigned long now) {
+static bool run_pulse(unsigned long now) {
     if (pulse_phase_on) {
         if (now - phase_start_ms >= WATER_PULSE_MS) {
             pump_off();
@@ -100,8 +108,10 @@ static void run_pulse(unsigned long now) {
             pump_on();
             pulse_phase_on = true;
             phase_start_ms = now;
+            return true;   // a full pulse+settle cycle just completed
         }
     }
+    return false;
 }
 
 static void drive_leds() {
@@ -113,6 +123,7 @@ static void drive_leds() {
         case ST_DAILY_LIMIT:              y = true; blink = true; break;
         case ST_LEAK_FAULT:               r = true; break;
         case ST_STOPPED:                  r = true; blink = true; break;
+        case ST_WATERING_FAULT:           r = true; y = true; break;
     }
     if (blink && !blink_on) { g = false; y = false; r = false; }
     digitalWrite(LED_GREEN,  g ? HIGH : LOW);
@@ -189,6 +200,9 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
     } else if (state == ST_STOPPED) {
         // Latched: clears only on ACK.
         if (btn_ack.pressed_edge) state = ST_MONITORING;
+    } else if (state == ST_WATERING_FAULT) {
+        // Latched: soil never responded to watering. Clear on ACK once fixed.
+        if (btn_ack.pressed_edge) state = ST_MONITORING;
     } else {
         // ---- Not in fault: recoverable gating, then normal operation ----
         if (flt.reservoir_empty) {
@@ -203,16 +217,23 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
             }
             if (state == ST_MONITORING) {
                 if (btn_manual.pressed_edge) {
-                    enter_watering(ST_MANUAL, now);
+                    enter_watering(ST_MANUAL, now, soil.valid ? soil.raw : ADC_MAX);
                 } else if (soil.valid && soil.raw >= SOIL_THRESHOLD_TRIGGER) {
-                    enter_watering(ST_WATERING, now);
+                    enter_watering(ST_WATERING, now, soil.raw);
                 }
             } else if (state == ST_WATERING || state == ST_MANUAL) {
                 if (soil.valid && soil.raw <= SOIL_THRESHOLD_STOP) {
                     pump_off();
                     state = ST_MONITORING;  // re-wetted to target
-                } else {
-                    run_pulse(now);
+                } else if (run_pulse(now) && soil.valid) {
+                    // One pulse+settle cycle elapsed: did the soil respond?
+                    if ((int)soil.raw <= (int)watchdog_ref_raw - WATER_RESPONSE_MARGIN) {
+                        watchdog_ref_raw = soil.raw;     // progress; reset the streak
+                        no_progress_streak = 0;
+                    } else if (++no_progress_streak >= WATER_WATCHDOG_PULSES) {
+                        pump_off();
+                        state = ST_WATERING_FAULT;       // acting, but soil not responding
+                    }
                 }
             }
         }
