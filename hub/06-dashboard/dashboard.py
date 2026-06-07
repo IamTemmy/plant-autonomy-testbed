@@ -192,6 +192,27 @@ def device_online_status(device: str = "grow-light") -> str:
     return df.iloc[0]["status"] if not df.empty else "unknown"
 
 
+def latest_fsm_state():
+    df = query_df(
+        """SELECT ts, status, value FROM system_status
+           WHERE device = 'wrover' AND metric = 'fsm_state'
+           ORDER BY id DESC LIMIT 1"""
+    )
+    if df.empty:
+        return None
+    return {"ts": df.iloc[0]["ts"], "state": df.iloc[0]["status"],
+            "daily_pump_ms": df.iloc[0]["value"]}
+
+
+def latest_wrover_pump() -> str:
+    df = query_df(
+        """SELECT status FROM system_status
+           WHERE device = 'wrover' AND metric = 'pump'
+           ORDER BY id DESC LIMIT 1"""
+    )
+    return df.iloc[0]["status"] if not df.empty else "off"
+
+
 def power_history(hours: int) -> pd.DataFrame:
     return query_df(
         """SELECT ts, value AS watts FROM sensor_readings
@@ -251,6 +272,51 @@ def render_status_pill(label: str, status: str) -> str:
     return f'<div class="status-pill status-{status}">{label}</div>'
 
 
+# Maps each FSM state to (display label, status tier, one-line description).
+STATE_DISPLAY = {
+    "monitoring":      ("Monitoring",          "ok",    "Watching soil moisture"),
+    "watering":        ("Watering",            "ok",    "Pump pulsing toward target"),
+    "manual":          ("Manual watering",     "ok",    "Manual override running"),
+    "reservoir_empty": ("Reservoir empty",     "warn",  "Refill needed \u2014 watering blocked"),
+    "daily_limit":     ("Daily limit reached", "warn",  "Paused until the daily window resets"),
+    "leak_fault":      ("Leak fault",          "fault", "Leak detected \u2014 pump stopped, needs ACK"),
+    "stopped":         ("Emergency stop",      "fault", "Halted \u2014 needs ACK"),
+}
+
+_BANNER_PALETTE = {
+    "ok":      ("#D8F3DC", "#2D6A4F", "#2D6A4F"),
+    "warn":    ("#FFF4D6", "#D08C00", "#D08C00"),
+    "fault":   ("#FCE4E4", "#B23838", "#B23838"),
+    "unknown": ("#F1F1F1", "#9CA3AF", "#6C757D"),
+}
+
+
+def render_state_banner():
+    fsm = latest_fsm_state()
+    if not fsm or not fsm["state"]:
+        bg, bd, col = _BANNER_PALETTE["unknown"]
+        label, meta = "No state received yet", "Waiting for the WROVER to report"
+    else:
+        label, tier, sub = STATE_DISPLAY.get(
+            fsm["state"], (fsm["state"], "unknown", ""))
+        bg, bd, col = _BANNER_PALETTE.get(tier, _BANNER_PALETTE["unknown"])
+        pump = latest_wrover_pump()
+        daily_s = int(fsm["daily_pump_ms"] / 1000) if fsm["daily_pump_ms"] is not None else 0
+        meta = (f"{sub} &middot; Pump: {'ON' if pump == 'on' else 'off'} "
+                f"&middot; Daily watering: {daily_s}s &middot; "
+                f"Updated {format_local(fsm['ts'])}")
+    st.markdown(f"""
+    <div style="background:{bg}; border-left:5px solid {bd};
+                padding:1rem 1.25rem; border-radius:8px; margin-bottom:1.5rem;">
+        <div style="font-size:0.75rem; text-transform:uppercase;
+                    letter-spacing:0.06em; color:{col}; opacity:0.85;">
+            Watering system</div>
+        <div style="font-size:1.6rem; font-weight:700; color:{col};">{label}</div>
+        <div style="font-size:0.85rem; color:#6C757D; margin-top:0.25rem;">{meta}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 # ----------------------------------------------------------------------
 # Header + overall status
 # ----------------------------------------------------------------------
@@ -283,6 +349,8 @@ st.caption(f"Last refreshed: {now_local}  ·  auto-refresh every {REFRESH_SECOND
 # ----------------------------------------------------------------------
 # Current state
 # ----------------------------------------------------------------------
+
+render_state_banner()
 
 st.markdown("## Current state")
 

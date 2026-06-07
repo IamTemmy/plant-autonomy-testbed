@@ -149,6 +149,37 @@ def route_message(
                 )
             return
 
+        # plant/state/<device> -> system_status (FSM watering state)
+        # WROVER publishes {state, pump, daily_pump_ms} retained. Stored with a
+        # metric set so it does not collide with the metric-IS-NULL online query.
+        if len(parts) == 3 and parts[1] == "state":
+            device = parts[2]
+            try:
+                data = json.loads(payload)
+            except json.JSONDecodeError:
+                log.warning("Non-JSON state payload on %s: %r", topic, payload[:80])
+                return
+            state = data.get("state")
+            pump = data.get("pump")
+            daily = data.get("daily_pump_ms")
+            if state is not None:
+                conn.execute(
+                    """INSERT INTO system_status
+                       (ts, message_id, run_id, device, status, metric, value)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (ts, message_id, run_id, device, state, "fsm_state",
+                     float(daily) if daily is not None else None),
+                )
+            if pump is not None:
+                conn.execute(
+                    """INSERT INTO system_status
+                       (ts, message_id, run_id, device, status, metric, value)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (ts, message_id, run_id, device, "on" if pump else "off",
+                     "pump", 1.0 if pump else 0.0),
+                )
+            return
+
         # plant/grow-light/online -> system_status
         if len(parts) == 3 and parts[2] == "online":
             device = parts[1]
