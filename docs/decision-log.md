@@ -74,6 +74,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-052](#dl-052) | 2026-06-06 | Dashboard state banner: FSM state surfaced via plant/state/wrover | Active |
 | [DL-053](#dl-053) | 2026-06-06 | Watering-effectiveness watchdog: fault if soil doesn't respond to pumping | Active |
 | [DL-054](#dl-054) | 2026-06-06 | Grow-light daily photoperiod (07:00\u201319:00) via Shelly device-side scheduler | Active |
+| [DL-055](#dl-055) | 2026-06-06 | Device-silence detection: WROVER presence via Last-Will, offline-aware dashboard | Active |
 
 ---
 
@@ -1910,6 +1911,25 @@ These are all implementation decisions that will be made as code is written, rec
 **Device note.** Unit confirmed via `Shelly.GetDeviceInfo` as a Shelly Plug US **Gen4** (model S4PL-00116US, app PlugUSG4), not the "Plus Plug US" named in earlier entries — the BOM should be corrected. RPC auth is disabled (`auth_en:false`), so the schedule calls need no credentials. IP `10.6.17.32` (DHCP; verify before re-running the script).
 
 **Files.** `hub/grow-light/set-schedule.sh`.
+
+---
+
+<a id="dl-055"></a>
+### DL-055 — Device-silence detection (WROVER presence)
+
+**Date:** 2026-06-06 · **Status:** Active. Validated by power-cutting the WROVER.
+
+**Context.** The WROVER published a retained presence message on `plant/status/wrover` (`{"online":true,...}`) and registered a Last-Will (`{"online":false}`) the broker emits on ungraceful disconnect — but the listener never routed that topic, so a WROVER power loss left no recorded trace and the dashboard kept showing its last state as if live (the same blind spot first noticed with the Shelly power-cut).
+
+**Decision.** Route `plant/status/<device>` in the listener into `system_status` (online/offline, metric NULL, so `device_online_status()` reads it). Make the dashboard offline-aware: when the WROVER is offline, the state banner turns gray ("WROVER offline", showing the last known state and its timestamp rather than a stale live-looking state), and the header status pill shows "WROVER offline" in red. Also folds in the `watering_fault` banner mapping that was missed in DL-053.
+
+**Rationale.** The MQTT Last-Will is the native, push-based mechanism for presence — the broker reports the device gone on power loss/crash with no polling, which is exactly the failure mode that matters. Surfacing it on the banner+pill stops the dashboard from implying the system is live when its brain is down. The Shelly's equivalent presence (`plant/grow-light/online`) was already ingested, so this brings the WROVER to parity.
+
+**Validation.** Unplugged the WROVER: within the broker keepalive window the will fired, the listener logged `offline`, and on refresh the banner went gray "WROVER offline" with the last state/time, and the pill went red. Repowering republished `online:true` and the dashboard recovered to live state.
+
+**Known gap / next.** While the WROVER is offline, the environment cards still show the last-published readings without a staleness indicator (they look live). Next tidy-up: dim/flag WROVER-sourced cards as stale when offline. A timeout-watchdog backstop (for a hung-but-still-connected device, which the will misses) is a deferred enhancement.
+
+**Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dashboard.py`.
 
 ---
 
