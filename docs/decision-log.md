@@ -73,6 +73,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-051](#dl-051) | 2026-06-06 | Pot tube routing: drilled inlet for gentle surface delivery | Active |
 | [DL-052](#dl-052) | 2026-06-06 | Dashboard state banner: FSM state surfaced via plant/state/wrover | Active |
 | [DL-053](#dl-053) | 2026-06-06 | Watering-effectiveness watchdog: fault if soil doesn't respond to pumping | Active |
+| [DL-054](#dl-054) | 2026-06-06 | Grow-light daily photoperiod (07:00\u201319:00) via Shelly device-side scheduler | Active |
 
 ---
 
@@ -1888,6 +1889,25 @@ These are all implementation decisions that will be made as code is written, rec
 **Alternatives considered.** Auto-clearing block like daily_limit (rejected: ineffective watering needs human attention, not silent retry). Hub-side presence detection for the float (rejected: can't see a dead float while the WROVER is online). Hardware float-disconnect detection (deferred: more wiring; the feedback watchdog covers more failure modes).
 
 **Files.** `firmware/integrated/src/fsm.cpp`, `config.h`, `hub/06-dashboard/dashboard.py`.
+
+---
+
+<a id="dl-054"></a>
+### DL-054 — Grow-light daily photoperiod via Shelly scheduler
+
+**Date:** 2026-06-06 · **Status:** Active.
+
+**Context.** The grow light needed to come on by itself daily so the plant gets consistent light without manual intervention. This is the "schedule-based" path from the deferred lighting decision (vs. closed-loop control on the BH1750), which suits basil — it needs a steady photoperiod, not reactive dimming.
+
+**Decision.** Run a fixed daily photoperiod, 07:00 ON → 19:00 OFF (12h light / 12h dark), on the **Shelly's own built-in scheduler**, configured via its RPC API (`Schedule.Create`) from a committed script (`hub/grow-light/set-schedule.sh`). The BH1750 stays report-only, verifying actual light.
+
+**Rationale.** Device-side scheduling is autonomous and robust — the light keeps its schedule even if the Pi, WROVER, or network is down, with no runtime dependency. Setting it via RPC (not hand-tapping the app) keeps the schedule reproducible and documented in the repo. A full photoperiod (on AND off) gives the required dark period; 12h is a sensible, slightly conservative window given supplementary ambient lab light. Lighting stays architecturally separate from the watering FSM (independent concerns).
+
+**Gotcha recorded.** Shelly schedules fire in the device's local time, so the Shelly's timezone/location must be set (America/Chicago) or "07:00" fires at the wrong hour.
+
+**Alternatives considered.** Pi-side cron sending commands (rejected: adds a Pi/network dependency for a fixed schedule, no benefit). Closed-loop control off BH1750 lux (deferred: needs lux→meaning calibration; unnecessary for a fixed photoperiod). On-time only without an off-time (rejected: no dark period; stresses the plant).
+
+**Files.** `hub/grow-light/set-schedule.sh`.
 
 ---
 
