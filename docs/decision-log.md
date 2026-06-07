@@ -69,6 +69,8 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-047](#dl-047) | 2026-06-06 | Buzzer alarm (leak only) + OLED status display, FSM-driven | Active |
 | [DL-048](#dl-048) | 2026-06-06 | Pump flow calibrated at ~1.0 mL/s; daily cap set to 200 mL | Active |
 | [DL-049](#dl-049) | 2026-06-06 | Real pump enabled (GPIO25); dosing tuned (~5 mL pulse / 10 s settle); autonomous loop validated | Active |
+| [DL-050](#dl-050) | 2026-06-06 | Float switch mounting: carbon-fiber rod through lid, center-vertical | Active |
+| [DL-051](#dl-051) | 2026-06-06 | Pot tube routing: drilled inlet for gentle surface delivery | Active |
 
 ---
 
@@ -1808,6 +1810,44 @@ These are all implementation decisions that will be made as code is written, rec
 **Follow-ups (tune on the real plant).** Confirm `WATER_SETTLE_MS` is long enough for water to reach the probe in real soil (lengthen if it over-pumps); verify probe-to-outlet spacing; position outlet over the root zone, not at the stem. Raise daily cap toward 250–300 mL only if the soil dries too fast.
 
 **Files.** `pump.cpp`, `config.h`.
+
+---
+
+<a id="dl-050"></a>
+### DL-050 — Float switch mounting: rigid rod through the lid
+
+**Date:** 2026-06-06 · **Status:** Active. Validated in the final mounted configuration.
+
+**Context.** The reservoir float needs to read a repeatable water level. First attempt rested the float hanging from its wire (`docs/images/05-float-mount-1.jpg`), which sat slanted and swung freely — a float switch only reads a consistent threshold when its stem is held in a fixed orientation, so a free-hanging/tilting float gives unreliable, slosh-sensitive readings and an unpredictable empty point.
+
+**Decision.** Route the float's wires through a rigid carbon-fiber rod and bond the rod to the float's threaded collar as one stiff unit (`05-float-mount-2.jpg`, `05-float-mount-3.jpg`), then anchor the rod through a hole drilled in the reservoir lid, fixing the assembly vertical and centered (`05-float-mount-4.jpg`). Bonded with waterproof cyanoacrylate gel (aquarium-rated). The mounting depth sets the empty threshold; depth chosen to trip EMPTY with usable reserve still in the jar (avoids the pump drawing air before it trips).
+
+**Rationale.** A rigid lid-anchored rod holds the float vertical with repeatable travel, and the only reservoir penetration is in the lid — above the waterline, so no leak risk (unlike a side-wall bulkhead, which adds a sealed hole below the waterline). Center mounting keeps the float off the wall and clear of the pump inlet. Glue applied only to the stem/collar and rod-to-lid joints, never the sliding float, so the float remains free (a glued/stuck float would mask an empty reservoir — the dangerous failure direction noted below).
+
+**Validation.** In the final mount with a full reservoir the switch reads `reservoir ok`; drawing the level down past the float flips it to `EMPTY`. Both directions confirmed on the dashboard. `FLOAT_EMPTY_WHEN_CLOSED` polarity correct as-is.
+
+**Known limitation (for the observability backlog).** A disconnected float reads "not empty" (→ ok) due to INPUT_PULLUP, which would let the FSM run the pump dry — the highest-priority item for the planned device-presence/fault-detection work. (The soil probe has the opposite, safer failure: disconnection reads dry, only causing a benign watering attempt.)
+
+**Alternatives considered.** Free-hang from wire (rejected: slanted, slosh-sensitive, unreliable level). Side-wall bulkhead mount (rejected: sealed hole below the waterline = leak risk). Pendulum from lid (rejected: swings, triggers on tilt/slosh).
+
+**Files / images.** `docs/images/05-float-mount-1.jpg` (failed first mount), `-2.jpg` (float held), `-3.jpg` (rod+float assembly), `-4.jpg` (final, in reservoir).
+
+---
+
+<a id="dl-051"></a>
+### DL-051 — Pot tube routing: drilled inlet for gentle delivery
+
+**Date:** 2026-06-06 · **Status:** Active.
+
+**Context.** The outlet tube initially hung over the pot rim, dropping water from height. Water falling from height channels and splashes rather than soaking evenly, and an unsecured tube shifts, changing the outlet-to-probe geometry that watering behavior depends on.
+
+**Decision.** Drilled a hole in the pot side to route the outlet tube so it delivers water at/near the soil surface, calmly, into the root zone — positioned offset from the soil probe (not at the stem, not adjacent to the probe), above the soil/drainage line so it is a tube inlet, not a drainage leak.
+
+**Rationale.** Surface-level delivery soaks the root zone evenly instead of channeling straight down and out the drainage holes. A fixed routing keeps the outlet-to-probe spacing stable, so the closed-loop watering behavior stays consistent run to run. Offset-from-probe placement (per the soil-probe siting decision) lets the probe read general spread, not the inflow point.
+
+**Follow-up.** Confirm on the real plant that water reaches the probe within the settle window (`WATER_SETTLE_MS`, 10 s) and that spacing neither stops watering too early nor overwaters; tune from observed behavior.
+
+**Files.** Physical change to the pot; no firmware change.
 
 ---
 
