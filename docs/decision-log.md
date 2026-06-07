@@ -71,6 +71,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-049](#dl-049) | 2026-06-06 | Real pump enabled (GPIO25); dosing tuned (~5 mL pulse / 10 s settle); autonomous loop validated | Active |
 | [DL-050](#dl-050) | 2026-06-06 | Float switch mounting: carbon-fiber rod through lid, center-vertical | Active |
 | [DL-051](#dl-051) | 2026-06-06 | Pot tube routing: drilled inlet for gentle surface delivery | Active |
+| [DL-052](#dl-052) | 2026-06-06 | Dashboard state banner: FSM state surfaced via plant/state/wrover | Active |
 
 ---
 
@@ -1848,6 +1849,23 @@ These are all implementation decisions that will be made as code is written, rec
 **Follow-up.** Confirm on the real plant that water reaches the probe within the settle window (`WATER_SETTLE_MS`, 10 s) and that spacing neither stops watering too early nor overwaters; tune from observed behavior.
 
 **Files.** Physical change to the pot; no firmware change.
+
+---
+
+<a id="dl-052"></a>
+### DL-052 — Dashboard watering-system state banner
+
+**Date:** 2026-06-06 · **Status:** Active. Validated end-to-end.
+
+**Context.** The FSM publishes its state to `plant/state/wrover` (retained), but nothing consumed it — the dashboard showed sensors and grow-light status, not what the watering system was actually doing.
+
+**Decision.** Route `plant/state/<device>` in the listener into `system_status` (with `metric` set to `fsm_state` / `pump`, so it does not collide with the `metric IS NULL` online-status query), and render a prominent banner at the top of the dashboard showing the current FSM state, color-coded to match the LED tiers (green = monitoring/watering, amber = reservoir_empty/daily_limit, red = leak_fault/stopped), plus pump status, daily watering seconds used, and last-updated time.
+
+**Rationale.** Reuses existing plumbing (`system_status` table, the status palette already in the dashboard) rather than adding a new table. Storing state with a metric keeps it cleanly separable from device-online rows. The banner makes the system's behavior legible at a glance and remotely (via Tailscale), and mirrors the physical board so screen and bench tell the same story.
+
+**Validation.** Pressing STOP on the board flipped the banner to red "Emergency stop" within a refresh, confirming the full path FSM → MQTT → listener → SQLite → dashboard.
+
+**Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dashboard.py`.
 
 ---
 
