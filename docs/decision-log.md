@@ -72,6 +72,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-050](#dl-050) | 2026-06-06 | Float switch mounting: carbon-fiber rod through lid, center-vertical | Active |
 | [DL-051](#dl-051) | 2026-06-06 | Pot tube routing: drilled inlet for gentle surface delivery | Active |
 | [DL-052](#dl-052) | 2026-06-06 | Dashboard state banner: FSM state surfaced via plant/state/wrover | Active |
+| [DL-053](#dl-053) | 2026-06-06 | Watering-effectiveness watchdog: fault if soil doesn't respond to pumping | Active |
 
 ---
 
@@ -1866,6 +1867,27 @@ These are all implementation decisions that will be made as code is written, rec
 **Validation.** Pressing STOP on the board flipped the banner to red "Emergency stop" within a refresh, confirming the full path FSM → MQTT → listener → SQLite → dashboard.
 
 **Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dashboard.py`.
+
+---
+
+<a id="dl-053"></a>
+### DL-053 — Watering-effectiveness watchdog
+
+**Date:** 2026-06-06 · **Status:** Active. Bench-validated; real-plant watering confirmed (soil rose to ~66%).
+
+**Context.** A disconnected or failed float reads "not empty" (INPUT_PULLUP → HIGH), so the reservoir interlock can't catch a dead float — the system could pump a dry reservoir. Hub-side presence detection can't catch this either: the WROVER stays online and keeps reporting `reservoir ok`. The gap (flagged in DL-050) needs a firmware cross-check.
+
+**Decision.** Add a watering-effectiveness watchdog to the FSM. While watering, each completed pulse+settle cycle checks whether the soil actually responded: if `soil_raw` dropped by at least `WATER_RESPONSE_MARGIN` (30 counts) the streak resets; otherwise a no-progress counter increments. After `WATER_WATCHDOG_PULSES` (8) consecutive no-progress cycles the FSM concludes it is acting without effect and trips to a new latched state, `watering_fault` (pump off, clears only on ACK). LED: steady red + yellow together (a unique combo). The dashboard banner shows it in red.
+
+**Rationale.** A closed-loop system should detect when it acts but the world doesn't respond — this catches a dead/disconnected float, an empty reservoir despite a stuck float, a dead pump, a clog, or a kinked tube, all with one feedback check rather than per-sensor diagnostics. Dedicated latched fault (not a silent auto-clearing block) because an ineffective-watering condition means the plant isn't getting water and warrants a human looking at it. Thresholds chosen conservatively (8 cycles ≈ 2 min, ~40 mL, well under the 200 mL cap; small response margin) so a slow-but-working real-soil response does not false-trip; to be tuned with real-plant behavior.
+
+**Validation.** Bench: probe held in air (watering triggered, no soil response) tripped to `watering_fault` after ~8 cycles — red+yellow LEDs, pump off, banner red; ACK cleared it. Progress (wetting the probe mid-watering) correctly reset the streak and prevented the fault. Real plant: a normal watering cycle raised soil moisture to ~66%, confirming water reaches the off-center probe within the settle window (10 s settle adequate for this soil/spacing).
+
+**Known limitation.** Catches dead-float only indirectly (via ineffective watering), not at the moment of disconnection; device-silence (WROVER/Shelly offline) is a separate hub-side concern (next slice).
+
+**Alternatives considered.** Auto-clearing block like daily_limit (rejected: ineffective watering needs human attention, not silent retry). Hub-side presence detection for the float (rejected: can't see a dead float while the WROVER is online). Hardware float-disconnect detection (deferred: more wiring; the feedback watchdog covers more failure modes).
+
+**Files.** `firmware/integrated/src/fsm.cpp`, `config.h`, `hub/06-dashboard/dashboard.py`.
 
 ---
 
