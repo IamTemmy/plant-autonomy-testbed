@@ -28,7 +28,7 @@ He also enforces security: only people with the right credentials can send or re
 
 ## The first worker using the mail clerk
 
-Across the hall is a worker we hired from outside — the **Shelly Plus Plug**. The Shelly is a smart power outlet that controls the grow light. Plug a lamp into the Shelly, plug the Shelly into the wall, and the Shelly can turn that lamp on and off based on instructions it receives over WiFi.
+Across the hall is a worker we hired from outside — the **Shelly Plug US Gen4**. The Shelly is a smart power outlet that controls the grow light. Plug a lamp into the Shelly, plug the Shelly into the wall, and the Shelly can turn that lamp on and off based on instructions it receives over WiFi.
 
 Every minute or so, the Shelly sends a postcard to the mail clerk reporting on its status: relay is off, voltage on the line is 117 volts, current draw is zero amps because the light isn't on, internal temperature is 35 degrees Celsius, cumulative energy used since installation is 129 watt-hours. The mail clerk forwards these postcards to anyone subscribed.
 

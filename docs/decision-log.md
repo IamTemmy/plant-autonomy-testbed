@@ -50,8 +50,8 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-028](#dl-028) | 2026-05-31 | Campus deployment network deferred; project on home WiFi for now | Active |
 | [DL-029](#dl-029) | 2026-05-31 | Mosquitto broker verified via loopback pub/sub | Active |
 | [DL-030](#dl-030) | 2026-06-02 | Mosquitto broker configured for LAN access with authentication | Active |
-| [DL-031](#dl-031) | 2026-06-02 | Shelly Plus Plug US ("basilplug") paired and joined JSU_DEVICE | Active |
-| [DL-032](#dl-032) | 2026-06-02 | Shelly Plus Plug US validated as MQTT client; MQTT username renamed | Active |
+| [DL-031](#dl-031) | 2026-06-02 | Shelly Plug US Gen4 ("basilplug") paired and joined JSU_DEVICE | Active |
+| [DL-032](#dl-032) | 2026-06-02 | Shelly Plug US Gen4 validated as MQTT client; MQTT username renamed | Active |
 | [DL-033](#dl-033) | 2026-06-03 | Pi power supply: CanaKit 5.1V/3.5A for permanent independent operation | Active |
 | [DL-034](#dl-034) | 2026-06-03 | ESP32-CAM bench validation deferred pending hardware replacement | Active |
 | [DL-035](#dl-035) | 2026-06-03 | Phase 3 hub services kickoff (Python listener, SQLite, Streamlit) | Active |
@@ -706,7 +706,7 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 <a id="dl-028"></a>
 ### DL-028 — Campus deployment network deferred; project on home WiFi pending IT consultation
 
-**Date:** 2026-05-31 · **Status:** Resolved 2026-06-02 — JSU_DEVICE confirmed viable across three devices (Pi, Mac, Shelly Plus Plug); proceeding with project on JSU_DEVICE as the deployment network
+**Date:** 2026-05-31 · **Status:** Resolved 2026-06-02 — JSU_DEVICE confirmed viable across three devices (Pi, Mac, Shelly Plug US Gen4); proceeding with project on JSU_DEVICE as the deployment network
 
 **Context.** The project's intended deployment environment is the JSU campus lab where Phase 2+ integration testing will happen. The hub bootstrap session (DL-027) attempted to bring the Pi up on a campus-accessible network so the Pi, the future ESP32 nodes, and the Shelly smart plug could all communicate over the same broker. The attempt failed and the investigation surfaced architectural constraints that would have blocked the project later if discovered during integration rather than now.
 
@@ -727,7 +727,7 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 
 1. **Shared Layer 2 broadcast domain across participating devices** — Pi, both ESP32 nodes, and the Shelly must all be on a network where they can reach each other by IP. mDNS (`planthub.local`) is convenient but not required; raw IP works fine if `arp` and `ping` succeed device-to-device.
 2. **No captive portal** — or, if one exists, a mechanism to bypass it for registered MAC addresses. A headless Pi and a headless Shelly cannot complete a browser-based portal.
-3. **WPA2-Personal (PSK), not WPA2-Enterprise (EAP)** — the Shelly Plus Plug US does not support enterprise authentication. WPA3-Personal is acceptable on the Pi and ESP32 sides but the Shelly may not support it; verify before committing.
+3. **WPA2-Personal (PSK), not WPA2-Enterprise (EAP)** — the Shelly Plug US Gen4 does not support enterprise authentication. WPA3-Personal is acceptable on the Pi and ESP32 sides but the Shelly may not support it; verify before committing.
 4. **Outbound internet** — for OTA updates, ntfy.sh alerts, optional remote dashboard access, and package installs. Strictly speaking the broker and dashboard work LAN-only, but losing outbound internet narrows the project's feature set significantly.
 
 **What this entry does not commit to.** A specific campus network. A specific fallback (mobile hotspot vs. Ethernet vs. dedicated AP). A timeline for moving off home WiFi. The campus-IT conversation defines the next decision; this entry just establishes what that decision needs to satisfy.
@@ -787,7 +787,7 @@ The state-machine logic is mocked: STOP unconditionally triggers FAULT, escalati
 - Topic-level access control. The default permits any client to subscribe to `#` (all topics), which has security implications when more devices join. Not relevant for the loopback test but worth noting.
 
 **Implications for the next steps.**
-- Before the Shelly Plus Plug US can be told to use this broker, the broker must be reachable from the LAN. That requires configuring `mosquitto.conf` to bind a listener to the appropriate interface.
+- Before the Shelly Plug US Gen4 can be told to use this broker, the broker must be reachable from the LAN. That requires configuring `mosquitto.conf` to bind a listener to the appropriate interface.
 - Before the broker is exposed beyond the LAN, authentication must be enabled.
 - A separate decision will record the topic structure the project uses (`plant/sensors/...`, `plant/state`, `plant/commands/...`, etc.) when the first ESP32 client publishes real data. The existing topic plan from the project's earlier design discussions is still a draft until it's exercised by real firmware.
 
@@ -822,7 +822,7 @@ All three tests passed.
 **On the rotated password.** During the verification session, the MQTT password was inadvertently captured in plain text in chat logs while pasting command output. Out of professional habit, the password was rotated to a fresh value after testing completed. This is recorded not because the exposure was high-risk (the broker is LAN-only, the chat is private, no exploitable surface was opened), but because the pattern is the one to internalize for systems where the stakes are real: when a secret might have leaked, rotate it.
 
 **Implications for the next steps.**
-- The Shelly Plus Plug US can now be configured to connect to `10.6.19.139:1883` with the `basilpi` username and the current password. The Shelly's MQTT support is built in; this is a configuration step in its web UI, not new code.
+- The Shelly Plug US Gen4 can now be configured to connect to `10.6.19.139:1883` with the `basilpi` username and the current password. The Shelly's MQTT support is built in; this is a configuration step in its web UI, not new code.
 - ESP32 firmware can begin to integrate MQTT publishing for sensor data. The broker is ready to receive.
 - The MQTT password used by both Shelly and ESP32 firmware must be stored as a secret — gitignored secrets file in firmware, never committed. The pattern: a `secrets.h` (or similar) per sketch, present locally, never tracked.
 
@@ -840,13 +840,13 @@ All three tests passed.
 ---
 
 <a id="dl-031"></a>
-### DL-031 — Shelly Plus Plug US paired and joined JSU_DEVICE
+### DL-031 — Shelly Plug US Gen4 paired and joined JSU_DEVICE
 
 **Date:** 2026-06-02 · **Status:** Active. MQTT configuration is the next step (separate DL entry).
 
-**Context.** The Shelly Plus Plug US is the project's grow-light controller per DL-010. It is the project's first commercial, off-the-shelf networked client of the Mosquitto broker. The project's two ESP32 nodes are still on the bench and not yet networked, so the Shelly is the first opportunity to validate the broker's authenticated LAN access path (DL-030) with a real third-party MQTT client rather than command-line test tools.
+**Context.** The Shelly Plug US Gen4 is the project's grow-light controller per DL-010. It is the project's first commercial, off-the-shelf networked client of the Mosquitto broker. The project's two ESP32 nodes are still on the bench and not yet networked, so the Shelly is the first opportunity to validate the broker's authenticated LAN access path (DL-030) with a real third-party MQTT client rather than command-line test tools.
 
-**Decision.** Shelly Plus Plug US successfully paired, joined JSU_DEVICE WiFi, and named "basilplug." Current IP on JSU_DEVICE: `10.6.17.32`. The plug is approved as the project's grow-light controller and is ready for MQTT configuration.
+**Decision.** Shelly Plug US Gen4 successfully paired, joined JSU_DEVICE WiFi, and named "basilplug." Current IP on JSU_DEVICE: `10.6.17.32`. The plug is approved as the project's grow-light controller and is ready for MQTT configuration.
 
 **Pairing process and what was learned.**
 
@@ -877,13 +877,13 @@ The initial pairing attempt failed at the Shelly Smart Control app's "Add Device
 ---
 
 <a id="dl-032"></a>
-### DL-032 — Shelly Plus Plug US validated as MQTT client; MQTT username renamed to `basilmqtt`
+### DL-032 — Shelly Plug US Gen4 validated as MQTT client; MQTT username renamed to `basilmqtt`
 
 **Date:** 2026-06-02 · **Status:** Active
 
 **Context.** Following the broker LAN configuration in DL-030 and the Shelly device pairing in DL-031, this entry covers the actual MQTT integration: configuring the Shelly to publish to and subscribe from the project's Mosquitto broker, validating bidirectional control over the LAN, and refining the username scheme based on practical experience. The Shelly is the project's first commercial MQTT client and proves the broker is usable by real devices, not just command-line test tools.
 
-**Decision.** Shelly Plus Plug US is fully integrated with the project's MQTT broker. The plug publishes its status and event stream to topics under `plant/grow-light/` and responds to control commands sent to its command topics. The integration is approved for use; the next-step ESP32 firmware can model its broker-client behavior on this same pattern.
+**Decision.** Shelly Plug US Gen4 is fully integrated with the project's MQTT broker. The plug publishes its status and event stream to topics under `plant/grow-light/` and responds to control commands sent to its command topics. The integration is approved for use; the next-step ESP32 firmware can model its broker-client behavior on this same pattern.
 
 **Rationale — MQTT integration choices.**
 
@@ -969,7 +969,7 @@ The file is deliberately **not** added to `~/.zshrc` for automatic loading. Auto
 **Deployment readiness implications.**
 
 - **The Pi is now treated as a permanent fixture.** It stays plugged in, runs the broker continuously, survives developer travel and Mac unavailability. This was the unstated assumption behind every earlier hub-related DL but was not actually true until this point.
-- **The broker is now able to maintain persistent connections** to the Shelly Plus Plug and the eventual ESP32 nodes without periodic interruption. The Shelly's `online/offline` last-will signaling is now meaningful — going offline now indicates the *Shelly* lost connection, not the broker.
+- **The broker is now able to maintain persistent connections** to the Shelly Plug US Gen4 and the eventual ESP32 nodes without periodic interruption. The Shelly's `online/offline` last-will signaling is now meaningful — going offline now indicates the *Shelly* lost connection, not the broker.
 - **Overnight uptime test.** The Pi was left running overnight on the new power supply. Confirmed reachable the next morning (`ping -c 2 10.6.19.139` returned cleanly), broker still active. Single overnight is not a long-term stability test, but it establishes the baseline.
 
 **What this entry does not yet record.**
@@ -1078,7 +1078,7 @@ These artifacts are committed because they represent real, valid engineering wor
 
 | Topic prefix | Purpose | Source |
 |---|---|---|
-| `plant/grow-light/#` | Shelly Plus Plug telemetry | already publishing (DL-032) |
+| `plant/grow-light/#` | Shelly Plug US Gen4 telemetry | already publishing (DL-032) |
 | `plant/sensors/#` | ESP32 WROVER sensor publishes | future Phase 2 firmware |
 | `plant/state/#` | WROVER state-machine state | future Phase 2 firmware |
 | `plant/commands/#` | inbound commands to WROVER | future Phase 2 firmware |
