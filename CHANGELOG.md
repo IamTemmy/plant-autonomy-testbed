@@ -4,142 +4,48 @@ All notable changes to this repository are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The project will adopt [Semantic Versioning](https://semver.org/) once a first version is tagged.
 
-This file tracks **repository-level changes** (files, structure, tooling). Engineering decisions and the reasoning behind them live in [`docs/decision-log.md`](docs/decision-log.md).
+This file tracks **repository-level changes** — files, structure, and tooling. The reasoning behind each change lives in [`docs/decision-log.md`](docs/decision-log.md), which is the authoritative engineering record; entries below cite the relevant `DL-NNN` for that rationale.
 
 ## [Unreleased]
 
 ### Added
-- Initial repository structure with `docs/` and `firmware/test-sketches/01-bme280/`
-- `README.md` — project overview, engineering framing, architecture summary, build notes
-- `LICENSE` — MIT
-- `CHANGELOG.md` — this file
-- `.gitignore` — macOS, PlatformIO, Python, and editor artifacts
-- `docs/decision-log.md` — engineering decisions and rationale, seeded with project baseline and Phase 1 refinements
 
-### Validated
-- BME280 component test passed — sensor detected at I2C address 0x76/0x77, plausible indoor readings, responsive to breath stimulus (see `docs/images/bme280-validation.png`)
+**Project scaffolding**
+- `README.md`, `LICENSE` (MIT), `.gitignore` (macOS / PlatformIO / Python / editor artifacts), and this `CHANGELOG.md`.
+- `docs/decision-log.md` — the authoritative engineering decision record (DL-001 onward).
+- `docs/explainers/phase3-hub.md` and `docs/hub-setup.md` — narrative explainer and hub setup notes.
 
-### Added (continued)
-- `firmware/test-sketches/01-bme280/` — PlatformIO project for BME280 bench test (platformio.ini, src/main.cpp, README.md)
-- `docs/images/bme280-validation.png` — serial-monitor screenshot capturing baseline + breath-response readings
+**Phase 1 — component bench tests** under `firmware/test-sketches/`, each a standalone PlatformIO project with its own README:
+- `01-bme280` (DL-015; re-validated on the integrated bench in DL-019), `02-pump-mosfet` (DL-018), `03-soil-moisture` (DL-020), `04-bh1750` (DL-021), `05-float-switch` (DL-023), `06-oled` (DL-024), `07-feedback-io` / `08-buttons` / `09-buzzer` (user-feedback subsystem, DL-025), `10-leak-sensor` (DL-026).
+- `11-esp32-cam` — camera bring-up sketch, committed as a starting point; valid but unvalidated by execution pending a hardware replacement (DL-034).
+- `12-traffic-light-leds` — three-LED status validation after the GPIO rewire (DL-045).
+- `13-pump-calibration` — pump flow-rate calibration, ~1.0 mL/s (DL-048).
 
-### Validated (continued)
-- Peristaltic pump + IRLB8721 MOSFET driver — clean ON/OFF transitions, flyback diode behaving correctly, no ESP32 resets, water flow confirmed in wet test (see DL-018)
+**Phase 3 — Raspberry Pi hub** under `hub/`, each step numbered with its own README:
+- `01-pi-setup` and `02-mosquitto-install` — Pi bootstrap and broker install (DL-027, DL-029).
+- `03-broker-config` — authenticated LAN broker configuration (DL-030).
+- `04-listener` — Python MQTT→SQLite listener, six-table schema, run-aware (DL-035).
+- `05-listener-service` and `07-dashboard-service` — systemd units for auto-start / auto-restart at boot (DL-036).
+- `06-dashboard` — read-only Streamlit dashboard (cream botanical theme, Plotly charts, UTC storage with America/Chicago display); LAN- and Tailscale-accessible (DL-037, DL-038).
+- `08-grow-light` — Shelly device-side RPC scheduler for the grow-light photoperiod (DL-054).
 
-### Added (continued)
-- \`firmware/test-sketches/02-pump-mosfet/\` — PlatformIO project for pump driver bench test (platformio.ini, src/main.cpp, README.md)
-- \`docs/images/pump-mosfet-validation.png\` — serial-monitor screenshot of pump cycling
+**Phase 2 — integrated WROVER firmware** under `firmware/integrated/` (one PlatformIO project):
+- Full firmware: WiFi + MQTT transport with presence/Last-Will, all sensor modules (BME280, BH1750, soil, float, leak), a seven-state safety-first watering state machine, pump dosing (pulse/settle) with a daily volume cap, a leak-only buzzer alarm, an OLED status display, and traffic-light status LEDs (DL-040 through DL-049).
+- Watering-effectiveness watchdog with a dedicated `watering_fault` state (DL-053).
 
-### Re-validated
-- BME280 — re-mounted onto the integrated breadboard (alongside pump + buck) and re-tested against the original sketch; no behavioral regression (see DL-019)
-
-### Validated (continued)
-- Capacitive soil moisture sensor — clean monotonic response (dry air → dry soil → wet soil), low noise (~15 ADC counts after averaging), operational range of ~570 counts between dry-soil and wet-soil conditions (see DL-020)
-
-### Added (continued)
-- \`firmware/test-sketches/03-soil-moisture/\` — PlatformIO project for soil moisture bench test and calibration (platformio.ini, src/main.cpp, README.md)
-
-### Validated (continued)
-- BH1750 light sensor — calibrated lux output, responds correctly to light changes, coexists cleanly on the I²C bus with BME280 (see DL-021)
-
-### Added (continued)
-- \`firmware/test-sketches/04-bh1750/\` — PlatformIO project for BH1750 bench test (platformio.ini, src/main.cpp, README.md)
-
-### Validated (continued)
-- Float switch — clean state transitions on orientation change, orientation-to-state mapping recorded for firmware reference (see DL-023)
-
-### Added (continued)
-- \`firmware/test-sketches/05-float-switch/\` — PlatformIO project for float switch bench test (platformio.ini, src/main.cpp, README.md)
-
-### Validated (continued)
-- SSD1306 OLED display — splash and mock dashboard render cleanly, uptime counter confirms active refresh, three-device I²C bus (BME280 + BH1750 + OLED) validated healthy (see DL-024)
-
-### Added (continued)
-- \`firmware/test-sketches/06-oled/\` — PlatformIO project for OLED bench test with Phase 2 dashboard preview (platformio.ini, src/main.cpp, README.md)
-
-### Validated (continued)
-- User-feedback subsystem (2 LEDs + 3 buttons + active buzzer) — validated across three iterative sketches with a four-state state machine; safety property (FAULT latching, MANUAL inert during fault) demonstrated (see DL-025)
-
-### Added (continued)
-- \`firmware/test-sketches/09-buzzer/\` — PlatformIO project for active buzzer test integrating LEDs, buttons, and CRITICAL state (platformio.ini, src/main.cpp, README.md)
+**Evidence images** under `docs/images/`:
+- `bme280-validation` (DL-015), `pump-mosfet-validation` (DL-018), `mosquitto-loopback-verification` (DL-029), `esp32-cam-ftdi-wiring` (DL-034), `dashboard-desktop-{1,2,3}` and `dashboard-mobile-{1,2}` (DL-037), `float-mount-{1,2,3,4}` (DL-050).
 
 ### Changed
-- Button C moved from GPIO35 to GPIO26 (GPIO35 lacks an internal pull-up; GPIO26 was freed by DL-010's grow-light architecture change)
 
-### Validated (continued)
-- DIYables leak sensor — clean dry baseline at 0 ADC counts, ~50% practical maximum at full water contact, sensitive trip-wire character suitable for binary leak detection (see DL-026)
+- `hub/04-listener` — routes FSM state (`plant/state/wrover`) and device presence (`plant/status/<device>`) into the database (DL-052, DL-055).
+- `hub/06-dashboard` — added a watering-system state banner, a `watering_fault` display, and device-presence/offline awareness: the banner and header pill reflect "WROVER offline" when its Last-Will fires (DL-052, DL-053, DL-055).
+- Renamed `hub/grow-light` → `hub/08-grow-light` and added its README, for consistency with the numbered hub steps.
+- Renamed every file in `docs/images/` from the collision-prone `NN-` counter scheme to stable descriptive names (e.g. `05-float-mount-1.jpg` → `float-mount-1.jpg`), and updated all references across the decision log, this changelog, and the READMEs.
+- Added READMEs to test-sketches `11`–`13`, bringing them to parity with `01`–`10`.
+- MQTT username renamed `basilpi` → `basilmqtt` to avoid colliding with the Linux account, and adopted a credential-file workflow so passwords are no longer passed on command lines (DL-030, DL-032).
+- Button C reassigned GPIO35 → GPIO26 (GPIO35 has no internal pull-up; GPIO26 was freed by the DL-010 grow-light architecture).
 
-### Added (continued)
-- \`firmware/test-sketches/10-leak-sensor/\` — PlatformIO project for leak sensor bench test and calibration (platformio.ini, src/main.cpp, README.md)
+### Fixed
 
-### Added
-- \`hub/01-pi-setup/\` — Raspberry Pi flashing and bootstrap procedure
-- \`hub/02-mosquitto-install/\` — Mosquitto broker installation (configuration and testing pending)
-- DL-027 — Hub bootstrap milestone
-
-### Decided
-- DL-028 — Campus deployment network deferred; project on home WiFi until IT consultation can confirm a campus path that satisfies the four criteria for IoT-class device-to-device communication
-
-### Validated
-- Mosquitto broker on Pi — loopback pub/sub verified, broker correctly routes messages between independent clients on localhost (see DL-029)
-
-### Added
-- \`docs/images/mosquitto-loopback-verification.png\` — screenshot of two SSH sessions during loopback test
-- Broker verification section appended to \`hub/02-mosquitto-install/README.md\`
-
-### Resolved
-- DL-028 partially resolved — JSU_DEVICE confirmed viable for deployment after second re-flash succeeded; client-isolation concern ruled out by ARP visibility analysis; original Pi-join failure attributed to silent Imager password typo
-
-### Documentation
-- Updated DL-028 with empirical findings from 2026-06-01 campus network testing
-
-### Added
-- \`hub/03-broker-config/\` — Mosquitto broker LAN configuration, authentication, and verification procedure
-- DL-030 — Broker LAN configuration milestone
-
-### Validated
-- Mosquitto broker reachable from external client (Mac) over JSU_DEVICE with authentication; three-test verification pattern (anonymous rejected, loopback authenticated, external client authenticated) all passed
-
-### Validated
-- Shelly Plus Plug US ("basilplug") paired and joined JSU_DEVICE on 10.6.17.32; third device confirming JSU_DEVICE viability for project use (see DL-031)
-
-### Resolved
-- DL-028 fully resolved — JSU_DEVICE is the deployment network; campus deferral closed
-
-### Validated
-- Shelly Plus Plug US MQTT integration with the project's Mosquitto broker — bidirectional control validated end-to-end from the Mac; the Shelly publishes status and events under \`plant/grow-light/\` and responds to commands; tested at deployment location near the plant (see DL-032)
-
-### Changed
-- MQTT username renamed from \`basilpi\` to \`basilmqtt\` to avoid collision with the Linux user account name
-- DL-030 updated with the username rename note for accuracy
-
-### Changed
-- Adopted credential-file workflow on developer Mac (\`~/.mqtt/plant-broker.conf\` with environment variables); MQTT passwords no longer passed on command lines
-- DL-032 updated with the credential workflow rationale
-- Verification commands in \`hub/03-broker-config/README.md\` and DL-030 updated to use environment variables instead of literal credentials
-
-### Deferred
-- ESP32-CAM bench validation deferred pending hardware replacement; both available units failed identically with two different USB-to-TTL programmers, plus an out-of-spec 3.9V reading on the 3.3V rail suggesting possible chip damage during diagnostics (see DL-034)
-
-### Added (placeholder)
-- \`firmware/test-sketches/11-esp32-cam/\` \u2014 PlatformIO project for the ESP32-CAM bench test, committed as a starting point for the next attempt; sketch is valid but not validated by execution
-
-### Documented
-- DL-035 \u2014 Phase 3 hub services kickoff entry; implementation begins this session
-
-### Added
-- \`hub/04-listener/\` \u2014 Python MQTT-to-SQLite listener with six-table schema (raw + extracted projections), run-aware via RUN_ID/RUN_PHASE env vars; validated end-to-end against the Shelly's live publishing (see DL-035)
-
-### Added
-- \`hub/05-listener-service/\` \u2014 systemd unit promoting the listener to a permanent system service with auto-start at boot, auto-restart on crash, and credentials loaded from root-only \`/etc/plant-hub/credentials\`; validated auto-restart by sending SIGKILL and confirming a new PID appeared (see DL-036, pending)
-EOFcat >> CHANGELOG.md << 'EOF'
-
-### Added
-- \`hub/05-listener-service/\` \u2014 systemd unit promoting the listener to a permanent system service with auto-start at boot, auto-restart on crash, and credentials loaded from root-only \`/etc/plant-hub/credentials\`; validated auto-restart by sending SIGKILL and confirming a new PID appeared (see DL-036, pending)
-
-### Added
-- \`hub/06-dashboard/\` \u2014 Streamlit dashboard (light cream theme, green primary, semantic status colors); LAN-accessible at \`http://10.6.19.139:8501\`; mobile-friendly; reads from \`plant.db\` and refreshes every 10 seconds; timestamps converted from UTC storage to America/Chicago display via \`zoneinfo\` (see DL-037)
-- Dashboard visual references under \`docs/images/dashboard-desktop-\*.png\` (desktop) and \`docs/images/dashboard-mobile-\*.png\` (iPhone)
-
-### Added
-- \`hub/07-dashboard-service/\` \u2014 systemd unit promoting the Streamlit dashboard to a permanent system service with auto-start at boot and auto-restart on crash; mirrors the listener-service pattern (DL-036) without MQTT credentials since the dashboard is a read-only SQLite consumer
+- Repaired this changelog: removed a leaked heredoc delimiter and a duplicated listener-service entry, stripped escape artifacts from an earlier bad paste (literal backslash-escaped backticks and `\u2014` em-dash sequences), restructured to the grouped Keep a Changelog format, and brought it current through DL-055.
