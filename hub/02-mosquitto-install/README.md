@@ -59,7 +59,7 @@ Verified end-to-end on 2026-05-31 with two SSH sessions to the Pi.
 
 All three test messages were routed by the broker from publisher to subscriber with no observable delay. The Mosquitto broker is verified operational on the Pi.
 
-Evidence: `docs/images/03-mosquitto-loopback-verification.png`
+Evidence: `docs/images/mosquitto-loopback-verification.png`
 
 ### What this verifies
 

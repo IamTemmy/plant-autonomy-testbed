@@ -307,7 +307,7 @@ These entries record decisions made after the project definition was published, 
 
 **Rationale.** The sketch confirms: (1) the I²C bus is wired correctly and the auto-detect across addresses 0x76/0x77 works as written; (2) the Adafruit library returns calibrated values, not raw counts; (3) values pass plausibility-bound checks (no `[WARN: implausible reading]` lines); (4) the sensor is not stuck — the breath response proves real-time measurement, not a constant fake value. This last point matters more than the absolute accuracy: a sensor that always reads "24°C, 45%" looks healthy but is useless to a control loop.
 
-**Alternatives considered.** None — this is a validation outcome, not a design choice. Evidence: `docs/images/01-bme280-validation.png`.
+**Alternatives considered.** None — this is a validation outcome, not a design choice. Evidence: `docs/images/bme280-validation.png`.
 
 ---
 
@@ -383,7 +383,7 @@ This made the buck converter genuinely optional. The 12V supply could be tied di
 
 **On flow rate.** Observed flow rate is slow. This is expected and correct: the Adafruit peristaltic pump is specified at roughly 100 mL/min at 12V. Peristaltic pumps trade flow rate for dose precision, which is the right tradeoff for the system's actual use case ("deliver N mL of water on a watering decision"). A faster pump would deliver more water per second but with less control over total dose volume.
 
-**Pre-power continuity verification.** Before power was applied, the wiring was verified by a continuity-test matrix covering common ground, gate signal path through the 220Ω series and 10kΩ pull-down resistors, drain path through the pump, diode orientation (forward voltage measured at ~0.596V — within normal range for a silicon diode), and absence of a 12V-to-ground short. An apparent +12V-to-drain short was correctly diagnosed as conduction through the pump's motor winding, not a wiring fault — verified by disconnecting one pump lead and re-running the relevant check. This diagnostic discipline (verify continuity before power, distinguish real shorts from coil-mediated paths) is now part of the project's bench-test practice. Evidence: `docs/images/02-pump-mosfet-validation.png`.
+**Pre-power continuity verification.** Before power was applied, the wiring was verified by a continuity-test matrix covering common ground, gate signal path through the 220Ω series and 10kΩ pull-down resistors, drain path through the pump, diode orientation (forward voltage measured at ~0.596V — within normal range for a silicon diode), and absence of a 12V-to-ground short. An apparent +12V-to-drain short was correctly diagnosed as conduction through the pump's motor winding, not a wiring fault — verified by disconnecting one pump lead and re-running the relevant check. This diagnostic discipline (verify continuity before power, distinguish real shorts from coil-mediated paths) is now part of the project's bench-test practice. Evidence: `docs/images/pump-mosfet-validation.png`.
 
 **What this test did not verify** (deferred to Phase 2 integration). Closed-loop verification — running the pump and confirming via the soil moisture sensor that water actually reached the soil. Dose calibration — measuring mL delivered per second of runtime so the firmware can convert a target volume into a runtime. Long-duration thermal behavior of the MOSFET under realistic duty cycles. Behavior when the buck converter is sharing the 12V rail under load simultaneously with the pump.
 
@@ -1039,7 +1039,7 @@ Decision on which to order is deferred to a separate session focused on the purc
 
 - `firmware/test-sketches/11-esp32-cam/platformio.ini` — the working PlatformIO configuration for the AI-Thinker ESP32-CAM target. Valid configuration; the build succeeded. Kept in the repo so the next attempt has a starting point.
 - `firmware/test-sketches/11-esp32-cam/src/main.cpp` — the minimal bench-test sketch (camera initialization + frame capture, no WiFi, no MQTT). Valid code; compiled cleanly. Did not run because the upload never succeeded, so the sketch is *unvalidated by execution* — important caveat.
-- `docs/images/04-esp32-cam-ftdi-wiring.png` — photo of the wiring used during the session. Documents the setup that did not work, which is useful diagnostic context for the next attempt.
+- `docs/images/esp32-cam-ftdi-wiring.png` — photo of the wiring used during the session. Documents the setup that did not work, which is useful diagnostic context for the next attempt.
 
 These artifacts are committed because they represent real, valid engineering work that should not be lost. The DL entry above makes clear they did not result in validation.
 
@@ -1307,8 +1307,8 @@ Remote access from outside JSU_DEVICE (e.g., from home, from travel) is **not** 
 - `hub/06-dashboard/dashboard.py` — the Streamlit app (~340 lines)
 - `hub/06-dashboard/.streamlit/config.toml` — Streamlit theme configuration
 - `hub/06-dashboard/README.md` — setup, operational reference, visual examples
-- `docs/images/05-dashboard-desktop-{1,2,3}.png` — desktop browser screenshots
-- `docs/images/06-dashboard-mobile-{1,2}.png` — iPhone Safari screenshots
+- `docs/images/dashboard-desktop-{1,2,3}.png` — desktop browser screenshots
+- `docs/images/dashboard-mobile-{1,2}.png` — iPhone Safari screenshots
 
 **Lesson worth keeping.**
 
@@ -1822,9 +1822,9 @@ These are all implementation decisions that will be made as code is written, rec
 
 **Date:** 2026-06-06 · **Status:** Active. Validated in the final mounted configuration.
 
-**Context.** The reservoir float needs to read a repeatable water level. First attempt rested the float hanging from its wire (`docs/images/05-float-mount-1.jpg`), which sat slanted and swung freely — a float switch only reads a consistent threshold when its stem is held in a fixed orientation, so a free-hanging/tilting float gives unreliable, slosh-sensitive readings and an unpredictable empty point.
+**Context.** The reservoir float needs to read a repeatable water level. First attempt rested the float hanging from its wire (`docs/images/float-mount-1.jpg`), which sat slanted and swung freely — a float switch only reads a consistent threshold when its stem is held in a fixed orientation, so a free-hanging/tilting float gives unreliable, slosh-sensitive readings and an unpredictable empty point.
 
-**Decision.** Route the float's wires through a rigid carbon-fiber rod and bond the rod to the float's threaded collar as one stiff unit (`05-float-mount-2.jpg`, `05-float-mount-3.jpg`), then anchor the rod through a hole drilled in the reservoir lid, fixing the assembly vertical and centered (`05-float-mount-4.jpg`). Bonded with waterproof cyanoacrylate gel (aquarium-rated). The mounting depth sets the empty threshold; depth chosen to trip EMPTY with usable reserve still in the jar (avoids the pump drawing air before it trips).
+**Decision.** Route the float's wires through a rigid carbon-fiber rod and bond the rod to the float's threaded collar as one stiff unit (`float-mount-2.jpg`, `float-mount-3.jpg`), then anchor the rod through a hole drilled in the reservoir lid, fixing the assembly vertical and centered (`float-mount-4.jpg`). Bonded with waterproof cyanoacrylate gel (aquarium-rated). The mounting depth sets the empty threshold; depth chosen to trip EMPTY with usable reserve still in the jar (avoids the pump drawing air before it trips).
 
 **Rationale.** A rigid lid-anchored rod holds the float vertical with repeatable travel, and the only reservoir penetration is in the lid — above the waterline, so no leak risk (unlike a side-wall bulkhead, which adds a sealed hole below the waterline). Center mounting keeps the float off the wall and clear of the pump inlet. Glue applied only to the stem/collar and rod-to-lid joints, never the sliding float, so the float remains free (a glued/stuck float would mask an empty reservoir — the dangerous failure direction noted below).
 
@@ -1834,7 +1834,7 @@ These are all implementation decisions that will be made as code is written, rec
 
 **Alternatives considered.** Free-hang from wire (rejected: slanted, slosh-sensitive, unreliable level). Side-wall bulkhead mount (rejected: sealed hole below the waterline = leak risk). Pendulum from lid (rejected: swings, triggers on tilt/slosh).
 
-**Files / images.** `docs/images/05-float-mount-1.jpg` (failed first mount), `-2.jpg` (float held), `-3.jpg` (rod+float assembly), `-4.jpg` (final, in reservoir).
+**Files / images.** `docs/images/float-mount-1.jpg` (failed first mount), `-2.jpg` (float held), `-3.jpg` (rod+float assembly), `-4.jpg` (final, in reservoir).
 
 ---
 

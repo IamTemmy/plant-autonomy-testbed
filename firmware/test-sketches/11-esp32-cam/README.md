@@ -12,7 +12,7 @@ Phase 1 bring-up for the ESP32-CAM (OV2640 sensor). A bare-bones camera init and
 | RX | U0T (TX) |
 | — | IO0 → GND (during flashing only; remove after) |
 
-The ESP32-CAM has no USB; it is flashed through an FTDI USB-to-TTL adapter (on this machine at `/dev/cu.usbserial-A5069RR4`, distinct from the WROVER's port). A photo of this wiring is at `docs/images/04-esp32-cam-ftdi-wiring.png`.
+The ESP32-CAM has no USB; it is flashed through an FTDI USB-to-TTL adapter (on this machine at `/dev/cu.usbserial-A5069RR4`, distinct from the WROVER's port). A photo of this wiring is at `docs/images/esp32-cam-ftdi-wiring.png`.
 
 ## Run
 

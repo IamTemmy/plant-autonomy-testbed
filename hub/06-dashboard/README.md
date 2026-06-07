@@ -28,13 +28,13 @@ behind storing UTC in the database and displaying America/Chicago in the UI.
 ## Visual references
 
 Desktop view:
-- ![Dashboard top](../../docs/images/05-dashboard-desktop-1.png)
-- ![Dashboard middle](../../docs/images/05-dashboard-desktop-2.png)
-- ![Dashboard bottom](../../docs/images/05-dashboard-desktop-3.png)
+- ![Dashboard top](../../docs/images/dashboard-desktop-1.png)
+- ![Dashboard middle](../../docs/images/dashboard-desktop-2.png)
+- ![Dashboard bottom](../../docs/images/dashboard-desktop-3.png)
 
 Mobile view (iPhone Safari):
-- ![Dashboard mobile top](../../docs/images/06-dashboard-mobile-1.png)
-- ![Dashboard mobile bottom](../../docs/images/06-dashboard-mobile-2.png)
+- ![Dashboard mobile top](../../docs/images/dashboard-mobile-1.png)
+- ![Dashboard mobile bottom](../../docs/images/dashboard-mobile-2.png)
 
 ## Setup procedure on the Pi
 

@@ -17,18 +17,18 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 - `docs/decision-log.md` — engineering decisions and rationale, seeded with project baseline and Phase 1 refinements
 
 ### Validated
-- BME280 component test passed — sensor detected at I2C address 0x76/0x77, plausible indoor readings, responsive to breath stimulus (see `docs/images/01-bme280-validation.png`)
+- BME280 component test passed — sensor detected at I2C address 0x76/0x77, plausible indoor readings, responsive to breath stimulus (see `docs/images/bme280-validation.png`)
 
 ### Added (continued)
 - `firmware/test-sketches/01-bme280/` — PlatformIO project for BME280 bench test (platformio.ini, src/main.cpp, README.md)
-- `docs/images/01-bme280-validation.png` — serial-monitor screenshot capturing baseline + breath-response readings
+- `docs/images/bme280-validation.png` — serial-monitor screenshot capturing baseline + breath-response readings
 
 ### Validated (continued)
 - Peristaltic pump + IRLB8721 MOSFET driver — clean ON/OFF transitions, flyback diode behaving correctly, no ESP32 resets, water flow confirmed in wet test (see DL-018)
 
 ### Added (continued)
 - \`firmware/test-sketches/02-pump-mosfet/\` — PlatformIO project for pump driver bench test (platformio.ini, src/main.cpp, README.md)
-- \`docs/images/02-pump-mosfet-validation.png\` — serial-monitor screenshot of pump cycling
+- \`docs/images/pump-mosfet-validation.png\` — serial-monitor screenshot of pump cycling
 
 ### Re-validated
 - BME280 — re-mounted onto the integrated breadboard (alongside pump + buck) and re-tested against the original sketch; no behavioral regression (see DL-019)
@@ -84,7 +84,7 @@ This file tracks **repository-level changes** (files, structure, tooling). Engin
 - Mosquitto broker on Pi — loopback pub/sub verified, broker correctly routes messages between independent clients on localhost (see DL-029)
 
 ### Added
-- \`docs/images/03-mosquitto-loopback-verification.png\` — screenshot of two SSH sessions during loopback test
+- \`docs/images/mosquitto-loopback-verification.png\` — screenshot of two SSH sessions during loopback test
 - Broker verification section appended to \`hub/02-mosquitto-install/README.md\`
 
 ### Resolved
@@ -139,7 +139,7 @@ EOFcat >> CHANGELOG.md << 'EOF'
 
 ### Added
 - \`hub/06-dashboard/\` \u2014 Streamlit dashboard (light cream theme, green primary, semantic status colors); LAN-accessible at \`http://10.6.19.139:8501\`; mobile-friendly; reads from \`plant.db\` and refreshes every 10 seconds; timestamps converted from UTC storage to America/Chicago display via \`zoneinfo\` (see DL-037)
-- Dashboard visual references under \`docs/images/05-\*.png\` (desktop) and \`docs/images/06-\*.png\` (iPhone)
+- Dashboard visual references under \`docs/images/dashboard-desktop-\*.png\` (desktop) and \`docs/images/dashboard-mobile-\*.png\` (iPhone)
 
 ### Added
 - \`hub/07-dashboard-service/\` \u2014 systemd unit promoting the Streamlit dashboard to a permanent system service with auto-start at boot and auto-restart on crash; mirrors the listener-service pattern (DL-036) without MQTT credentials since the dashboard is a read-only SQLite consumer
