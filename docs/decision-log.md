@@ -75,6 +75,8 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-053](#dl-053) | 2026-06-06 | Watering-effectiveness watchdog: fault if soil doesn't respond to pumping | Active |
 | [DL-054](#dl-054) | 2026-06-06 | Grow-light daily photoperiod (07:00\u201319:00) via Shelly device-side scheduler | Active |
 | [DL-055](#dl-055) | 2026-06-06 | Device-silence detection: WROVER presence via Last-Will, offline-aware dashboard | Active |
+| [DL-056](#dl-056) | 2026-06-08 | Stale-flag WROVER environment cards on the dashboard when offline | Active |
+
 
 ---
 
@@ -1930,6 +1932,23 @@ These are all implementation decisions that will be made as code is written, rec
 **Known gap / next.** While the WROVER is offline, the environment cards still show the last-published readings without a staleness indicator (they look live). Next tidy-up: dim/flag WROVER-sourced cards as stale when offline. A timeout-watchdog backstop (for a hung-but-still-connected device, which the will misses) is a deferred enhancement.
 
 **Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dashboard.py`.
+
+---
+
+<a id="dl-056"></a>
+### DL-056 — Stale environment cards when the WROVER is offline
+
+**Date:** 2026-06-08 · **Status:** Active. Validated by power-cutting the WROVER.
+
+**Context.** DL-055 made the dashboard banner and header pill offline-aware, but the seven WROVER-sourced environment cards (temp, humidity, pressure, light, soil, reservoir, leak) still showed their last-published readings in normal live styling. A glance could read "offline… but soil 40%, all green," when those values are frozen and possibly hours old — the same staleness blind spot the banner had, left on the cards.
+
+**Decision.** When `device_online_status("wrover") == "offline"`, render those seven cards greyed (status `unknown`) and append "· stale (as of <local time>)" to each card's meta, where the time is the most recent reading timestamp among the WROVER sensors. Cards return to live styling automatically when the WROVER republishes.
+
+**Rationale.** Completes the honesty story started in DL-052/DL-055: every WROVER-derived surface (banner, pill, cards) now visibly stops implying live data when the device is down. Showing the "as of" time lets the operator judge how stale the frozen readings are, and doubles as an indicator of roughly when the device went quiet. Reuses the existing presence signal and `render_card`'s `unknown` styling, so no new mechanism or schema.
+
+**Validation.** Unplugged the WROVER: banner went gray (DL-055) and the seven environment cards greyed with "stale (as of HH:MM)" showing the last-reading time; repowering restored live cards on the next refresh.
+
+**Files.** `hub/06-dashboard/dashboard.py`.
 
 ---
 
