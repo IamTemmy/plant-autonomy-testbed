@@ -549,6 +549,16 @@ live_cards = [
     ("Leak sensor",     leak_val,  "Conductive strip", leak_status),
 ]
 
+# When the WROVER is offline these readings are frozen, not live — show them
+# greyed and flagged stale rather than implying they're current (DL-056).
+wrover_offline = device_online_status("wrover") == "offline"
+_stale_candidates = [r["ts"] for r in (air_temp, air_hum, air_pres, light, soil, reservoir, leak)
+                     if r and r.get("ts")]
+_stale_as_of = format_local(max(_stale_candidates)) if _stale_candidates else None
+
 for i, (label, value, meta, status) in enumerate(live_cards):
+    if wrover_offline:
+        status = "unknown"
+        meta = f"{meta} · stale" + (f" (as of {_stale_as_of})" if _stale_as_of else "")
     with cols[i % 3]:
         render_card(label, value, meta, status)
