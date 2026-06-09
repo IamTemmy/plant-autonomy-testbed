@@ -311,9 +311,9 @@ def render_state_banner():
             fsm["state"], (fsm["state"], "unknown", ""))
         bg, bd, col = _BANNER_PALETTE.get(tier, _BANNER_PALETTE["unknown"])
         pump = latest_wrover_pump()
-        daily_s = int(fsm["daily_pump_ms"] / 1000) if fsm["daily_pump_ms"] is not None else 0
+        daily_ml = int(fsm["daily_pump_ms"] / 1000) if fsm["daily_pump_ms"] is not None else 0
         meta = (f"{sub} &middot; Pump: {'ON' if pump == 'on' else 'off'} "
-                f"&middot; Daily watering: {daily_s}s &middot; "
+                f"&middot; Daily watering: {daily_ml} mL &middot; "
                 f"Updated {format_local(fsm['ts'])}")
     st.markdown(f"""
     <div style="background:{bg}; border-left:5px solid {bd};
