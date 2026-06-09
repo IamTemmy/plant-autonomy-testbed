@@ -77,6 +77,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-055](#dl-055) | 2026-06-06 | Device-silence detection: WROVER presence via Last-Will, offline-aware dashboard | Active |
 | [DL-056](#dl-056) | 2026-06-08 | Stale-flag WROVER environment cards on the dashboard when offline | Active |
 | [DL-057](#dl-057) | 2026-06-08 | Soil-moisture trend chart with watering episodes overlaid on the dashboard | Active |
+| [DL-058](#dl-058) | 2026-06-09 | True mL daily cap + NTP calendar-midnight reset (rolling-window fallback) | Active |
 
 
 ---
@@ -1967,6 +1968,23 @@ These are all implementation decisions that will be made as code is written, rec
 **Validation.** Live dashboard shows the soil trend with watering bands and a matching episode table over the 7-day window.
 
 **Files.** `hub/06-dashboard/dashboard.py`.
+
+---
+
+<a id="dl-058"></a>
+### DL-058 — mL daily cap and NTP calendar-midnight reset
+
+**Date:** 2026-06-09 · **Status:** Active. NTP sync confirmed on hardware.
+
+**Context.** DL-046/048 left two placeholders: the daily water cap was expressed as pump run-time (`MAX_DAILY_PUMP_MS`) rather than mL, and "daily" was a rolling 24h window measured from boot, so the reset drifted relative to the calendar.
+
+**Decision.** Express the cap in mL: `PUMP_ML_PER_SEC = 1.0` (DL-048) and `MAX_DAILY_PUMP_ML = 200.0`; the cap check converts accumulated pump-on time to mL. Reset the daily counter at **local calendar midnight** using NTP time (`configTzTime` with POSIX TZ `CST6CDT,M3.2.0,M11.1.0` for America/Chicago, DST-aware), detected by a change in `tm_yday`. The rolling-24h window is retained as a **fallback** used only until NTP has synced, so the cap still works if WiFi/NTP is unavailable (consistent with the non-fatal-connectivity principle, DL-040). Accumulation stays internal in milliseconds (integer, precise); the published value and DB schema are unchanged, so the dashboard's history and episode derivation are unaffected. Dashboard banner relabeled from seconds to mL.
+
+**Rationale.** mL is the meaningful unit and the calibration-aware constant keeps the cap correct if the flow rate is ever re-measured. Calendar-midnight reset matches how a daily budget is naturally understood. Keeping the wire format in ms avoids a mixed-unit history in the database for no numeric gain at 1.0 mL/s.
+
+**Validation.** On hardware, NTP synced a few seconds after WiFi connect: `[FSM] NTP time synced: 2026-06-09 13:29 local` — correct Central time (CDT), confirming the TZ/DST string. The mL cap check is numerically identical to the prior ms check at 1.0 mL/s. Midnight reset relies on the verified time and the `tm_yday` comparison; not exercised live (awaits midnight).
+
+**Files.** `firmware/integrated/src/config.h`, `fsm.cpp`, `net_wifi.cpp`, `main.cpp`, `hub/06-dashboard/dashboard.py`.
 
 ---
 
