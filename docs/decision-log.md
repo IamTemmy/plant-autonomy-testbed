@@ -76,6 +76,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-054](#dl-054) | 2026-06-06 | Grow-light daily photoperiod (07:00\u201319:00) via Shelly device-side scheduler | Active |
 | [DL-055](#dl-055) | 2026-06-06 | Device-silence detection: WROVER presence via Last-Will, offline-aware dashboard | Active |
 | [DL-056](#dl-056) | 2026-06-08 | Stale-flag WROVER environment cards on the dashboard when offline | Active |
+| [DL-057](#dl-057) | 2026-06-08 | Soil-moisture trend chart with watering episodes overlaid on the dashboard | Active |
 
 
 ---
@@ -1947,6 +1948,23 @@ These are all implementation decisions that will be made as code is written, rec
 **Rationale.** Completes the honesty story started in DL-052/DL-055: every WROVER-derived surface (banner, pill, cards) now visibly stops implying live data when the device is down. Showing the "as of" time lets the operator judge how stale the frozen readings are, and doubles as an indicator of roughly when the device went quiet. Reuses the existing presence signal and `render_card`'s `unknown` styling, so no new mechanism or schema.
 
 **Validation.** Unplugged the WROVER: banner went gray (DL-055) and the seven environment cards greyed with "stale (as of HH:MM)" showing the last-reading time; repowering restored live cards on the next refresh.
+
+**Files.** `hub/06-dashboard/dashboard.py`.
+
+---
+
+<a id="dl-057"></a>
+### DL-057 — Soil-moisture trend with watering-episode overlay
+
+**Date:** 2026-06-08 · **Status:** Active. Validated on live data.
+
+**Context.** The dashboard showed soil only as a current card; there was no history and no visible record of when the system watered. The goal was a view that tells the autonomy story — sense dryness, act, verify the soil rises.
+
+**Decision.** Added a "Soil moisture & watering" section (24h / 7-day tabs): a soil-moisture trend line with watering episodes shaded as blue bands, plus a table of episodes (time, duration, approximate mL, Auto/Manual). Dashboard-only — episodes are derived from the existing `fsm_state` history (a span in `watering`/`manual`), with volume estimated from the `daily_pump_ms` delta across each span (~1.0 mL/s, DL-048). No firmware or schema change.
+
+**Rationale.** Reuses data already captured rather than adding new telemetry. Episodes (not individual 5 s pulses) are the meaningful unit and are reliably reconstructable from publish-on-change state transitions. The volume is labeled approximate because it samples cumulative pump time at state transitions, not a flow meter.
+
+**Validation.** Live dashboard shows the soil trend with watering bands and a matching episode table over the 7-day window.
 
 **Files.** `hub/06-dashboard/dashboard.py`.
 
