@@ -57,8 +57,13 @@ static constexpr uint32_t WATER_PULSE_MS      = 5000;   // pump-on duration per 
 static constexpr uint32_t WATER_SETTLE_MS     = 10000;  // wait for water to wick to the off-center probe before re-reading (DL-049)
 static constexpr uint8_t  WATER_WATCHDOG_PULSES = 8;    // consecutive no-progress pulses -> watering fault (DL-053)
 static constexpr uint16_t WATER_RESPONSE_MARGIN = 30;   // raw drop that counts as the soil responding (DL-053)
-static constexpr uint32_t DAILY_WINDOW_MS     = 86400000UL;  // rolling 24h window
-static constexpr uint32_t MAX_DAILY_PUMP_MS   = 200000UL;    // daily cap: 200 mL at 1.0 mL/s (DL-048); raise to 250-300 if soil dries too fast
+static constexpr uint32_t DAILY_WINDOW_MS     = 86400000UL;  // rolling 24h fallback window, used until NTP time is available (DL-058)
+static constexpr float    PUMP_ML_PER_SEC     = 1.0f;        // measured pump flow rate (DL-048)
+static constexpr float    MAX_DAILY_PUMP_ML   = 200.0f;      // daily water cap in mL (DL-048/058); raise to 250-300 if soil dries too fast
+// Time sync for the calendar-midnight daily reset (DL-058). POSIX TZ string carries DST rules.
+static constexpr const char* NTP_SERVER_1 = "pool.ntp.org";
+static constexpr const char* NTP_SERVER_2 = "time.nist.gov";
+static constexpr const char* LOCAL_TZ     = "CST6CDT,M3.2.0,M11.1.0";  // America/Chicago
 static constexpr uint32_t OLED_REFRESH_MS     = 500;    // status display refresh cadence
 static constexpr uint32_t BUZZER_ON_MS        = 200;    // alarm beep on duration
 static constexpr uint32_t BUZZER_OFF_MS       = 600;    // alarm beep gap
@@ -114,8 +119,7 @@ static constexpr uint16_t SOIL_RAW_WET     = 1953;  // ~30 min post-watering
 // NOTE: opposite polarity from soil moisture — guard against inverted logic.
 static constexpr uint16_t LEAK_RAW_DRY = 0;  // clean dry baseline
 
-// Pump dose calibration — TO BE MEASURED in Phase 2 with the measuring cup.
-// static constexpr float PUMP_ML_PER_SEC = 0.0f;  // FILL AFTER CALIBRATION
+// Pump flow rate is PUMP_ML_PER_SEC (above), measured in Phase 2 (DL-048).
 
 // ---- Thresholds: DECIDED boundaries the firmware acts on ------------------
 // Seeded from DL-020 / DL-026; tunable in Phase 2.

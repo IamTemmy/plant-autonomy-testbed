@@ -1,6 +1,7 @@
 #include "fsm.h"
 
 #include <Arduino.h>
+#include <time.h>
 
 #include "config.h"
 #include "pump.h"
@@ -24,6 +25,8 @@ static State state = ST_MONITORING;
 static unsigned long last_tick_ms          = 0;
 static unsigned long daily_window_start_ms = 0;
 static unsigned long daily_pump_ms         = 0;   // cumulative pump-on time this window
+static bool          time_synced           = false;  // NTP time available yet? (DL-058)
+static int           last_reset_yday       = -1;     // local day-of-year of the last daily reset
 static unsigned long leak_since_ms         = 0;   // when leak.detected first went true
 static unsigned long state_pub_next_ms     = 0;
 
@@ -166,11 +169,27 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
     button_update(btn_ack, now);
     button_update(btn_manual, now);
 
-    // Daily window reset + pump-on time accounting
-    if (now - daily_window_start_ms >= DAILY_WINDOW_MS) {
+    // Daily reset: at local calendar midnight once NTP time is available,
+    // otherwise a rolling 24h window from boot as a fallback (DL-058).
+    struct tm tinfo;
+    if (getLocalTime(&tinfo, 0) && tinfo.tm_year >= 120) {  // year >= 2020 => real time
+        if (!time_synced) {
+            time_synced = true;
+            last_reset_yday = tinfo.tm_yday;   // adopt today; no reset on first sync
+            Serial.printf("[FSM] NTP time synced: %04d-%02d-%02d %02d:%02d local\n",
+                          tinfo.tm_year + 1900, tinfo.tm_mon + 1, tinfo.tm_mday,
+                          tinfo.tm_hour, tinfo.tm_min);
+        } else if (tinfo.tm_yday != last_reset_yday) {
+            daily_pump_ms = 0;                 // crossed local midnight
+            last_reset_yday = tinfo.tm_yday;
+            Serial.println("[FSM] daily water budget reset (local midnight)");
+        }
+    } else if (!time_synced && now - daily_window_start_ms >= DAILY_WINDOW_MS) {
         daily_pump_ms = 0;
         daily_window_start_ms = now;
     }
+
+    // Pump-on time accounting (cumulative for the current day/window)
     if (pump_is_on()) {
         daily_pump_ms += (now - last_tick_ms);
     }
@@ -208,7 +227,7 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
         if (flt.reservoir_empty) {
             pump_off();
             state = ST_RESERVOIR_EMPTY;
-        } else if (daily_pump_ms >= MAX_DAILY_PUMP_MS) {
+        } else if ((daily_pump_ms / 1000.0f) * PUMP_ML_PER_SEC >= MAX_DAILY_PUMP_ML) {
             pump_off();
             state = ST_DAILY_LIMIT;
         } else {

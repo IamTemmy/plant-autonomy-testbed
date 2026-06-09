@@ -133,7 +133,8 @@ void loop() {
     // OLED status display task: shows current state + readings.
     if (now_ms >= oled_next_ms) {
         oled_render(fsm_state_name(), last_air, last_soil, last_float, last_leak,
-                    pump_is_on(), fsm_daily_pump_ms(), MAX_DAILY_PUMP_MS);
+                    pump_is_on(), fsm_daily_pump_ms(),
+                    (unsigned long)(MAX_DAILY_PUMP_ML / PUMP_ML_PER_SEC * 1000.0f));
         oled_next_ms = now_ms + OLED_REFRESH_MS;
     }
 

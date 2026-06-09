@@ -35,6 +35,10 @@ void wifi_begin() {
         Serial.println("WiFi: not connected at boot - continuing anyway.");
         // Non-fatal (DL-040 Principle 5). wifi_tick() keeps retrying.
     }
+
+    // Start NTP time sync for the calendar-midnight daily reset (DL-058).
+    // Non-blocking; SNTP syncs in the background once WiFi is up.
+    configTzTime(LOCAL_TZ, NTP_SERVER_1, NTP_SERVER_2);
 }
 
 void wifi_tick() {
