@@ -39,6 +39,21 @@ MQTT_PASS=<the current MQTT password>
 RUN_PHASE=phase3_hub_service
 ```
 
+Optional — push notifications via [ntfy](https://ntfy.sh) (DL-061). Alerting is
+off unless `NTFY_TOPIC` is set; if set, the listener pushes for genuine problems
+only (leak, watering fault, reservoir empty, prolonged offline, flapping reboots)
+plus recoveries and a daily summary. The topic is a shared secret, so it lives
+here and never in the repo:
+
+```text
+NTFY_TOPIC=<your-long-unguessable-topic-name>
+# Optional overrides (defaults shown):
+# NTFY_SERVER=https://ntfy.sh
+# ALERT_OFFLINE_GRACE_S=300
+# HEARTBEAT_HOUR=9
+# LOCAL_TZ=America/Chicago
+```
+
 Lock it down:
 
 ```text

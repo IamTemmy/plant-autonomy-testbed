@@ -27,6 +27,8 @@ from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
+import alerter  # ntfy push notifications (DL-061)
+
 # ---- Device-presence timeout watchdog (DL-059) ----------------------------
 # The Last-Will catches a device that loses power or its TCP link, but not one
 # that hangs while still connected. This watchdog marks a watched device offline
@@ -535,6 +537,7 @@ def main() -> int:
         while True:
             time.sleep(WATCHDOG_INTERVAL_S)
             run_presence_watchdog(wd_conn, run_id)
+            alerter.evaluate(wd_conn)
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
