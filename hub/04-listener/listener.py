@@ -20,10 +20,23 @@ import os
 import signal
 import sqlite3
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
+
+# ---- Device-presence timeout watchdog (DL-059) ----------------------------
+# The Last-Will catches a device that loses power or its TCP link, but not one
+# that hangs while still connected. This watchdog marks a watched device offline
+# if it stops publishing past the timeout, and back online when it resumes.
+WATCHDOG_INTERVAL_S = 30           # how often the watchdog checks
+WATCHDOG_TIMEOUT_S  = 90           # silence beyond this -> mark offline
+WATCHDOG_DEVICES    = {"wrover"}   # devices with a known, regular publish cadence
+_last_seen  = {}                   # device -> time.monotonic() of last message
+_wd_offline = {}                   # device -> True once the watchdog marks it offline
+_wd_lock    = threading.Lock()
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -365,6 +378,57 @@ def on_disconnect(client, userdata, flags, reason_code, properties):
     log.warning("Disconnected from broker: reason_code=%s; auto-reconnect will retry", reason_code)
 
 
+def _physical_device(topic: str):
+    """Map an MQTT topic to the physical device that published it."""
+    parts = topic.split("/")
+    if len(parts) >= 2 and parts[0] == "plant":
+        if parts[1] == "grow-light":
+            return "grow-light"
+        if parts[1] in ("sensors", "state", "status"):
+            return "wrover"
+    return None
+
+
+def _note_seen(conn, run_id, device, ts):
+    """Record that a device just published; if the watchdog had marked it
+    offline, log it back online (it resumed without a fresh announce)."""
+    if device is None:
+        return
+    with _wd_lock:
+        _last_seen[device] = time.monotonic()
+        recovered = _wd_offline.get(device, False)
+        _wd_offline[device] = False
+    if recovered:
+        conn.execute(
+            """INSERT INTO system_status (ts, message_id, run_id, device, status)
+               VALUES (?, ?, ?, ?, ?)""",
+            (ts, None, run_id, device, "online"),
+        )
+        log.info("Watchdog: %s resumed publishing; marked online", device)
+
+
+def run_presence_watchdog(conn, run_id):
+    """Mark any watched device offline if it has gone silent past the timeout."""
+    now = time.monotonic()
+    newly_offline = []
+    with _wd_lock:
+        for device in WATCHDOG_DEVICES:
+            last = _last_seen.get(device)
+            if last is None:
+                continue  # never seen this run -> don't assume offline
+            if now - last > WATCHDOG_TIMEOUT_S and not _wd_offline.get(device, False):
+                _wd_offline[device] = True
+                newly_offline.append(device)
+    for device in newly_offline:
+        conn.execute(
+            """INSERT INTO system_status (ts, message_id, run_id, device, status)
+               VALUES (?, ?, ?, ?, ?)""",
+            (utc_now_iso(), None, run_id, device, "offline"),
+        )
+        conn.commit()
+        log.warning("Watchdog: %s silent > %ds; marked offline", device, WATCHDOG_TIMEOUT_S)
+
+
 def on_message(client, userdata, msg):
     conn: sqlite3.Connection = userdata["conn"]
     run_id: str = userdata["run_id"]
@@ -390,6 +454,7 @@ def on_message(client, userdata, msg):
 
     # Then: route to specialized tables
     route_message(conn, message_id, run_id, ts, topic, payload)
+    _note_seen(conn, run_id, _physical_device(topic), ts)
     conn.commit()
 
 
@@ -411,8 +476,9 @@ def main() -> int:
         log.error("Database not found at %s; initialize with schema.sql first", DB_PATH)
         return 1
 
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")  # tolerate the watchdog's separate writer
     ensure_run_row(conn, run_id, phase)
 
     client = mqtt.Client(
@@ -439,7 +505,20 @@ def main() -> int:
 
     log.info("Connecting to %s:%d as %s", BROKER_HOST, BROKER_PORT, user)
     client.connect(BROKER_HOST, BROKER_PORT, keepalive=60)
-    client.loop_forever()
+    client.loop_start()  # network on a background thread (keeps paho auto-reconnect)
+
+    # Presence watchdog ticks from this (main) thread on its own DB connection.
+    wd_conn = sqlite3.connect(str(DB_PATH))
+    wd_conn.execute("PRAGMA foreign_keys = ON")
+    wd_conn.execute("PRAGMA busy_timeout = 5000")
+    try:
+        while True:
+            time.sleep(WATCHDOG_INTERVAL_S)
+            run_presence_watchdog(wd_conn, run_id)
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        wd_conn.close()
     return 0
 
 
