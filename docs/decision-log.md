@@ -79,7 +79,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-057](#dl-057) | 2026-06-08 | Soil-moisture trend chart with watering episodes overlaid on the dashboard | Active |
 | [DL-058](#dl-058) | 2026-06-09 | True mL daily cap + NTP calendar-midnight reset (rolling-window fallback) | Active |
 | [DL-059](#dl-059) | 2026-06-10 | Hub-side timeout watchdog: detect a device silent but still connected | Active |
-
+| [DL-060](#dl-060) | 2026-06-10 | Reboot detection from uptime resets, surfaced on the dashboard | Active |
 
 ---
 
@@ -2005,6 +2005,25 @@ These are all implementation decisions that will be made as code is written, rec
 **Known limitation.** Watches only the WROVER; the grow-light relies on its Last-Will. Timeout is fixed, not adaptive.
 
 **Files.** `hub/04-listener/listener.py`.
+
+---
+
+<a id="dl-060"></a>
+### DL-060 — Reboot detection (Piece A of reboot alerting)
+
+**Date:** 2026-06-10 · **Status:** Active. Validated on hardware (two consecutive resets detected).
+
+**Context.** An unexpected WROVER reboot (brownout, flaky supply, pump-induced sag, firmware crash) is a symptom worth knowing about. It was inferable from an offline→online presence blip (DL-055), but never recorded as a first-class event. This is Piece A (detect + record + show); push notification is Piece B (next).
+
+**Decision.** The WROVER already publishes `uptime_s` in its retained status message (on connect and each heartbeat). The listener tracks the last `uptime_s` per device; when it jumps backwards, the device rebooted, and a `metric='reboot'` row is written to `system_status` with `value` = the uptime reached before the reboot. The dashboard shows a caption under the state banner ("↻ Last WROVER reboot: <time> (was up <duration> before)"), escalating to an amber "check power stability" warning at ≥ 2 reboots in 24h (flapping indicator).
+
+**Rationale.** Reuses an existing field (`uptime_s`) — no firmware change. Recorded in `system_status` rather than `fault_events` to avoid ACK semantics (a past reboot is informational, not an active fault); `metric='reboot'` keeps it clear of the presence rows (which filter `metric IS NULL`). `_last_uptime` is touched only from `on_message` (single background thread), so it needs no lock, unlike the watchdog state. First-seen and the retained status on listener restart establish a baseline without false-flagging.
+
+**Validation.** Logic unit-tested (no false flag on first sight or monotonic growth; flags only on a backwards jump). On hardware, two consecutive EN/RST resets were both detected and logged (`uptime 1s < previous 68666s`, then `< previous 51s`), and the dashboard caption rendered correctly.
+
+**Known limitation.** A reboot that occurs entirely while the listener is down is not detected (the listener re-baselines from the retained status); the presence path still records the offline/online transition. Watches the WROVER (only device publishing `uptime_s`).
+
+**Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dashboard.py`.
 
 
 
