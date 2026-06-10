@@ -38,6 +38,10 @@ _last_seen  = {}                   # device -> time.monotonic() of last message
 _wd_offline = {}                   # device -> True once the watchdog marks it offline
 _wd_lock    = threading.Lock()
 
+# Reboot detection (DL-060): last uptime_s seen per device; a drop means a reboot.
+# Touched only from on_message (single background thread) -> no lock needed.
+_last_uptime = {}
+
 # ----------------------------------------------------------------------
 # Configuration
 # ----------------------------------------------------------------------
@@ -213,6 +217,22 @@ def route_message(
                        VALUES (?, ?, ?, ?, ?)""",
                     (ts, message_id, run_id, device, "online" if online else "offline"),
                 )
+            # Reboot detection (DL-060): uptime_s jumping backwards means the
+            # device restarted. Recorded as a metric='reboot' marker, value =
+            # how long it had been up before the reboot.
+            uptime = data.get("uptime_s")
+            if uptime is not None:
+                prev = _last_uptime.get(device)
+                if prev is not None and uptime < prev:
+                    conn.execute(
+                        """INSERT INTO system_status
+                           (ts, message_id, run_id, device, status, metric, value)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                        (ts, message_id, run_id, device, "reboot", "reboot", float(prev)),
+                    )
+                    log.warning("Reboot detected on %s: uptime %ss < previous %ss",
+                                device, uptime, prev)
+                _last_uptime[device] = uptime
             return
 
         # plant/grow-light/online -> system_status

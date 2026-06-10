@@ -292,6 +292,45 @@ _BANNER_PALETTE = {
 }
 
 
+def _fmt_duration(seconds) -> str:
+    try:
+        s = int(seconds)
+    except (TypeError, ValueError):
+        return "unknown"
+    if s < 60:
+        return f"{s}s"
+    m, s = divmod(s, 60)
+    if m < 60:
+        return f"{m}m"
+    h, m = divmod(m, 60)
+    if h < 24:
+        return f"{h}h {m}m"
+    d, h = divmod(h, 24)
+    return f"{d}d {h}h"
+
+
+def latest_reboot(device: str = "wrover"):
+    df = query_df(
+        """SELECT ts, value FROM system_status
+           WHERE device = ? AND metric = 'reboot'
+           ORDER BY id DESC LIMIT 1""",
+        (device,),
+    )
+    if df.empty:
+        return None
+    return {"ts": df.iloc[0]["ts"], "prev_uptime_s": df.iloc[0]["value"]}
+
+
+def reboots_recent(device: str = "wrover", hours: int = 24) -> int:
+    df = query_df(
+        """SELECT COUNT(*) AS n FROM system_status
+           WHERE device = ? AND metric = 'reboot'
+             AND ts >= datetime('now', ?)""",
+        (device, f"-{hours} hours"),
+    )
+    return int(df.iloc[0]["n"]) if not df.empty else 0
+
+
 def render_state_banner():
     fsm = latest_fsm_state()
     if device_online_status("wrover") == "offline":
@@ -364,6 +403,16 @@ st.caption(f"Last refreshed: {now_local}  ·  auto-refresh every {REFRESH_SECOND
 # ----------------------------------------------------------------------
 
 render_state_banner()
+
+_reboot = latest_reboot("wrover")
+if _reboot is not None:
+    _msg = (f"↻ Last WROVER reboot: {format_local(_reboot['ts'])} "
+            f"(was up {_fmt_duration(_reboot['prev_uptime_s'])} before)")
+    _n24 = reboots_recent("wrover", 24)
+    if _n24 >= 2:
+        st.warning(f"{_msg} &middot; {_n24} reboots in the last 24h — check power stability")
+    else:
+        st.caption(_msg)
 
 st.markdown("## Current state")
 
