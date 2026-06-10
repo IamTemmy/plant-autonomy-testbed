@@ -78,6 +78,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-056](#dl-056) | 2026-06-08 | Stale-flag WROVER environment cards on the dashboard when offline | Active |
 | [DL-057](#dl-057) | 2026-06-08 | Soil-moisture trend chart with watering episodes overlaid on the dashboard | Active |
 | [DL-058](#dl-058) | 2026-06-09 | True mL daily cap + NTP calendar-midnight reset (rolling-window fallback) | Active |
+| [DL-059](#dl-059) | 2026-06-10 | Hub-side timeout watchdog: detect a device silent but still connected | Active |
 
 
 ---
@@ -1987,6 +1988,25 @@ These are all implementation decisions that will be made as code is written, rec
 **Files.** `firmware/integrated/src/config.h`, `fsm.cpp`, `net_wifi.cpp`, `main.cpp`, `hub/06-dashboard/dashboard.py`.
 
 ---
+
+<a id="dl-059"></a>
+### DL-059 — Device-presence timeout watchdog (backstop)
+
+**Date:** 2026-06-10 · **Status:** Active. Logic unit-tested; integration smoke-tested in production.
+
+**Context.** DL-055 added presence detection via the MQTT Last-Will, which the broker emits when a device loses power or its TCP link. It does not cover a device that hangs while *still connected* — the socket stays up, the will never fires, but the device stops publishing. That gap was explicitly deferred in DL-055.
+
+**Decision.** Add a hub-side timeout watchdog in the listener. It tracks the last-seen time per watched device (`wrover`), and if one goes silent past `WATCHDOG_TIMEOUT_S` (90 s) it writes an `offline` row to `system_status` (metric NULL), and an `online` row when the device resumes publishing. The check runs every `WATCHDOG_INTERVAL_S` (30 s) on a time-driven tick — not message-driven, since total silence would otherwise stop the trigger from ever running. The listener moved from `client.loop_forever()` to `client.loop_start()` (background network thread, retaining auto-reconnect) plus a watchdog loop on the main thread; the watchdog uses its own SQLite connection, and both connections set `busy_timeout` to tolerate the second writer.
+
+**Rationale.** Reuses the existing presence representation (`system_status`, metric NULL), so the dashboard's offline-awareness (DL-055/056) reacts to watchdog-driven offline exactly as it does to the Last-Will — one unified presence story. Scoped to the WROVER (a known, regular publish cadence) to avoid false positives on the more sporadic grow-light, which keeps its Last-Will coverage. The timeout (90 s) sits well beyond the WROVER's normal publish gaps to avoid false offlines.
+
+**Validation.** Watchdog logic unit-tested: marks offline only after real silence, idempotent (no duplicate rows), recovers on resume, never flags an unseen or fresh device. In production the restructured listener reconnected and ingested normally with no false watchdog warnings and a live dashboard. The genuine hung-but-connected case is hard to induce on demand; the timeout path can be exercised by cutting the WROVER's network while leaving it powered (silence trips the watchdog before the keepalive-driven will).
+
+**Known limitation.** Watches only the WROVER; the grow-light relies on its Last-Will. Timeout is fixed, not adaptive.
+
+**Files.** `hub/04-listener/listener.py`.
+
+
 
 ## Maintaining this log
 
