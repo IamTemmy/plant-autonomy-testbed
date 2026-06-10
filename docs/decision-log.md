@@ -80,6 +80,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-058](#dl-058) | 2026-06-09 | True mL daily cap + NTP calendar-midnight reset (rolling-window fallback) | Active |
 | [DL-059](#dl-059) | 2026-06-10 | Hub-side timeout watchdog: detect a device silent but still connected | Active |
 | [DL-060](#dl-060) | 2026-06-10 | Reboot detection from uptime resets, surfaced on the dashboard | Active |
+| [DL-061](#dl-061) | 2026-06-10 | ntfy push alerting: faults, offline, flapping reboots, recoveries, daily heartbeat | Active |
 
 ---
 
@@ -2024,6 +2025,25 @@ These are all implementation decisions that will be made as code is written, rec
 **Known limitation.** A reboot that occurs entirely while the listener is down is not detected (the listener re-baselines from the retained status); the presence path still records the offline/online transition. Watches the WROVER (only device publishing `uptime_s`).
 
 **Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dashboard.py`.
+
+---
+
+<a id="dl-061"></a>
+### DL-061 — Push notification alerting layer (ntfy)
+
+**Date:** 2026-06-10 · **Status:** Active. All alert branches validated on hardware.
+
+**Context.** The dashboard surfaces problems only when someone is looking at it. The original brief (a self-sufficient plant you can leave alone) wants out-of-band notification — knowing something is wrong without watching. This is Piece B of the alerting arc (Piece A, reboot detection, was DL-060); it also generalises beyond reboots to cover faults and presence.
+
+**Decision.** A new `alerter.py` module imported by the listener, evaluated every ~30 s from the existing watchdog loop. It polls the state already recorded in `system_status` (FSM state, presence, reboot markers) and pushes via [ntfy](https://ntfy.sh) — Pi → ntfy.sh → APNs → phone, so delivery works anywhere the phone has internet, independent of the lab network. Alerting is deliberately selective: notify only on genuine, actionable problems — leak fault and watering fault (high priority), reservoir empty and prolonged offline (default), and flapping reboots ≥ 2/24h (high) — each with a recovery ("Resolved") ping, plus a low-priority daily heartbeat summary at 09:00 local. Normal operation, single reboots, and the daily-limit cap stay dashboard-only. Alerts are edge-triggered and debounced via in-memory state (one alert per transition, never repeated while a condition persists); the offline alert has a 5-min grace so reboots and blips don't page.
+
+**Rationale.** Lives inside the listener (no second service) because the listener already records every transition and has a timer loop. Polling rather than per-message hooks is simpler, naturally debounced, and robust to the firmware re-publishing the same state every 30 s; since the alert-worthy faults latch, a 30 s poll never misses them and ~30 s latency is fine. `notify()` fires on a short-timeout daemon thread so a slow network call never stalls ingestion, and is a silent no-op when `NTFY_TOPIC` is unset, so the listener behaves identically whether or not alerting is configured. The topic is a shared secret, so it lives in the systemd `EnvironmentFile` (`/etc/plant-hub/credentials`), never in the public repo. Standard library only (`urllib`, `zoneinfo`) — no new dependency.
+
+**Validation.** End-to-end on hardware: on restart with two reboots in 24h, the flapping-reboot alert and the daily heartbeat both reached the phone in ~30 s (`ntfy sent:` logged for each). A probe-in-air manual watering latched `watering_fault` and pushed the high-priority alert; clearing it delivered the "Resolved" recovery ping. Outbound HTTPS to ntfy.sh confirmed working through the campus network.
+
+**Known limitations.** Public ntfy.sh is best-effort (fine for a personal project, not life-safety); the topic name is effectively a bearer secret (mitigated by length, self-hostable later). In-memory alert state resets on listener restart, so an ongoing fault may re-alert once on restart. Watches the WROVER; the grow-light relies on its own Last-Will.
+
+**Files.** `hub/04-listener/alerter.py` (new), `hub/04-listener/listener.py`, `hub/05-listener-service/README.md`.
 
 
 
