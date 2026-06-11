@@ -81,6 +81,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-059](#dl-059) | 2026-06-10 | Hub-side timeout watchdog: detect a device silent but still connected | Active |
 | [DL-060](#dl-060) | 2026-06-10 | Reboot detection from uptime resets, surfaced on the dashboard | Active |
 | [DL-061](#dl-061) | 2026-06-10 | ntfy push alerting: faults, offline, flapping reboots, recoveries, daily heartbeat | Active |
+| [DL-062](#dl-062) | 2026-06-11 | ESP32-CAM bring-up: prior failures traced to toolchain + wiring, not boards; sketch 11 validated; XIAO stays the node | Active |
 
 ---
 
@@ -2044,6 +2045,25 @@ These are all implementation decisions that will be made as code is written, rec
 **Known limitations.** Public ntfy.sh is best-effort (fine for a personal project, not life-safety); the topic name is effectively a bearer secret (mitigated by length, self-hostable later). In-memory alert state resets on listener restart, so an ongoing fault may re-alert once on restart. Watches the WROVER; the grow-light relies on its own Last-Will.
 
 **Files.** `hub/04-listener/alerter.py` (new), `hub/04-listener/listener.py`, `hub/05-listener-service/README.md`.
+
+---
+
+<a id="dl-062"></a>
+### DL-062 — ESP32-CAM bring-up: root-causing the "dead boards," validating sketch 11
+
+**Date:** 2026-06-11 · **Status:** Active. Validated on hardware (sketch 11 captures frames continuously).
+
+**Context.** Two ESP32-CAM modules had previously failed to flash, which motivated moving the planned vision node to the Seeed XIAO ESP32-S3 Sense (DL-034). Two new ESP32-CAMs plus the XIAO are now in hand. Before committing to the XIAO arc, the original "dead board" failures were re-investigated to settle whether the fault was the boards, the rig, or the toolchain — a question that would otherwise resurface every time a CAM is picked up.
+
+**Finding (root cause).** The failures were never the boards. Three independent issues were stacked. (1) **Toolchain:** Arduino ESP32 core 3.3.9 ships a `platform.txt` that references `tools/flasher.py`, but the file is missing from the released package, so *every* IDE upload failed identically regardless of hardware — a known upstream packaging bug, fixed by fetching `flasher.py` from master, or rolling the core back, or flashing from PlatformIO. (2) **Wiring:** the FTDI ground had been landed on the signal-side `GND/R` pin next to `U0R` rather than the power-return `GND` beside `5V`, leaving the bootloader under-referenced ("Failed to connect: no serial data received"). (3) **Power under load:** the stock CameraWebServer example boot-looped (silent reset at `entry 0x400805b4`, before `setup()` printed anything), consistent with a WiFi current spike browning out a marginal supply — the no-WiFi sketch 11 runs rock-solid on the identical rig.
+
+**Decision.** The two original CAMs (and the two new ones) are confirmed functional and retained as **spares**. **DL-034 stands unchanged — the XIAO ESP32-S3 Sense remains the vision node.** This episode reinforces that choice rather than reopening it: the CAM's manual GPIO0/RST bootloader entry, external-FTDI power dependence, and brownout sensitivity are exactly the friction the XIAO's native USB-C (auto-reset, single-cable power) removes, and the XIAO's S3 + 8 MB PSRAM is where the deferred ML path would live.
+
+**Validation.** Sketch 11 (`firmware/test-sketches/11-esp32-cam/`) was flashed via PlatformIO and ran continuously: PSRAM detected, `esp_camera_init` succeeded, and VGA (640x480) JPEG frames captured steadily at ~14 KB each with a monotonically incrementing counter and no resets. This moves sketch 11 from "committed but unexecuted" to **execution-validated**. Live WiFi streaming was not exercised on the campus network — client isolation (DL-028) blocks browser-to-device — so an actual image is best viewed over a hotspot/home WiFi or a serial-capture path.
+
+**Known limitation.** Validation covers camera init and frame capture only — not WiFi streaming, image quality (focus/exposure/colour), or the eventual image transport. The committed `platformio.ini` hardcodes an FTDI port (`/dev/cu.usbserial-A5069RR4`) that differs per adapter; the live run used a `--upload-port` override rather than editing the committed file.
+
+**Files.** `firmware/test-sketches/11-esp32-cam/` (validated; no code change).
 
 
 
