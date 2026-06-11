@@ -95,14 +95,21 @@ The building also now has a **remote-access door**. Originally, you had to be in
 
 Two devices currently have keys to the remote-access door: the operator's Mac and iPhone. Adding a new device requires explicit authorization through the Tailscale admin console. No random visitor can find or knock on the door.
 
+## The worker who phones you
+
+The secretary got more vigilant, too. She used to only notice a worker was gone if his phone line actually dropped — but a worker can slump at his desk with the line still showing "connected," silent yet not formally disconnected. So she now also watches the clock: if a worker she's supposed to hear from goes quiet for too long, she marks him offline regardless of what the phone line claims. She also notices when a worker's desk clock resets to zero — that worker rebooted — and raises a flag if it keeps happening, because a worker who restarts over and over has something wrong with him.
+
+All of that lands in the notebook and on the display board. But a display board only helps if someone's looking at it. So we hired a **dispatcher** whose only job is to call the operator's actual phone when something is genuinely wrong — a leak, a watering that isn't taking, an empty reservoir, a worker gone silent for more than a few minutes, or one that keeps rebooting. When the problem clears, she calls back with an "all clear." And once a day, at nine in the morning, she places a routine "everything's fine" check-in so the operator knows the line itself still works. She only calls for real problems, never twice for the same one, and her calls reach the operator anywhere — they don't depend on being near the building.
+
 ## What's still to come
 
-The building has space for more workers, and the mail clerk is ready to route their postcards to the secretary. Soon:
+The building has space for more workers, and the mail clerk is ready to route their postcards to the secretary. The **sensor monitor** (the ESP32 WROVER firmware) that once sat on this list has since joined: from another room it now reports the basil plant's air temperature, humidity, light, soil moisture, and reservoir level as postcards the secretary files into the sensor-readings section, and the front-desk display's plant-environment panel populates from them.
 
-- A **sensor monitor** (the ESP32 WROVER firmware) will join the system from a different room. It will report on the basil plant's air temperature, humidity, light levels, soil moisture, and water reservoir level. Postcards to the mail clerk, captured by the secretary, written into the sensor-readings section. Once those postcards start arriving, the front-desk display's "Plant environment" panel — currently empty — will populate automatically.
-- A **photographer** (the ESP32-CAM) will eventually take pictures of the plant on a schedule. This worker is delayed because the initial hardware didn't pass its job interview; we're getting replacement equipment.
+Still ahead:
 
-The mail clerk and secretary already exist and don't need to change to accommodate any of these. The system is built so the staff can grow without rewriting the building.
+- A **photographer** (a Seeed XIAO ESP32-S3 Sense, the replacement for the original ESP32-CAM) will take pictures of the plant on a schedule, giving the secretary's notebook a visual record alongside the numbers. The replacement hardware is now in hand, waiting to be brought online.
+
+The mail clerk and secretary already exist and don't need to change to accommodate a new worker. The system is built so the staff can grow without rewriting the building.
 
 ## Where this all lives
 

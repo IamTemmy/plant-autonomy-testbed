@@ -21,7 +21,7 @@ The system is **operational and watering autonomously**. Development has run in 
 | **Phase 1** | Each hardware component validated in isolation (bench sketches) | ✅ Complete |
 | **Phase 2** | Integrated ESP32-WROVER firmware — sensing, the watering state machine, dosing, fault detection | ✅ Complete |
 | **Phase 3** | Raspberry Pi telemetry hub — MQTT broker, database, live dashboard | ✅ Complete |
-| **Next** | Camera vision node, adaptive lighting, push alerting, security hardening | 🔜 Roadmap |
+| **Next** | Camera vision node, adaptive lighting, security hardening | 🔜 Roadmap |
 
 ## Engineering framing
 
@@ -52,7 +52,8 @@ Four functional layers:
 - **Safety states** — leak detection, emergency stop, reservoir-empty, and daily-limit handling, surfaced on status LEDs, an OLED, and a buzzer.
 - **Scheduled grow light** — a fixed daily photoperiod (07:00–19:00) run on the smart plug itself, so it holds even if the hub or network is down.
 - **Live remote dashboard** — current state, sensor readings, a soil-moisture trend with watering episodes overlaid, and power telemetry.
-- **Device-presence awareness** — if the controller drops offline, the dashboard detects it (via MQTT Last-Will), greys stale readings, and flags exactly when contact was lost.
+- **Device-presence awareness** — if the controller drops offline, the dashboard detects it — via the MQTT Last-Will, and via a hub-side timeout watchdog that also catches a device hung but still TCP-connected — greys stale readings, and flags exactly when contact was lost. Controller reboots are detected from uptime resets and surfaced, with a warning if they start flapping.
+- **Push alerting** — genuine problems (leak, watering fault, empty reservoir, prolonged offline, flapping reboots) send a phone push notification over ntfy, each with a "Resolved" recovery ping, plus a low-priority daily heartbeat — reaching the operator anywhere, independent of the lab network.
 
 ## Dashboard
 
@@ -107,7 +108,6 @@ Every meaningful choice — part substitutions, pin assignments, calibration, th
 
 - **Vision node** — a Seeed XIAO ESP32-S3 Sense (replacing the original ESP32-CAM, DL-034) for time-lapse capture and basic color/health analysis on the Pi.
 - **Adaptive lighting** — supplement the photoperiod from the BH1750 against a daily-light-integral target, rather than a fixed schedule.
-- **Push alerting** — notify on faults and device-offline events.
 - **Security hardening** — dashboard authentication and MQTT over TLS.
 
 ## License
