@@ -130,7 +130,7 @@ def _presence(conn):
 def _reboots_24h(conn):
     return _scalar(conn,
         "SELECT COUNT(*) FROM system_status WHERE device='wrover' "
-        "AND metric='reboot' AND ts >= datetime('now','-24 hours')") or 0
+        f"AND metric='reboot' AND {_TS_NORM} >= julianday('now','-24 hours')") or 0
 
 
 def _daily_ml(conn):

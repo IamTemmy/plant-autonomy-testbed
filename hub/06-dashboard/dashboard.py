@@ -217,7 +217,7 @@ def power_history(hours: int) -> pd.DataFrame:
     return query_df(
         """SELECT ts, value AS watts FROM sensor_readings
            WHERE sensor = 'power' AND device = 'grow-light'
-             AND ts >= datetime('now', ?)
+             AND julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', ?)
            ORDER BY ts""",
         (f"-{hours} hours",),
     )
@@ -325,7 +325,7 @@ def reboots_recent(device: str = "wrover", hours: int = 24) -> int:
     df = query_df(
         """SELECT COUNT(*) AS n FROM system_status
            WHERE device = ? AND metric = 'reboot'
-             AND ts >= datetime('now', ?)""",
+             AND julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', ?)""",
         (device, f"-{hours} hours"),
     )
     return int(df.iloc[0]["n"]) if not df.empty else 0
@@ -511,7 +511,7 @@ def soil_history(hours: int) -> pd.DataFrame:
     return query_df(
         """SELECT ts, value AS moisture FROM sensor_readings
            WHERE sensor = 'moisture' AND device = 'soil'
-             AND ts >= datetime('now', ?)
+             AND julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', ?)
            ORDER BY ts""",
         (f"-{hours} hours",),
     )
@@ -525,7 +525,7 @@ def watering_episodes(hours: int) -> pd.DataFrame:
     df = query_df(
         """SELECT ts, status AS state, value AS daily_ms FROM system_status
            WHERE device = 'wrover' AND metric = 'fsm_state'
-             AND ts >= datetime('now', ?)
+             AND julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', ?)
            ORDER BY id""",
         (f"-{hours} hours",),
     )
