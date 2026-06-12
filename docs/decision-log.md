@@ -81,7 +81,8 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-059](#dl-059) | 2026-06-10 | Hub-side timeout watchdog: detect a device silent but still connected | Active |
 | [DL-060](#dl-060) | 2026-06-10 | Reboot detection from uptime resets, surfaced on the dashboard | Active |
 | [DL-061](#dl-061) | 2026-06-10 | ntfy push alerting: faults, offline, flapping reboots, recoveries, daily heartbeat | Active |
-| [DL-062](#dl-062) | 2026-06-11 | ESP32-CAM bring-up: prior failures traced to toolchain + wiring, not boards; sketch 11 validated; XIAO stays the node | Active |
+| [DL-062](#dl-062) | 2026-06-11 | ESP32-CAM bring-up: prior failures; sketch 11 validated | Active |
+| [DL-063](#dl-063) | 2026-06-12 | Grow-light photoperiod verification (lux vs schedule); threshold in data-collection phase | Active |
 
 ---
 
@@ -2064,6 +2065,25 @@ These are all implementation decisions that will be made as code is written, rec
 **Known limitation.** Validation covers camera init and frame capture only — not WiFi streaming, image quality (focus/exposure/colour), or the eventual image transport. The committed `platformio.ini` hardcodes an FTDI port (`/dev/cu.usbserial-A5069RR4`) that differs per adapter; the live run used a `--upload-port` override rather than editing the committed file.
 
 **Files.** `firmware/test-sketches/11-esp32-cam/` (validated; no code change).
+
+---
+
+<a id="dl-063"></a>
+### DL-063 — Grow-light photoperiod verification (lux vs schedule)
+
+**Date:** 2026-06-12 · **Status:** Active — deployed; threshold in a deliberate data-collection phase (see below).
+
+**Context.** The grow-light photoperiod runs *on the Shelly plug itself* (DL-054) so it survives a hub or network outage — but that resilience means nothing on the hub was confirming the light actually came on. A bulb failure, a dropped Shelly, a lost schedule, or an unplugged cord would go silent until the plant suffered. This is the same commanded-vs-measured gap the watering watchdog (DL-053) and presence/reboot detection (DL-059/060) close, now applied to lighting: don't trust that the command worked — verify the physical effect with an independent sensor. (That independent-verification principle is the same discipline safety-critical autonomy, e.g. self-driving, relies on.)
+
+**Decision.** A hub-side check in `alerter.py` (polled from the existing evaluate loop) compares measured BH1750 lux against the expected photoperiod state. During the ON window lux must stay above a threshold; during the OFF window, below it. A mismatch sustained past a grace window raises a default-priority alert ("Grow light may be off" / "still on"), with a recovery ping when it clears. Threshold **30 lux**, sustain **15 min**, all env-overridable.
+
+**Rationale.** Lives hub-side, not in firmware, because lighting and watering are independent concerns (the firmware doesn't control the grow light — the Shelly does) and the lux already flows to the hub. Absolute-threshold (not transition) detection chosen because the measured separation is clean. The 15-min sustain absorbs the 07:00/19:00 switch moments and transient shadows; the check stands down when lux is stale (e.g. controller offline) so a missing reading can't masquerade as a dark light. Note: the light is a blurple (red/blue) panel, and lux is photopic, so it under-reads the spectrum — ~45 lux is ample for the plant and is used here only as an on/off detection signal, not as a plant-light (DLI) proxy.
+
+**Threshold derivation & data-collection phase.** Thresholds were set from measured data, not generic references (DL-021 noted this environment's ambient is far below textbook indoor values). In the current geometry: room-lights-max ≈ 18 lux vs grow light ≈ 44–47 lux at the sensor → a 30 lux line splits the gap with ~12 lux margin each side. Because the rig's geometry drifts as people adjust the light, pot, and breadboard, the threshold is being **validated over several days of real-handling data** — watching that the min-ON and max-OFF populations stay cleanly separated. The value is env-overridable (`GROW_LUX_THRESHOLD` in the credentials file), so retuning needs no code change. **A follow-up DL will record the validated or retuned threshold and link back to this entry.**
+
+**Validation.** Logic unit-tested (lit/dark, grace, recovery, stale stand-down). Deployed and active; the scheduled OFF transition was observed alerting silent (matches expectation).
+
+**Files.** `hub/04-listener/alerter.py`.
 
 
 
