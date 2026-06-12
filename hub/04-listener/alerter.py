@@ -44,6 +44,15 @@ GROW_LUX_THRESHOLD = float(os.environ.get("GROW_LUX_THRESHOLD", "30"))
 GROW_MISMATCH_GRACE_S = int(os.environ.get("GROW_MISMATCH_GRACE_S", "900"))  # 15 min
 GROW_LUX_STALE_S = int(os.environ.get("GROW_LUX_STALE_S", "300"))  # can't verify if older
 
+# External (manual) watering detection (DL-064): flag a soil-moisture rise the
+# system didn't cause. A rise >= SOIL_RISE_THRESHOLD over SOIL_LOOKBACK_MIN, with
+# no system watering in the lookback + settling window, means someone else watered.
+SOIL_RISE_THRESHOLD = float(os.environ.get("SOIL_RISE_THRESHOLD", "15"))  # percent
+SOIL_LOOKBACK_MIN = int(os.environ.get("SOIL_LOOKBACK_MIN", "30"))
+SOIL_SETTLING_MIN = int(os.environ.get("SOIL_SETTLING_MIN", "30"))
+_SOIL_RECENT_MIN = 5   # "now" = average over the last this-many minutes
+_SOIL_BASE_HALF = 5    # baseline window = [LOOKBACK-HALF, LOOKBACK+HALF] min ago
+
 # Latched FSM states worth a push, with (title, body, priority, tags).
 FAULT_ALERTS = {
     "leak_fault": (
@@ -70,6 +79,7 @@ _st = {
     "gl_mismatch_since": None,   # monotonic time the current grow-light mismatch began
     "gl_mismatch_kind": None,    # "dark_during_on" | "lit_during_off"
     "gl_alerted": None,          # mismatch kind we've alerted on (for recovery)
+    "ext_water_alerted": False,  # external-watering event currently alerted (debounce)
 }
 
 
@@ -201,6 +211,60 @@ def _check_grow_light(conn, now_mono):
         _st["gl_alerted"] = kind
 
 
+# Normalised timestamp expression: the DB stores UTC ISO like "...T..Z"; convert to
+# SQLite's plain "YYYY-MM-DD HH:MM:SS" so julianday() compares reliably across windows.
+_TS_NORM = "julianday(replace(replace(ts,'T',' '),'Z',''))"
+
+
+def _pump_ran_recently(conn, minutes):
+    """True if the pump was commanded on within the last `minutes`. This is the
+    direct actuator signal (water actually dispensed), so an aborted watering that
+    never ran the pump correctly does NOT suppress external-watering detection."""
+    n = conn.execute(
+        "SELECT COUNT(*) FROM system_status WHERE metric='pump' AND status='on' "
+        f"AND {_TS_NORM} >= julianday('now', ?)",
+        (f"-{minutes} minutes",)).fetchone()[0]
+    return bool(n)
+
+
+def _soil_avg(conn, older_min, newer_min):
+    """Average soil moisture for readings between older_min and newer_min ago
+    (newer_min=None means up to the present)."""
+    sql = ("SELECT AVG(value) FROM sensor_readings WHERE sensor='moisture' "
+           f"AND {_TS_NORM} >= julianday('now', ?)")
+    params = [f"-{older_min} minutes"]
+    if newer_min is not None:
+        sql += f" AND {_TS_NORM} < julianday('now', ?)"
+        params.append(f"-{newer_min} minutes")
+    return conn.execute(sql, params).fetchone()[0]
+
+
+def _check_external_watering(conn):
+    """Alert on a significant soil rise the system didn't cause."""
+    # Suppress while the pump's own dispensation (and its settling climb) is in range.
+    if _pump_ran_recently(conn, SOIL_LOOKBACK_MIN + SOIL_SETTLING_MIN):
+        _st["ext_water_alerted"] = False
+        return
+
+    recent = _soil_avg(conn, _SOIL_RECENT_MIN, None)
+    baseline = _soil_avg(conn, SOIL_LOOKBACK_MIN + _SOIL_BASE_HALF,
+                         SOIL_LOOKBACK_MIN - _SOIL_BASE_HALF)
+    if recent is None or baseline is None:
+        _st["ext_water_alerted"] = False   # not enough data to judge
+        return
+
+    rise = recent - baseline
+    if rise >= SOIL_RISE_THRESHOLD:
+        if not _st["ext_water_alerted"]:
+            notify("Unexplained watering",
+                   f"Soil moisture rose {rise:.0f}% in ~{SOIL_LOOKBACK_MIN} min with no "
+                   f"system watering — did someone water the plant?",
+                   "default", ["sweat_drops"])
+            _st["ext_water_alerted"] = True
+    else:
+        _st["ext_water_alerted"] = False   # settled back; re-arm
+
+
 # ---- the periodic evaluation ----------------------------------------------
 
 def evaluate(conn):
@@ -258,7 +322,10 @@ def evaluate(conn):
     # 4) Grow-light photoperiod verification.
     _check_grow_light(conn, now_mono)
 
-    # 5) Daily heartbeat summary at the configured local hour.
+    # 5) External (manual) watering detection.
+    _check_external_watering(conn)
+
+    # 6) Daily heartbeat summary at the configured local hour.
     now_local = datetime.now(LOCAL_TZ)
     today = now_local.date()
     if now_local.hour >= HEARTBEAT_HOUR and _st["last_heartbeat_date"] != today:
