@@ -83,6 +83,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-061](#dl-061) | 2026-06-10 | ntfy push alerting: faults, offline, flapping reboots, recoveries, daily heartbeat | Active |
 | [DL-062](#dl-062) | 2026-06-11 | ESP32-CAM bring-up: prior failures; sketch 11 validated | Active |
 | [DL-063](#dl-063) | 2026-06-12 | Grow-light photoperiod verification (lux vs schedule); threshold in data-collection phase | Active |
+| [DL-064](#dl-064) | 2026-06-12 | External-watering detection: flag a soil rise the pump didn't cause | Active |
 
 ---
 
@@ -2082,6 +2083,30 @@ These are all implementation decisions that will be made as code is written, rec
 **Threshold derivation & data-collection phase.** Thresholds were set from measured data, not generic references (DL-021 noted this environment's ambient is far below textbook indoor values). In the current geometry: room-lights-max ≈ 18 lux vs grow light ≈ 44–47 lux at the sensor → a 30 lux line splits the gap with ~12 lux margin each side. Because the rig's geometry drifts as people adjust the light, pot, and breadboard, the threshold is being **validated over several days of real-handling data** — watching that the min-ON and max-OFF populations stay cleanly separated. The value is env-overridable (`GROW_LUX_THRESHOLD` in the credentials file), so retuning needs no code change. **A follow-up DL will record the validated or retuned threshold and link back to this entry.**
 
 **Validation.** Logic unit-tested (lit/dark, grace, recovery, stale stand-down). Deployed and active; the scheduled OFF transition was observed alerting silent (matches expectation).
+
+**Files.** `hub/04-listener/alerter.py`.
+
+---
+
+<a id="dl-064"></a>
+### DL-064 — External (manual) watering detection
+
+**Date:** 2026-06-12 · **Status:** Active — built, validated, deployed.
+
+**Context.** If someone waters the plant by hand (or any moisture rise occurs that the system didn't cause), the closed loop already *responds* correctly — soil reads wet, so no watering triggers — but nothing ever *reported* it. That's an observability gap: the system handled the event silently. Where the grow-light check (DL-063) verifies a commanded action produced its effect, this is the complement — detecting when the world changed *without* the system causing it. (Both are the kind of model-vs-reality divergence check that safety-critical autonomy, e.g. self-driving, depends on.)
+
+**Decision.** A hub-side check in `alerter.py` flags a soil-moisture rise of ≥ `SOIL_RISE_THRESHOLD` (15%) over a `SOIL_LOOKBACK_MIN` (30 min) window, **provided the pump did not run** within the lookback plus a settling buffer. Default priority, single debounced alert ("Unexplained watering — did someone water the plant?"). All parameters env-overridable.
+
+**Rationale.**
+- *Suppression keyed to the direct pump signal.* The check asks whether the pump was actually commanded on (`metric='pump'`, `status='on'`), not whether the FSM was in a watering mode. The actuator's real dispensation is the truest "did the system add water," and this is correct in the edge case where the controller enters `watering` but aborts before the pump ever runs (e.g. reservoir empty) — that must *not* suppress a genuine external rise. This is the project's commanded-vs-measured principle applied to the suppressor.
+- *Settling buffer (30 min beyond the lookback).* Soil keeps climbing for many minutes after the pump stops as water diffuses around the probe. Without a buffer, the system's own post-watering settling would look identical to an external pour and self-trigger. The buffer ensures detection only resumes once even the *baseline* endpoint is past the settling climb.
+- *Conservative threshold.* The quiet-hour soil swing (probe noise floor) measured ~2–5%; 15% is ~3× that, so only real pours trigger and routine jitter never does. Endpoints are short averages, not single readings, to reject probe glitches.
+- *Correct time windowing.* Timestamps are stored as UTC ISO (`...Z`); the queries normalise them (`julianday(replace(replace(ts,'T',' '),'Z',''))`) so the short windows compare reliably rather than via a brittle string compare.
+- *Hub-side, not firmware.* The firmware already responds correctly to external watering; only detect-and-notify was missing, which is an observability concern.
+
+**Threshold derivation.** Δ and the noise floor were read off the logged soil history via read-only hub queries (hourly min/avg/max/swing), separating the ~2–5% quiet-period noise from a real rise — the same instrument-then-tune method used for the lux threshold (DL-063).
+
+**Validation.** Logic unit-tested: pump-run suppression, the 15% bar (a +12% rise stays silent), debounce, re-arm once the baseline catches up, and graceful no-data handling. Deployed and active; the next automatic watering serves as a live negative test (pump-run suppression should keep it silent).
 
 **Files.** `hub/04-listener/alerter.py`.
 
