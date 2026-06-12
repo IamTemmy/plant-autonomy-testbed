@@ -84,6 +84,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-062](#dl-062) | 2026-06-11 | ESP32-CAM bring-up: prior failures; sketch 11 validated | Active |
 | [DL-063](#dl-063) | 2026-06-12 | Grow-light photoperiod verification (lux vs schedule); threshold in data-collection phase | Active |
 | [DL-064](#dl-064) | 2026-06-12 | External-watering detection: flag a soil rise the pump didn't cause | Active |
+| [DL-065](#dl-065) | 2026-06-12 | Fix timestamp-windowing in hub time-range queries (string compare → julianday) | Active |
 
 ---
 
@@ -2109,6 +2110,25 @@ These are all implementation decisions that will be made as code is written, rec
 **Validation.** Logic unit-tested: pump-run suppression, the 15% bar (a +12% rise stays silent), debounce, re-arm once the baseline catches up, and graceful no-data handling. Deployed and active; the next automatic watering serves as a live negative test (pump-run suppression should keep it silent).
 
 **Files.** `hub/04-listener/alerter.py`.
+
+---
+
+<a id="dl-065"></a>
+### DL-065 — Correct timestamp windowing in hub time-range queries
+
+**Date:** 2026-06-12 · **Status:** Active — fixed, validated, deployed.
+
+**Context.** Several hub queries filter "the last N hours/minutes" with `ts >= datetime('now','-N …')`. But the database stores UTC ISO timestamps with a `T` separator and `Z` suffix (`2026-06-12T13:45:00Z`, from `utc_now_iso`), while SQLite's `datetime('now', …)` returns a space-separated string with no `Z`. The comparison is therefore a *string* compare, and at the separator position `T` (0x54) sorts after a space (0x20) — so any row sharing the threshold's calendar date is included regardless of its actual time. A "last 24h" filter could pull in rows up to ~24h older than intended.
+
+**Impact.** `_reboots_24h` (alerter) and `reboots_recent` (dashboard) could over-count reboots, making the flapping-reboot alert slightly eager and inflating the dashboard's reboot count near a date boundary. The chart/history queries (`soil_history`, `power_history`, `watering_episodes`) could show more than the requested window.
+
+**Decision.** Normalise the stored timestamp before comparison and compare numerically: `julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', …)`. Applied to `_reboots_24h` and the four affected dashboard queries. (DL-064's soil queries already used this correct form; this brings the older queries in line.)
+
+**Discovery.** Found while writing DL-064's soil-window queries — the correct pattern there made the naive pattern in the pre-existing reboot/chart queries obvious.
+
+**Validation.** Demonstrated on an in-memory SQLite DB: a reboot 30h ago that shares the calendar date with the −24h threshold was counted by the old query (total 2) and correctly excluded by the fixed query (total 1). Both files compile; deployed and restarted.
+
+**Files.** `hub/04-listener/alerter.py`, `hub/06-dashboard/dashboard.py`.
 
 
 
