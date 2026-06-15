@@ -90,6 +90,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-068](#dl-068) | 2026-06-14 | Nightly DB retention — prune high-frequency tables to rolling windows | Active |
 | [DL-069](#dl-069) | 2026-06-15 | Validate grow-light lux threshold (30) against 10 days of data — confirmed | Active |
 | [DL-070](#dl-070) | 2026-06-15 | Instrument Shelly uptime/RSSI — separate reboots from WiFi dropouts | Active |
+| [DL-071](#dl-071) | 2026-06-15 | Power-chart gridlines + land the DL-067 sargable code (omitted from 5d717e6) | Active |
 
 ---
 
@@ -2230,6 +2231,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** In-memory test: climbing uptime logs no reboot; an uptime reset logs exactly one reboot marker carrying the pre-reboot uptime; the uptime+rssi series rows are written. Live first sample logged `uptime=Ns rssi=NdBm` and two `shelly` rows.
 
 **Files.** `hub/11-shelly-monitor/shelly_monitor.py`, `hub/11-shelly-monitor/plant-shelly-monitor.{service,timer}`, `hub/11-shelly-monitor/README.md`.
+
+---
+
+<a id="dl-071"></a>
+### DL-071 — Power-chart gridlines + land the DL-067 sargable code
+
+**Date:** 2026-06-15 · **Status:** Active — deployed.
+
+**Context.** Two things. (1) The power-draw chart's x-axis had no vertical gridlines (`showgrid=False`) and sparse ~3-hour ticks, making a point hard to place in time. (2) Investigating that, git history showed DL-067's *code* was never committed — commit `5d717e6` contained only the decision-log entry, so `alerter.py` and `dashboard.py` on `origin/main` still used the non-sargable `julianday(...)` form. (The sargable files were deployed to the Pi at DL-067 time but never staged; a later working-tree copy then overwrote them.)
+
+**Decision.** (1) Power chart: vertical gridlines + fixed ticks — 2-hour spacing on the 24-hour view, 10-minute on the 1-hour view, `HH:MM` labels (`plot_power` now takes the window length to choose the interval). Soil chart left unchanged (its 24h/7d tabs have different tick needs). (2) Land DL-067 for real: all seven windowed queries (three in `alerter.py`, four in `dashboard.py`) now use `ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)`, restoring index range-scans.
+
+**Validation.** Both files compile; zero `julianday(...)` predicates remain. Sargable plan reconfirmed live (`(sensor=? AND ts>?)`). Dashboard renders the new gridlines.
+
+**Note.** This is the commit that actually lands DL-067's code; the DL-067 entry was accurate in intent and is unchanged.
+
+**Files.** `hub/06-dashboard/dashboard.py`, `hub/04-listener/alerter.py`.
 
 
 
