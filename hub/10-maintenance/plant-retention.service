@@ -1,0 +1,10 @@
+[Unit]
+Description=Plant Autonomy Testbed - database retention (prune old high-frequency rows)
+After=plant-listener.service
+
+[Service]
+Type=oneshot
+User=basilpi
+EnvironmentFile=/etc/plant-hub/credentials
+WorkingDirectory=/home/basilpi/plant-hub
+ExecStart=/usr/bin/python3 /home/basilpi/plant-hub/retention.py

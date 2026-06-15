@@ -1,0 +1,10 @@
+[Unit]
+Description=Plant Autonomy Testbed - nightly database retention
+
+[Timer]
+# 03:30 in the Pi's local timezone; Persistent catches up a missed run after downtime.
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
