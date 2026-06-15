@@ -86,7 +86,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-064](#dl-064) | 2026-06-12 | External-watering detection: flag a soil rise the pump didn't cause | Active |
 | [DL-065](#dl-065) | 2026-06-12 | Fix timestamp-windowing in hub time-range queries (string compare → julianday) | Active |
 | [DL-066](#dl-066) | 2026-06-14 | Fix listener crash-loop & dashboard DB-locks (WAL + loop hardening + busy_timeout) | Active |
-
+| [DL-067](#dl-067) | 2026-06-14 | Make windowed queries sargable (use existing (sensor,ts)/(device,ts) indexes) | Active |
 
 ---
 
@@ -2157,6 +2157,23 @@ These are all implementation decisions that will be made as code is written, rec
 **Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dashboard.py`.
 
 ---
+
+<a id="dl-067"></a>
+### DL-067 — Make windowed queries sargable so they use the existing time indexes
+
+**Date:** 2026-06-14 · **Status:** Active — fixed, validated, deployed.
+
+**Context.** DL-066 stopped the listener crash-loop (WAL + loop hardening), but the *driver* of the lock contention was slow queries holding the database too long. Investigation showed the time indexes already exist (`idx_sensor_readings_sensor_ts` on `(sensor, ts)`, `idx_system_status_device_ts`, etc.) — they were simply not being used. DL-065's correctness fix wrapped the column in a function: `julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', ?)`. Wrapping `ts` in a function makes the predicate **non-sargable**, so SQLite used only the `(sensor=?)` prefix of the index and then scanned every row of that sensor, applying the function to each. For high-frequency sensors (moisture, lux) with months of data that is tens of thousands of rows per call; as the table grew to 301k rows these scans lengthened the lock windows that DL-066 was mopping up after.
+
+**Decision.** Normalise the **threshold**, not the column: `ts >= strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)`. Both sides are now identical fixed-width UTC-ISO strings, so the comparison is still correct (lexicographic order = chronological order for this format), and because it is a plain `ts >= <constant>`, the `(sensor, ts)` / `(device, ts)` indexes range-scan it. Applied to all seven windowed queries: three in `alerter.py` (`_reboots_24h`, `_pump_ran_recently`, `_soil_avg` ×2) and four in `dashboard.py` (power history, recent reboots, soil history, watering episodes).
+
+**Rationale.** This keeps DL-065's correctness (the bug it fixed — same-calendar-date rows wrongly included — does not return) while restoring index usage. It supersedes DL-065's *implementation*: same result, far cheaper. General principle: compare timestamps sargably — build the cutoff in the stored format and compare the raw column, never wrap the column in a function inside a WHERE clause.
+
+**Validation.** Live `EXPLAIN QUERY PLAN` on the Pi: the old form planned `USING INDEX idx_sensor_readings_sensor_ts (sensor=?)` (scan within sensor); the new form plans `(sensor=? AND ts>?)` (index range seek). In-memory test confirmed the new queries return identical results to the old form (recent-window avg and lagged-baseline avg both unchanged) while using the index range.
+
+**Files.** `hub/04-listener/alerter.py`, `hub/06-dashboard/dashboard.py`.
+
+
 
 ## Maintaining this log
 
