@@ -1,0 +1,10 @@
+[Unit]
+Description=Plant Autonomy Testbed - sample Shelly uptime/RSSI every minute
+
+[Timer]
+OnCalendar=minutely
+AccuracySec=5s
+# No Persistent: a missed minute is just a (meaningful) gap, not worth catching up.
+
+[Install]
+WantedBy=timers.target
