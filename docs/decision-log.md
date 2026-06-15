@@ -87,6 +87,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-065](#dl-065) | 2026-06-12 | Fix timestamp-windowing in hub time-range queries (string compare → julianday) | Active |
 | [DL-066](#dl-066) | 2026-06-14 | Fix listener crash-loop & dashboard DB-locks (WAL + loop hardening + busy_timeout) | Active |
 | [DL-067](#dl-067) | 2026-06-14 | Make windowed queries sargable (use existing (sensor,ts)/(device,ts) indexes) | Active |
+| [DL-068](#dl-068) | 2026-06-14 | Nightly DB retention — prune high-frequency tables to rolling windows | Active |
 
 ---
 
@@ -2173,7 +2174,30 @@ These are all implementation decisions that will be made as code is written, rec
 
 **Files.** `hub/04-listener/alerter.py`, `hub/06-dashboard/dashboard.py`.
 
+---
 
+<a id="dl-068"></a>
+### DL-068 — Nightly database retention to bound table growth
+
+**Date:** 2026-06-14 · **Status:** Active — built, validated, deployed.
+
+**Context.** `plant.db` grows without bound: per-minute Shelly power telemetry, ~30s WROVER sensor pushes, and every MQTT message archived. It reached 159 MB / ~826k rows in 10 days (`mqtt_messages` 334k, `sensor_readings` 306k, `system_status` 186k; `actuator_events` 48, `fault_events` 0). DL-067 bounded query *speed* (indexed range scans are independent of table size), but not file or SD-card growth. The dashboard's longest view is 7 days, so no rollup/downsampling is needed — a rolling-window delete suffices.
+
+**Decision.** A nightly `systemd` timer (`plant-retention.timer` → `plant-retention.service` → `retention.py`) prunes the high-frequency tables to per-table windows, since they differ sharply in value:
+- `mqtt_messages` — 7 days (raw archive, never queried historically; the biggest table).
+- `system_status` — 14 days (alerter/dashboard only look back 24h).
+- `sensor_readings` — 30 days (dashboard needs 7; the dominant table — lower to 14 to ~halve steady-state size).
+- `runs`, `actuator_events`, `fault_events` — kept forever (sparse, valuable).
+
+All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a redeploy.
+
+**Rationale / safety.** Deletes are **sargable** (`ts < <cutoff>`, cutoff built in the stored ISO format) so they ride the per-table `ts` index (EXPLAIN: covering-index range scan). They are **batched** with a commit per batch and a brief yield between batches, so a large first-run backlog can't hold a long write lock or balloon the WAL against the live listener — applying the concurrency lessons from DL-066/067. **WAL + busy_timeout** means it waits for the listener instead of erroring and never blocks its reads. The job ends with `wal_checkpoint(TRUNCATE)`. The DB file plateaus via free-page reuse (no VACUUM in steady state); VACUUM is left as an optional manual off-hours step.
+
+**Validation.** In-memory test: prunes only out-of-window rows, in batches, keeping recent rows, with the delete riding `COVERING INDEX idx_sensor_readings_ts (ts<?)`. Live first run removed ~N `mqtt_messages` rows; `sensor_readings`/`system_status` were no-ops (still inside their windows); listener unaffected.
+
+**Files.** `hub/10-maintenance/retention.py`, `hub/10-maintenance/plant-retention.{service,timer}`, `hub/10-maintenance/README.md`.
+
+---
 
 ## Maintaining this log
 
