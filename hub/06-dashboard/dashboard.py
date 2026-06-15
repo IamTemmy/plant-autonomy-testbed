@@ -146,7 +146,12 @@ h2 {
 # ----------------------------------------------------------------------
 
 def get_conn() -> sqlite3.Connection:
-    return sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    # Read-write handle (needed for WAL shared-memory), but writes are forbidden
+    # via query_only, and busy_timeout waits for a writer instead of erroring.
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA query_only = ON")
+    return conn
 
 
 def query_df(sql: str, params: tuple = ()) -> pd.DataFrame:

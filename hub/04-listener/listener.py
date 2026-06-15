@@ -499,6 +499,7 @@ def main() -> int:
         return 1
 
     conn = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode = WAL")   # readers + one writer coexist (no lock storms)
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA busy_timeout = 5000")  # tolerate the watchdog's separate writer
     ensure_run_row(conn, run_id, phase)
@@ -536,8 +537,15 @@ def main() -> int:
     try:
         while True:
             time.sleep(WATCHDOG_INTERVAL_S)
-            run_presence_watchdog(wd_conn, run_id)
-            alerter.evaluate(wd_conn)
+            # A transient DB hiccup must never kill the watchdog/alerting thread,
+            # or the operator loses every safety alert until the next restart.
+            try:
+                run_presence_watchdog(wd_conn, run_id)
+                alerter.evaluate(wd_conn)
+            except (KeyboardInterrupt, SystemExit):
+                raise
+            except Exception:
+                log.exception("watchdog/alerter iteration failed; continuing")
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
