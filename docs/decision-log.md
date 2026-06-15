@@ -89,6 +89,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-067](#dl-067) | 2026-06-14 | Make windowed queries sargable (use existing (sensor,ts)/(device,ts) indexes) | Active |
 | [DL-068](#dl-068) | 2026-06-14 | Nightly DB retention — prune high-frequency tables to rolling windows | Active |
 | [DL-069](#dl-069) | 2026-06-15 | Validate grow-light lux threshold (30) against 10 days of data — confirmed | Active |
+| [DL-070](#dl-070) | 2026-06-15 | Instrument Shelly uptime/RSSI — separate reboots from WiFi dropouts | Active |
 
 ---
 
@@ -2212,6 +2213,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Notes.** Low per-hour minimums during ON hours are real light-off episodes (Shelly rebooting/stuck during the incident window), i.e. the alert correctly catching the plug's unreliability, not threshold error. Mid-morning max spikes (up to ~15k lux) are direct-sun/reflection artifacts and are harmless — they never cause a false "light off" alarm, and the OFF-window ceiling (06:00 max 2.5) confirms sun never triggers a false "light on" alarm.
 
 **Files.** None (configuration/validation only).
+
+---
+
+<a id="dl-070"></a>
+### DL-070 — Instrument Shelly uptime/RSSI to separate reboots from WiFi dropouts
+
+**Date:** 2026-06-15 · **Status:** Active — built, validated, deployed.
+
+**Context.** DL-066 found the grow-light Shelly rebooting to ON. Investigation: firmware is current (`1.7.99`; only a `2.0.0-beta1` is offered — not for a depended-on node); uptime at check time was ~2.2 h (not a tight reboot loop); `reset_reason: 4` indicates a fault-triggered restart, not a clean mains power-on; RAM is healthy (`ram_min_free` never hit zero); RSSI is a weak **−72 dBm**; and the telemetry gaps are irregular across all hours. That profile points to mostly **WiFi dropouts** on the flaky campus network (DL-028) with occasional fault reboots — but a telemetry gap alone cannot distinguish a reboot from a dropout: a reboot resets the device's uptime counter, a dropout does not.
+
+**Decision.** Add a hub-side poller (`plant-shelly-monitor.timer` → `plant-shelly-monitor.service` → `shelly_monitor.py`) that samples the Shelly's own `uptime` + `rssi` once a minute via one `Shelly.GetStatus` RPC call, logging both to `sensor_readings` (device=`shelly`) and writing a `metric='reboot'` marker to `system_status` when uptime goes backwards (mirroring the WROVER reboot detection, DL-060). This makes reboot-vs-dropout unambiguous after the fact and yields an RSSI time-series to correlate with the dropout timing — direct evidence for the campus-network case (DL-028). Shelly reboots are recorded but deliberately **not** wired into the alerter: the plug's WiFi is known-flaky, and the grow-light verification alert (DL-063) already pages on real functional impact.
+
+**Rationale.** This is independent measurement of device truth rather than inference from telemetry gaps — the same commanded-vs-measured / independent-verification discipline applied elsewhere. The poller is a stateless timer (previous uptime read from the DB, so detection survives restarts), consistent with the retention timer (DL-068); it uses WAL + busy_timeout like every hub writer, and its rows fall under the 30-day `sensor_readings` retention window so they stay bounded.
+
+**Validation.** In-memory test: climbing uptime logs no reboot; an uptime reset logs exactly one reboot marker carrying the pre-reboot uptime; the uptime+rssi series rows are written. Live first sample logged `uptime=Ns rssi=NdBm` and two `shelly` rows.
+
+**Files.** `hub/11-shelly-monitor/shelly_monitor.py`, `hub/11-shelly-monitor/plant-shelly-monitor.{service,timer}`, `hub/11-shelly-monitor/README.md`.
 
 
 
