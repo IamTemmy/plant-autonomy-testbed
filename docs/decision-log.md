@@ -88,6 +88,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-066](#dl-066) | 2026-06-14 | Fix listener crash-loop & dashboard DB-locks (WAL + loop hardening + busy_timeout) | Active |
 | [DL-067](#dl-067) | 2026-06-14 | Make windowed queries sargable (use existing (sensor,ts)/(device,ts) indexes) | Active |
 | [DL-068](#dl-068) | 2026-06-14 | Nightly DB retention — prune high-frequency tables to rolling windows | Active |
+| [DL-069](#dl-069) | 2026-06-15 | Validate grow-light lux threshold (30) against 10 days of data — confirmed | Active |
 
 ---
 
@@ -2198,6 +2199,21 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Files.** `hub/10-maintenance/retention.py`, `hub/10-maintenance/plant-retention.{service,timer}`, `hub/10-maintenance/README.md`.
 
 ---
+
+<a id="dl-069"></a>
+### DL-069 — Grow-light lux threshold validated against logged data
+
+**Date:** 2026-06-15 · **Status:** Active — confirmed, no change.
+
+**Context.** DL-063 set the grow-light verification threshold at 30 lux with a 15-minute sustain, flagged as data-collection-phase pending validation. ~10 days of logged lux are now available.
+
+**Decision.** Keep 30 lux. The by-local-hour profile shows clean separation: scheduled-OFF hours (deep night) sit at ~0 lux with an ambient ceiling near 15 (excluding the 19:00 transition and the DL-066 stuck-on incident, both legitimate light-on); scheduled-ON hours average ~40–47 lux when the light is on. 30 is ~2× above the off-ceiling and ~30% below the on-level, and the 15-minute sustain filters transients. The threshold stays env-overridable (`GROW_LUX_THRESHOLD`).
+
+**Notes.** Low per-hour minimums during ON hours are real light-off episodes (Shelly rebooting/stuck during the incident window), i.e. the alert correctly catching the plug's unreliability, not threshold error. Mid-morning max spikes (up to ~15k lux) are direct-sun/reflection artifacts and are harmless — they never cause a false "light off" alarm, and the OFF-window ceiling (06:00 max 2.5) confirms sun never triggers a false "light on" alarm.
+
+**Files.** None (configuration/validation only).
+
+
 
 ## Maintaining this log
 
