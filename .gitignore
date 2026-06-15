@@ -38,3 +38,6 @@ dist/
 # Firmware credentials (never commit real values)
 secrets.h
 !secrets.h.example
+
+# Loose chat-handoff artifacts (not part of the project)
+HANDOFF-*.md

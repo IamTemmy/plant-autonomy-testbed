@@ -13,7 +13,8 @@ distinction unambiguous after the fact:
   * a gap, but uptime still climbing afterward  -> just a WiFi dropout
   * rssi series                                 -> correlate dropouts with signal
 
-uptime/rssi go to sensor_readings (device='shelly'); a detected uptime reset is
+uptime/rssi go to sensor_readings (device='grow-light' -- the project's name for
+this plug, same as its power telemetry); a detected uptime reset is
 also written to system_status as a metric='reboot' marker, mirroring the WROVER
 reboot detection (DL-060). Shelly reboots are recorded for analysis and the
 dashboard but deliberately NOT wired into the alerter -- the plug's WiFi is
@@ -51,18 +52,18 @@ def poll():
 def record(conn, ts, uptime, rssi):
     """Log the sample; if uptime went backwards vs. the last sample, log a reboot."""
     prev = conn.execute(
-        "SELECT value FROM sensor_readings WHERE device='shelly' AND sensor='uptime' "
+        "SELECT value FROM sensor_readings WHERE device='grow-light' AND sensor='uptime' "
         "ORDER BY id DESC LIMIT 1").fetchone()
     rebooted = prev is not None and uptime < prev[0]
     if rebooted:
         conn.execute(
             "INSERT INTO system_status (ts, message_id, run_id, device, status, metric, value) "
-            "VALUES (?, NULL, NULL, 'shelly', 'reboot', 'reboot', ?)",
+            "VALUES (?, NULL, NULL, 'grow-light', 'reboot', 'reboot', ?)",
             (ts, float(prev[0])))
         log(f"reboot detected: uptime {uptime}s < previous {int(prev[0])}s")
     conn.executemany(
         "INSERT INTO sensor_readings (ts, message_id, run_id, device, sensor, value, unit) "
-        "VALUES (?, NULL, NULL, 'shelly', ?, ?, ?)",
+        "VALUES (?, NULL, NULL, 'grow-light', ?, ?, ?)",
         [(ts, "uptime", float(uptime), "s"), (ts, "rssi", float(rssi), "dBm")])
     conn.commit()
     return rebooted

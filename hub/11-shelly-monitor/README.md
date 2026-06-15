@@ -16,9 +16,9 @@ once a minute over a direct HTTP RPC call (`Shelly.GetStatus`):
 
 ## What it logs
 
-- `sensor_readings` (device=`shelly`): `uptime` (s) and `rssi` (dBm), one each
+- `sensor_readings` (device=`grow-light`): `uptime` (s) and `rssi` (dBm), one each
   per minute. Covered by the 30-day `sensor_readings` retention window (DL-068).
-- `system_status` (device=`shelly`, metric=`reboot`): a marker when uptime goes
+- `system_status` (device=`grow-light`, metric=`reboot`): a marker when uptime goes
   backwards, mirroring the WROVER reboot detection (DL-060); `value` = uptime
   before the reboot.
 
@@ -59,10 +59,10 @@ ssh -t basilpi@<pi> "sudo systemctl start plant-shelly-monitor.service \
 ```sql
 -- reboots vs. dropouts: reboot markers, plus the uptime series around any gap
 SELECT ts, value AS uptime_before FROM system_status
-  WHERE device='shelly' AND metric='reboot' ORDER BY ts DESC;
+  WHERE device='grow-light' AND metric='reboot' ORDER BY ts DESC;
 
 -- RSSI distribution by local hour (UTC-5), to correlate with dropout timing
 SELECT strftime('%H', replace(replace(ts,'T',' '),'Z',''), '-5 hours') AS local_hr,
        ROUND(AVG(value),1) avg_rssi, ROUND(MIN(value),1) worst_rssi
-  FROM sensor_readings WHERE device='shelly' AND sensor='rssi' GROUP BY local_hr;
+  FROM sensor_readings WHERE device='grow-light' AND sensor='rssi' GROUP BY local_hr;
 ```
