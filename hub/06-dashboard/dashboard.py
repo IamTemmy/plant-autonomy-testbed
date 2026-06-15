@@ -222,7 +222,7 @@ def power_history(hours: int) -> pd.DataFrame:
     return query_df(
         """SELECT ts, value AS watts FROM sensor_readings
            WHERE sensor = 'power' AND device = 'grow-light'
-             AND julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', ?)
+             AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)
            ORDER BY ts""",
         (f"-{hours} hours",),
     )
@@ -330,7 +330,7 @@ def reboots_recent(device: str = "wrover", hours: int = 24) -> int:
     df = query_df(
         """SELECT COUNT(*) AS n FROM system_status
            WHERE device = ? AND metric = 'reboot'
-             AND julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', ?)""",
+             AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)""",
         (device, f"-{hours} hours"),
     )
     return int(df.iloc[0]["n"]) if not df.empty else 0
@@ -463,7 +463,7 @@ with c4:
 
 st.markdown("## Power draw")
 
-def plot_power(df: pd.DataFrame) -> go.Figure:
+def plot_power(df: pd.DataFrame, hours: int) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df["ts"], y=df["watts"], mode="lines",
@@ -476,7 +476,10 @@ def plot_power(df: pd.DataFrame) -> go.Figure:
         height=280,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(showgrid=False, color=COLORS["text_muted"]),
+        # vertical gridlines + denser ticks so a point is easy to place in time:
+        # 10-min ticks on the 1-hour view, 2-hour ticks on the 24-hour view.
+        xaxis=dict(showgrid=True, gridcolor="#E8E5DC", color=COLORS["text_muted"],
+                   dtick=(600000 if hours <= 1 else 7200000), tickformat="%H:%M"),
         yaxis=dict(showgrid=True, gridcolor="#E8E5DC",
                    color=COLORS["text_muted"], title="Watts"),
         hoverlabel=dict(bgcolor="white", font_size=13),
@@ -492,7 +495,7 @@ with tab_1h:
         st.info("No power readings in the last hour.")
     else:
         df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_convert(LOCAL_TZ)
-        st.plotly_chart(plot_power(df), use_container_width=True, key="power_1h")
+        st.plotly_chart(plot_power(df, 1), use_container_width=True, key="power_1h")
 
 with tab_24h:
     df = power_history(24)
@@ -500,7 +503,7 @@ with tab_24h:
         st.info("No power readings in the last 24 hours.")
     else:
         df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_convert(LOCAL_TZ)
-        st.plotly_chart(plot_power(df), use_container_width=True, key="power_24h")
+        st.plotly_chart(plot_power(df, 24), use_container_width=True, key="power_24h")
 
 
 # ----------------------------------------------------------------------
@@ -516,7 +519,7 @@ def soil_history(hours: int) -> pd.DataFrame:
     return query_df(
         """SELECT ts, value AS moisture FROM sensor_readings
            WHERE sensor = 'moisture' AND device = 'soil'
-             AND julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', ?)
+             AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)
            ORDER BY ts""",
         (f"-{hours} hours",),
     )
@@ -530,7 +533,7 @@ def watering_episodes(hours: int) -> pd.DataFrame:
     df = query_df(
         """SELECT ts, status AS state, value AS daily_ms FROM system_status
            WHERE device = 'wrover' AND metric = 'fsm_state'
-             AND julianday(replace(replace(ts,'T',' '),'Z','')) >= julianday('now', ?)
+             AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)
            ORDER BY id""",
         (f"-{hours} hours",),
     )

@@ -130,7 +130,7 @@ def _presence(conn):
 def _reboots_24h(conn):
     return _scalar(conn,
         "SELECT COUNT(*) FROM system_status WHERE device='wrover' "
-        f"AND metric='reboot' AND {_TS_NORM} >= julianday('now','-24 hours')") or 0
+        "AND metric='reboot' AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now','-24 hours')") or 0
 
 
 def _daily_ml(conn):
@@ -211,9 +211,10 @@ def _check_grow_light(conn, now_mono):
         _st["gl_alerted"] = kind
 
 
-# Normalised timestamp expression: the DB stores UTC ISO like "...T..Z"; convert to
-# SQLite's plain "YYYY-MM-DD HH:MM:SS" so julianday() compares reliably across windows.
-_TS_NORM = "julianday(replace(replace(ts,'T',' '),'Z',''))"
+# The DB stores UTC ISO ("...T...Z"). Build the window cutoff in that same format so
+# the filter stays a plain `ts >= <const>`, which the (sensor, ts) / (device, ts)
+# indexes can range-scan (sargable) — wrapping ts in a function would defeat them.
+_TS_CUTOFF = "strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)"
 
 
 def _pump_ran_recently(conn, minutes):
@@ -222,7 +223,7 @@ def _pump_ran_recently(conn, minutes):
     never ran the pump correctly does NOT suppress external-watering detection."""
     n = conn.execute(
         "SELECT COUNT(*) FROM system_status WHERE metric='pump' AND status='on' "
-        f"AND {_TS_NORM} >= julianday('now', ?)",
+        f"AND ts >= {_TS_CUTOFF}",
         (f"-{minutes} minutes",)).fetchone()[0]
     return bool(n)
 
@@ -231,10 +232,10 @@ def _soil_avg(conn, older_min, newer_min):
     """Average soil moisture for readings between older_min and newer_min ago
     (newer_min=None means up to the present)."""
     sql = ("SELECT AVG(value) FROM sensor_readings WHERE sensor='moisture' "
-           f"AND {_TS_NORM} >= julianday('now', ?)")
+           f"AND ts >= {_TS_CUTOFF}")
     params = [f"-{older_min} minutes"]
     if newer_min is not None:
-        sql += f" AND {_TS_NORM} < julianday('now', ?)"
+        sql += f" AND ts < {_TS_CUTOFF}"
         params.append(f"-{newer_min} minutes")
     return conn.execute(sql, params).fetchone()[0]
 
