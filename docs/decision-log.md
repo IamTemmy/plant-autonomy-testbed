@@ -91,6 +91,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-069](#dl-069) | 2026-06-15 | Validate grow-light lux threshold (30) against 10 days of data — confirmed | Active |
 | [DL-070](#dl-070) | 2026-06-15 | Instrument Shelly uptime/RSSI — separate reboots from WiFi dropouts | Active |
 | [DL-071](#dl-071) | 2026-06-15 | Power-chart gridlines + land the DL-067 sargable code (omitted from 5d717e6) | Active |
+| [DL-072](#dl-072) | 2026-06-15 | Housekeeping — unify Shelly device label to grow-light; dedup import; gitignore handoff | Active |
 
 ---
 
@@ -2249,7 +2250,22 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 
 **Files.** `hub/06-dashboard/dashboard.py`, `hub/04-listener/alerter.py`.
 
+---
 
+<a id="dl-072"></a>
+### DL-072 — Housekeeping: unify Shelly device label, dedup import, gitignore handoff
+
+**Date:** 2026-06-15 · **Status:** Active — deployed.
+
+**Context.** A consistency audit after DL-071 found three cosmetic issues, none functional. (1) The DL-070 Shelly monitor logged `device='shelly'` for uptime/rssi/reboot, while the rest of the project labels that same physical plug `device='grow-light'` (power, voltage, online status, actuator) — a split data model. Verified harmless first: the "Shelly online" card reads `system_status … metric IS NULL` (so `reboot` markers are excluded), `latest_sensor` is sensor-scoped (so uptime/rssi rows don't leak into power/voltage), and the flapping alert is `device='wrover'`-scoped. (2) A duplicate `from pathlib import Path` in `dashboard.py`. (3) `HANDOFF-cam-arc.md` sitting untracked in the repo root.
+
+**Decision.** Unify the monitor onto `device='grow-light'` (code + README) and migrate the existing `shelly` rows in `sensor_readings`/`system_status`; remove the duplicate import; gitignore `HANDOFF-*.md`. The service/file/log names stay `shelly-monitor` — they describe the hardware; only the device *data label* follows the project convention. Supersedes the `device='shelly'` choice in DL-070.
+
+**Validation.** Both files compile; zero `device='shelly'` references remain in code or docs; the live migration left 0 `shelly` rows.
+
+**Files.** `hub/11-shelly-monitor/shelly_monitor.py`, `hub/11-shelly-monitor/README.md`, `hub/06-dashboard/dashboard.py`, `.gitignore`.
+
+---
 
 ## Maintaining this log
 
