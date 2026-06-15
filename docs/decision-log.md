@@ -85,6 +85,8 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-063](#dl-063) | 2026-06-12 | Grow-light photoperiod verification (lux vs schedule); threshold in data-collection phase | Active |
 | [DL-064](#dl-064) | 2026-06-12 | External-watering detection: flag a soil rise the pump didn't cause | Active |
 | [DL-065](#dl-065) | 2026-06-12 | Fix timestamp-windowing in hub time-range queries (string compare → julianday) | Active |
+| [DL-066](#dl-066) | 2026-06-14 | Fix listener crash-loop & dashboard DB-locks (WAL + loop hardening + busy_timeout) | Active |
+
 
 ---
 
@@ -2130,7 +2132,31 @@ These are all implementation decisions that will be made as code is written, rec
 
 **Files.** `hub/04-listener/alerter.py`, `hub/06-dashboard/dashboard.py`.
 
+---
 
+<a id="dl-066"></a>
+### DL-066 — Stop listener crash-loop and dashboard DB-locks under concurrency
+
+**Date:** 2026-06-14 · **Status:** Active — fixed, deployed, verified.
+
+**Context.** After ~3 days unattended, the dashboard intermittently failed with `database is locked` and the listener was crash-restarting (PID churn, clustered `sqlite3.OperationalError` tracebacks, multiple restart-heartbeats in one day). Root cause: the hub database ran in rollback journal mode (`journal_mode=delete`); the listener's two writer connections plus the dashboard reader (which had no `busy_timeout`) contended for the database lock, and as the DB grew (159 MB / 301k rows) collisions became frequent. Critically, a `database is locked` error in `alerter.evaluate()` was uncaught by the watchdog loop (which caught only `KeyboardInterrupt`/`SystemExit`), so it crashed the whole process; systemd restarted it and it re-crashed — flapping the entire watchdog/alerting layer. Consequence: a real grow-light fault (the Shelly rebooting to ON past its 19:00 off) went unalerted because the alerter wasn't running.
+
+**Decision.** Three changes:
+1. **WAL journal mode** on the listener's main connection — readers and one writer coexist without blocking (the standard fix for multi-process SQLite). Persists at the database-file level.
+2. **Dashboard connection** gains `busy_timeout=5000` and `query_only=ON` — a read-write handle is required for WAL shared memory, but writes stay forbidden.
+3. **Hardened watchdog/alerter loop** — each iteration is wrapped in `try/except` so a transient DB error logs and continues instead of crashing the process. The alerting layer must survive transient faults; it is the safety net.
+
+**Rationale.** WAL is the canonical fix for SQLite read/write concurrency across processes. The loop-hardening is defense-in-depth — losing the entire alerting layer to one transient exception is far worse than the exception itself, and this incident proved it (the grow-light alert that should have caught the stuck light never fired because the alerter had crashed).
+
+**Validation.** After deploy: `PRAGMA journal_mode` returns `wal`, the `-wal` file is present, the listener runs on a single stable PID with no further lock tracebacks, and the dashboard loads cleanly.
+
+**Related — Shelly.** The grow-light plug was rebooting (~35 min uptime) and booting to ON, overriding the schedule's 19:00 off (the schedule itself was intact). Set the switch `initial_state` to `restore_last` so a reboot keeps the scheduled state, and switched it off. Why the plug keeps rebooting (power/WiFi) is still to be investigated.
+
+**Known follow-up.** The database is 159 MB / 301k rows and growing fast (per-minute Shelly power telemetry + 30s WROVER sensors). WAL fixes concurrency but not query cost or file growth; indexes on `sensor_readings(sensor, ts)` and `system_status(device, metric, ts)` plus a retention/downsampling policy are the next slice.
+
+**Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dashboard.py`.
+
+---
 
 ## Maintaining this log
 
