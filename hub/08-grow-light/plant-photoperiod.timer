@@ -1,0 +1,10 @@
+[Unit]
+Description=Plant Autonomy Testbed - enforce grow-light photoperiod every 2 min
+
+[Timer]
+OnCalendar=*:0/2
+AccuracySec=10s
+# No Persistent: the next tick (<=2 min away) re-asserts anyway.
+
+[Install]
+WantedBy=timers.target

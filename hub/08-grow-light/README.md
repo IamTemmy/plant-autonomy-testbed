@@ -1,40 +1,48 @@
-# 08 — Grow light (Shelly scheduler)
+# hub/08-grow-light — grow-light photoperiod
 
-Grow-light control for the testbed. A Shelly Plug US (Gen4) switches the grow
-light and runs a fixed daily photoperiod — 07:00 ON → 19:00 OFF (12 h light /
-12 h dark) — on the Shelly's own built-in scheduler, configured via its RPC
-API. Running the schedule on the device means the light keeps time even if the
-Pi, the WROVER, or the network is down. Lighting is intentionally independent
-of the watering state machine; the BH1750 light sensor stays report-only,
-verifying actual light rather than controlling it.
+Two layers control the grow light's 07:00 ON / 19:00 OFF photoperiod:
 
-See [DL-054](../../docs/decision-log.md) for the design rationale (device-side
-vs. Pi-side scheduling, the full-photoperiod choice), and DL-010 / DL-030 /
-DL-031 for the Shelly selection and MQTT integration history.
+## 1. Shelly onboard schedule (DL-054) — fast-path fallback
+`set-schedule.sh <SHELLY_IP>` writes a built-in scheduler to the Shelly Plug
+(07:00 ON, 19:00 OFF) so the light keeps its photoperiod even if the Pi, the
+WROVER, or the network is down. Requires the Shelly's timezone to be set so it
+fires in local time. This runs device-side and is the fallback.
 
-## Files
+## 2. Hub enforcement (DL-074) — the reliability layer
+`photoperiod.py`, run every 2 minutes by `plant-photoperiod.timer`, asserts the
+correct state from the Pi: inside the window -> ensure ON, outside -> ensure OFF
+(symmetric). It exists because the Shelly sits on flaky campus WiFi (DL-028) and
+reboots frequently (DL-070); a reboot at the wrong moment makes its onboard
+scheduler miss the trigger (observed 2026-06-16: the light never came on at
+07:00, and the DL-063 alert fired but there was nothing to act on automatically).
 
-| File | Purpose |
-|---|---|
-| `set-schedule.sh` | Sets the Shelly's daily ON/OFF schedule via RPC (`Schedule.Create`) |
-| `README.md` | This file |
+The Pi is always-on with an NTP-correct clock and reaches the plug over HTTP RPC
+even while its MQTT/WiFi is flapping. Because the controller re-asserts every
+~2 min:
+- A 07:00 reboot can no longer cost the day — the light is corrected within one
+  tick (worst-case ~2 min of darkness, trivial for the plant's DLI).
+- Any reboot-induced wrong state self-heals, so the DL-063 "grow light may be
+  off" alert becomes a *notice of a self-correcting event* rather than a call to
+  press the button.
 
-## Usage
+The controller is **idempotent** (it reads `Switch.GetStatus` and only calls
+`Switch.Set` when the plug is actually wrong) and **quiet** (it logs only when it
+corrects the plug or hits an error). That makes the journal a running record of
+how often the plug was found in the wrong state — useful telemetry while the
+plug's reboot problem is monitored:
 
-Run `./set-schedule.sh <SHELLY_IP>`. The script clears any existing schedules
-and creates two — `Switch.Set` ON at 07:00 and OFF at 19:00, daily — then
-prints `Schedule.List` to confirm. Re-run to change the times (edit `ON_HOUR` /
-`OFF_HOUR` first); it is idempotent.
+```bash
+journalctl -u plant-photoperiod.service --no-pager | grep -i corrected
+```
 
-**Prerequisites**
+Env knobs (in `/etc/plant-hub/credentials`): `GROW_ON_HOUR` (7), `GROW_OFF_HOUR`
+(19), `LOCAL_TZ` (America/Chicago), `SHELLY_HOST` (10.6.17.32).
 
-- The Shelly's IP (DHCP-assigned; verify before running — see DL-054). Last known: `10.6.17.32`.
-- The Shelly's timezone/location must be set (America/Chicago), or the schedule fires at the wrong local time.
-- RPC auth is disabled on the device (`auth_en: false`), so no credentials are needed.
-
-## Notes
-
-The device is a Shelly Plug US **Gen4** (model S4PL-00116US), confirmed via
-`Shelly.GetDeviceInfo`. The grow light's relay state and power telemetry are
-published over MQTT and surfaced on the dashboard (`hub/06-dashboard/`); this
-folder covers only the scheduling control path.
+### Install
+```bash
+scp photoperiod.py basilpi@<pi>:/home/basilpi/plant-hub/photoperiod.py
+scp plant-photoperiod.service plant-photoperiod.timer basilpi@<pi>:/tmp/
+ssh -t basilpi@<pi> "sudo cp /tmp/plant-photoperiod.{service,timer} /etc/systemd/system/ \
+  && sudo systemctl daemon-reload \
+  && sudo systemctl enable --now plant-photoperiod.timer"
+```
