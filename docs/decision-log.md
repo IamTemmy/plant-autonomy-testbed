@@ -92,6 +92,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-070](#dl-070) | 2026-06-15 | Instrument Shelly uptime/RSSI — separate reboots from WiFi dropouts | Active |
 | [DL-071](#dl-071) | 2026-06-15 | Power-chart gridlines + land the DL-067 sargable code (omitted from 5d717e6) | Active |
 | [DL-072](#dl-072) | 2026-06-15 | Housekeeping — unify Shelly device label to grow-light; dedup import; gitignore handoff | Active |
+| [DL-074](#dl-074) | 2026-06-16 | Hub-side photoperiod enforcement — self-heal Shelly reboots/misfires | Active |
 
 ---
 
@@ -2264,6 +2265,25 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** Both files compile; zero `device='shelly'` references remain in code or docs; the live migration left 0 `shelly` rows.
 
 **Files.** `hub/11-shelly-monitor/shelly_monitor.py`, `hub/11-shelly-monitor/README.md`, `hub/06-dashboard/dashboard.py`, `.gitignore`.
+
+---
+
+<a id="dl-074"></a>
+### DL-074 — Hub-side photoperiod enforcement (self-heal the Shelly)
+
+**Date:** 2026-06-16 · **Status:** Active — deployed.
+
+**Context.** The grow light didn't come on at 07:00 (had to be turned on by hand). Diagnosis via the DL-070 monitor: the onboard schedule was intact and enabled and the Shelly's clock was NTP-synced — but the plug is rebooting every ~90 min (9 reboots in 10 h) on weak WiFi (RSSI avg −74.5, worst −82 dBm, DL-028). A reboot around the 07:00 trigger made the onboard scheduler miss it, and `restore_last` kept the (overnight-OFF) state. The DL-063 alert *did* fire (08:15 "may be off" → +30 s "back to normal" — the reboot flap), proving detection works but that there was nothing to correct it automatically. The onboard schedule (DL-054) inherits all of the plug's instability.
+
+**Decision.** Add hub-side enforcement: `photoperiod.py`, run every 2 min by `plant-photoperiod.timer`, asserts the desired state from the Pi's NTP-correct clock over HTTP RPC — symmetric (ON inside 07:00–19:00, hard-OFF outside), idempotent (reads `Switch.GetStatus`, calls `Switch.Set` only when wrong), and quiet (logs only corrections/errors, so the journal records how often the plug was found wrong). The Shelly's onboard schedule is kept as a fast-path fallback; the hub is the enforcer.
+
+**Rationale.** The Pi is always-on, NTP-correct, and reaches the plug over HTTP even while the plug's MQTT/WiFi flaps. Re-asserting every 2 min means any reboot-induced wrong state self-heals within one tick (worst-case ~2 min of darkness, trivial for DLI), so a 07:00 reboot can no longer cost the day — closing the loop from detection (DL-063) to correction. Supersedes DL-054 as the authoritative control path.
+
+**Validation.** `desired_on` unit-tested (ON 07:00–18:59, OFF otherwise). Live: forced the plug ON at night, ran the service, it corrected to OFF and logged the correction.
+
+**Note.** This *masks* but does not cure the reboot/WiFi problem (−82 dBm); plug placement / extender / outlet still to be addressed. Monitoring the plug fit and link.
+
+**Files.** `hub/08-grow-light/photoperiod.py`, `hub/08-grow-light/plant-photoperiod.{service,timer}`, `hub/08-grow-light/README.md`.
 
 ---
 
