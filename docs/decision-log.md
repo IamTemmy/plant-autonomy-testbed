@@ -93,6 +93,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-071](#dl-071) | 2026-06-15 | Power-chart gridlines + land the DL-067 sargable code (omitted from 5d717e6) | Active |
 | [DL-072](#dl-072) | 2026-06-15 | Housekeeping — unify Shelly device label to grow-light; dedup import; gitignore handoff | Active |
 | [DL-074](#dl-074) | 2026-06-16 | Hub-side photoperiod enforcement — self-heal Shelly reboots/misfires | Active |
+| [DL-075](#dl-075) | 2026-06-17 | Shelly reboot cause investigation — not WiFi/RAM/power; flaky unit, masked by DL-074 | Active |
 
 ---
 
