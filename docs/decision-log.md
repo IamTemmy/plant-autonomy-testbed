@@ -94,6 +94,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-072](#dl-072) | 2026-06-15 | Housekeeping — unify Shelly device label to grow-light; dedup import; gitignore handoff | Active |
 | [DL-074](#dl-074) | 2026-06-16 | Hub-side photoperiod enforcement — self-heal Shelly reboots/misfires | Active |
 | [DL-075](#dl-075) | 2026-06-17 | Shelly reboot cause investigation — not WiFi/RAM/power; flaky unit, masked by DL-074 | Active |
+| [DL-076](#dl-076) | 2026-06-19 | Camera vision arc, slice 1 — Pi image receiver: HTTP bytes, ExG greenness, no OpenCV | Active |
 
 ---
 
@@ -2285,6 +2286,27 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Note.** This *masks* but does not cure the reboot/WiFi problem (−82 dBm); plug placement / extender / outlet still to be addressed. Monitoring the plug fit and link.
 
 **Files.** `hub/08-grow-light/photoperiod.py`, `hub/08-grow-light/plant-photoperiod.{service,timer}`, `hub/08-grow-light/README.md`.
+
+---
+
+<a id="dl-076"></a>
+### DL-076 — Camera vision arc, slice 1: the Pi image receiver
+
+**Date:** 2026-06-19 · **Status:** Active. Validated on the Pi (curl round-trip, file + DB row written).
+
+**Context.** Opening the camera vision arc. The XIAO ESP32-S3 Sense (vision node per DL-034, bring-up rig cleared in DL-062) will capture periodic JPEGs of the basil and upload them to the hub for a greenness/leaf-area trend. Per the project definition, scope is deliberately bounded: capture → transmit → Pi stores → simple colour metric → dashboard trend. ML classification, disease ID, predictive models, and multi-plant are explicitly post-v1. This entry covers **only the Pi-side receiver**; XIAO wiring and firmware are a later slice with their own DL.
+
+**Decision — transport (option B).** Image bytes travel over **HTTP**; the lightweight capture event and node presence travel over **MQTT** (listener side, added later). Reasoning: images are too large for clean MQTT payloads (the handoff's own warning), so the broker stays reserved for small telemetry/presence while HTTP carries the blob with native large-body support and simple retry. This keeps the XIAO a first-class networked node alongside the WROVER, rather than tethering it (USB-serial was the considered fallback if campus WiFi blocked HTTP — it did not).
+
+**Decision — greenness by Excess-Green, not OpenCV.** Greenness = fraction of pixels whose Excess-Green index (`ExG = 2g − r − b`, normalized RGB) exceeds `GREEN_EXG_THRESHOLD` (0.10), computed with numpy + Pillow. ExG is a standard vegetation index, brightness-robust, and the metric tracks foliage area in frame rather than health stress. OpenCV was deliberately **not** adopted: greenness is trivial colour maths and cv2 is a heavy Pi dependency unjustified until real CV/ML work needs it. This is a conscious deviation from the earlier "OpenCV planned" note.
+
+**Implementation.** `hub/09-camera/image_receiver.py` — a small always-on threaded `http.server`: `POST /image` (raw JPEG) stores the file as `cam-YYYYMMDD-HHMMSS-ffffff.jpg` (microsecond suffix so rapid captures never collide), computes greenness, and inserts `(ts, path, greenness)` into a new `camera_readings` table opened **WAL + busy_timeout** (the DL-066 multi-reader rule) so the dashboard can read while the receiver writes; `GET /health` for liveness. Config via the `/etc/plant-hub/credentials` EnvironmentFile (port, image dir, DB path, threshold). Deployed Pi-local at `/home/basilpi/plant-hub/image_receiver.py`; numpy and Pillow already present in the hub venv.
+
+**Validation.** Deployed and run manually on the Pi; POSTed the colour-swatch fixture from the Mac over the **main LAN address** (`10.6.19.139:8080`, no Tailscale needed — campus isolation did not block Mac↔Pi HTTP). Receiver decoded 1448×1086, stored the file, returned JSON, and wrote the row: `greenness = 0.4817`, matching the chart's roughly-half-green composition — confirming the ExG maths end-to-end. The fixture is retained as `hub/09-camera/test-fixtures/greenness-reference-chart.jpg`, a regression reference for the metric.
+
+**Not yet (later slices).** The systemd service is written (`plant-image-receiver.service`) but not yet enabled. The MQTT capture-event / presence wiring (joining the DL-059 watchdog set), the dashboard latest-image panel and greenness trend, the rolling image-retention window, and all XIAO wiring/firmware are out of scope here and tracked separately.
+
+**Files.** `hub/09-camera/image_receiver.py`, `hub/09-camera/plant-image-receiver.service`, `hub/09-camera/README.md`, `hub/09-camera/test-fixtures/greenness-reference-chart.jpg`.
 
 ---
 

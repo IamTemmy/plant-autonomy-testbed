@@ -28,6 +28,7 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 - `05-listener-service` and `07-dashboard-service` — systemd units for auto-start / auto-restart at boot (DL-036).
 - `06-dashboard` — read-only Streamlit dashboard (cream botanical theme, Plotly charts, UTC storage with America/Chicago display); LAN- and Tailscale-accessible (DL-037, DL-038).
 - `08-grow-light` — Shelly device-side RPC scheduler for the grow-light photoperiod (DL-054).
+- `09-camera` — Pi-side image receiver: HTTP `POST /image` → filesystem + Excess-Green greenness → new `camera_readings` table; the hub half of the vision-node transport (bytes over HTTP, capture event/presence over MQTT). Includes `test-fixtures/greenness-reference-chart.jpg`, a greenness regression reference (≈ 0.4817) (DL-076).
 - `04-listener/alerter.py` — push-notification alerting layer via [ntfy](https://ntfy.sh): leak, watering-fault, reservoir-empty, prolonged-offline, and flapping-reboot alerts with recovery pings and a daily heartbeat summary, polled and edge-triggered from the listener; the topic is configured off-repo via the systemd `EnvironmentFile` (DL-061).
 
 **Phase 2 — integrated WROVER firmware** under `firmware/integrated/` (one PlatformIO project):
