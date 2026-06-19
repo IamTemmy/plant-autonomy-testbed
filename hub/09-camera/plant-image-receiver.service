@@ -1,0 +1,21 @@
+[Unit]
+Description=Plant Autonomy Testbed - camera image receiver
+Documentation=https://github.com/IamTemmy/plant-autonomy-testbed
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=basilpi
+Group=basilpi
+WorkingDirectory=/home/basilpi/plant-hub
+EnvironmentFile=/etc/plant-hub/credentials
+ExecStart=/home/basilpi/plant-hub/venv/bin/python /home/basilpi/plant-hub/image_receiver.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=plant-image-receiver
+
+[Install]
+WantedBy=multi-user.target
