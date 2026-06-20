@@ -2289,6 +2289,30 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 
 ---
 
+<a id="dl-075"></a>
+### DL-075 — Shelly reboot cause: investigated, not curable in software; masked by the hub
+
+**Date:** 2026-06-17 · **Status:** Active — accepted/monitoring; no code change.
+
+**Context.** The grow-light Shelly Plug reboots chronically (~8–12×/day; 8 between midnight and 10:24 on 06-17), which is what caused the 06-16 missed 07:00 trigger. With the DL-070 monitor's uptime/RSSI/reboot data now accumulated, the cause was investigated rather than guessed.
+
+**Findings (all from logged data + live RPC).**
+- **Not WiFi.** RSSI before each reboot was a tight −73 to −75.7 (day avg −75.3), i.e. ordinary middling signal — reboots do **not** cluster at the −82 lows. Reboots are uncorrelated with signal strength, so the weak link is not the trigger. (Signal is still mediocre and worth improving for telemetry reliability, but it is not the cause.)
+- **Not memory.** `ram_min_free` ~148 KB, never near zero — no leak.
+- **Not an obvious brownout (snapshot).** Live electrical reading nominal: 119.1 V, 60.0 Hz, 15.7 W, 45 °C. A momentary sag wouldn't show in a one-shot reading, but nothing points to it.
+- **Consistent fault reset.** `reset_reason: 4` (fault-class, not a clean power-on) on every restart.
+- Reseating the plug in the extension box did not reduce the reboot rate.
+
+**Conclusion.** Healthy RAM + nominal power + uncorrelated WiFi + a regular fault-reset every ~1–2 h points to a **flaky unit or firmware bug on this specific hardware** — a replacement/RMA candidate, not something fixable by reseating, relocating, or an extender. Not worth further chasing now.
+
+**Decision.** Accept the reboots and let the **hub photoperiod enforcer (DL-074) mask them** — which it does: the plant had a flawless light day on 06-17 (continuous ON from 07:00, eyewitness-confirmed) through ~10 reboots, with zero hub corrections needed because `restore_last` happened to match the window on each reboot. Keep monitoring via DL-070; revisit (RMA / swap unit) if the rate worsens or if a reboot ever lands the light in a wrong state the hub can't cover.
+
+**Note — telemetry reading lesson.** Power-telemetry gaps during reboots (e.g. the 06-17 "07:11 first-on" and 08:57–09:08 gap) are **MQTT dropouts, not the light turning off** — the light was continuously on by direct observation. With this plug, absence of power data ≠ absence of light.
+
+**Files.** None (investigation/decision only).
+
+---
+
 <a id="dl-076"></a>
 ### DL-076 — Camera vision arc, slice 1: the Pi image receiver
 
