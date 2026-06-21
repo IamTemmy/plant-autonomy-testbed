@@ -96,6 +96,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-074](#dl-074) | 2026-06-16 | Hub-side photoperiod enforcement — self-heal Shelly reboots/misfires | Active |
 | [DL-075](#dl-075) | 2026-06-17 | Shelly reboot cause investigation — not WiFi/RAM/power; flaky unit, masked by DL-074 | Active |
 | [DL-076](#dl-076) | 2026-06-19 | Camera vision arc, slice 1 — Pi image receiver: HTTP bytes, ExG greenness, no OpenCV | Active |
+| [DL-077](#dl-077) | 2026-06-19 | XIAO ESP32-S3 Sense vision-node bring-up validated (PSRAM, OV3660, frames); data-cable lesson | Active |
 
 ---
 
@@ -2347,6 +2348,25 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Not yet (later slices).** The systemd service is written (`plant-image-receiver.service`) but not yet enabled. The MQTT capture-event / presence wiring (joining the DL-059 watchdog set), the dashboard latest-image panel and greenness trend, the rolling image-retention window, and all XIAO wiring/firmware are out of scope here and tracked separately.
 
 **Files.** `hub/09-camera/image_receiver.py`, `hub/09-camera/plant-image-receiver.service`, `hub/09-camera/README.md`, `hub/09-camera/test-fixtures/greenness-reference-chart.jpg`.
+
+---
+
+<a id="dl-077"></a>
+### DL-077 — XIAO ESP32-S3 Sense vision-node bring-up
+
+**Date:** 2026-06-19 · **Status:** Active — validated on hardware.
+
+**Context.** Opening the firmware side of the camera vision arc. Before any capture/transport logic, the XIAO ESP32-S3 Sense (the vision node, DL-034; rig lessons from DL-062) was brought up in isolation — board + camera only, no WiFi/SD/HTTP — so a failure here points at hardware, not networking. Mirrors the slice discipline that cleared the ESP32-CAM.
+
+**Validation.** Bring-up sketch `firmware/test-sketches/14-xiao-cam/` flashed over a single USB-C data cable and ran clean: **PSRAM 8 MB found**, **camera init OK**, **sensor PID 0x3660 (OV3660)**, and steady SVGA (800×600) JPEG frames at ~16 KB with a monotonic counter and no resets. The XIAO auto-resets into the bootloader over native USB — no FTDI, no GPIO0 jumper, no boot-button dance — exactly the friction the ESP32-CAM imposed and the reason DL-034 chose this board.
+
+**Sensor note.** This unit ships the **OV3660** (3 MP), not the OV2640 named in older docs — newer Seeed Sense boards transitioned to it. The `esp_camera` driver auto-detects the sensor, so firmware is unaffected; greenness (foliage-area colour maths) is resolution-agnostic.
+
+**Cable lesson.** The board would not enumerate on the first USB-C cable — a **power-only cable** carries power but no data, so no serial port appears (`ls /dev/cu.*` showed no `usbmodem`). A data cable fixed it immediately. The power-only cable is not useless: it is the **deployment** power cable (XIAO on the tripod → wall adapter, talking to the Pi over WiFi); it simply cannot program the board. Corollary: a deployed XIAO on a power-only cable has no serial — debugging is then over WiFi/MQTT, not USB.
+
+**Not yet (next slice).** WiFi association and the campus-network path, U.FL antenna seating, the HTTP-POST transport to the Pi receiver (`hub/09-camera`), capture cadence, and top-down mounting — the capture-and-POST slice that follows.
+
+**Files.** `firmware/test-sketches/14-xiao-cam/` (sketch + platformio.ini + README).
 
 ---
 

@@ -20,6 +20,7 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 - `11-esp32-cam` — camera bring-up sketch, committed as a starting point; valid but unvalidated by execution pending a hardware replacement (DL-034).
 - `12-traffic-light-leds` — three-LED status validation after the GPIO rewire (DL-045).
 - `13-pump-calibration` — pump flow-rate calibration, ~1.0 mL/s (DL-048).
+- `14-xiao-cam` — XIAO ESP32-S3 Sense camera bring-up; validated PSRAM + camera init + frame capture, sensor OV3660 (DL-077).
 
 **Phase 3 — Raspberry Pi hub** under `hub/`, each step numbered with its own README:
 - `01-pi-setup` and `02-mosquitto-install` — Pi bootstrap and broker install (DL-027, DL-029).
