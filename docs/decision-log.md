@@ -97,6 +97,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-075](#dl-075) | 2026-06-17 | Shelly reboot cause investigation — not WiFi/RAM/power; flaky unit, masked by DL-074 | Active |
 | [DL-076](#dl-076) | 2026-06-19 | Camera vision arc, slice 1 — Pi image receiver: HTTP bytes, ExG greenness, no OpenCV | Active |
 | [DL-077](#dl-077) | 2026-06-19 | XIAO ESP32-S3 Sense vision-node bring-up validated (PSRAM, OV3660, frames); data-cable lesson | Active |
+| [DL-078](#dl-078) | 2026-06-20 | Camera node v1 — capture + HTTP POST to the Pi receiver, validated end-to-end | Active |
 
 ---
 
@@ -2367,6 +2368,25 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Not yet (next slice).** WiFi association and the campus-network path, U.FL antenna seating, the HTTP-POST transport to the Pi receiver (`hub/09-camera`), capture cadence, and top-down mounting — the capture-and-POST slice that follows.
 
 **Files.** `firmware/test-sketches/14-xiao-cam/` (sketch + platformio.ini + README).
+
+---
+
+<a id="dl-078"></a>
+### DL-078 — Camera node v1: capture and POST to the Pi receiver
+
+**Date:** 2026-06-20 · **Status:** Active — validated end-to-end on hardware.
+
+**Context.** With the Pi receiver (DL-076) and the XIAO bring-up (DL-077) each proven in isolation, this slice connects them — the first real vision-node firmware. Scope deliberately bounded to the new risk (WiFi + capture + HTTP POST); the MQTT capture event/presence, deployment cadence, and mounting are deferred to later slices.
+
+**Decision.** New production firmware project `firmware/camera-node/` (sibling to `firmware/integrated/` — one firmware per node, not a test-sketch, since this code is permanent and accumulates). Modular like the WROVER: `net_wifi` (bounded boot connect + non-blocking reconnect; WiFi loss non-fatal), `camera` (XIAO `CAMERA_MODEL_XIAO_ESP32S3` pin map, SVGA JPEG in PSRAM), `poster` (`HTTPClient` POST of the raw bytes), `config.h` (endpoint, cadence, timeouts), and a gitignored `secrets.h` (template committed) mirroring the WROVER's credentials pattern. Transport is option B (DL-076): bytes over HTTP to `IMAGE_POST_URL`.
+
+**Validation.** Flashed to the XIAO (U.FL antenna seated). Serial showed camera init OK, WiFi associated to JSU_DEVICE (IP 10.6.17.106), SVGA frames captured and POSTed; the receiver returned `POST 200` with a greenness value, and the Pi independently logged matching `stored cam-*.jpg … greenness=…` rows — both sides observed. The **main LAN address worked** (`10.6.19.139:8080`); campus isolation (DL-028) did not block XIAO→Pi HTTP, so no Tailscale fallback was needed. Greenness tracked scene content (≈ 0.001 on a non-plant scene, rising to ~0.10–0.15 as something green entered frame), confirming the ExG metric responds correctly; real plant values await top-down mounting.
+
+**Notes.** WiFi RSSI was −79 dBm — weak-ish (the same mediocre-signal neighborhood as the Shelly, DL-075); fine here, but the first suspect if deployed-spot POSTs turn flaky. Capture cadence is a short TEST value (20 s) in `config.h`; the deployment cadence (hourly, photoperiod-gated) is a later slice. A protective film over the lens (peeled after this test) can soften images.
+
+**Not yet (later slices).** MQTT capture event + presence (DL-059 watchdog), hourly/photoperiod-gated cadence, top-down tripod mounting, dashboard latest-image panel + greenness trend, rolling image retention.
+
+**Files.** `firmware/camera-node/` (platformio.ini, README, src/{main,net_wifi,camera,poster}.{h,cpp}, config.h, secrets.h.example).
 
 ---
 

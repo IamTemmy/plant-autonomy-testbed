@@ -32,6 +32,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 - `09-camera` — Pi-side image receiver: HTTP `POST /image` → filesystem + Excess-Green greenness → new `camera_readings` table; the hub half of the vision-node transport (bytes over HTTP, capture event/presence over MQTT). Includes `test-fixtures/greenness-reference-chart.jpg`, a greenness regression reference (≈ 0.4817) (DL-076).
 - `04-listener/alerter.py` — push-notification alerting layer via [ntfy](https://ntfy.sh): leak, watering-fault, reservoir-empty, prolonged-offline, and flapping-reboot alerts with recovery pings and a daily heartbeat summary, polled and edge-triggered from the listener; the topic is configured off-repo via the systemd `EnvironmentFile` (DL-061).
 
+**Vision node** under `firmware/camera-node/` (XIAO ESP32-S3 Sense) — v1: capture a JPEG on a timer and HTTP POST it to the Pi receiver (`hub/09-camera`); modular WiFi/camera/poster, gitignored `secrets.h`; validated end-to-end (DL-078).
+
 **Phase 2 — integrated WROVER firmware** under `firmware/integrated/` (one PlatformIO project):
 - Full firmware: WiFi + MQTT transport with presence/Last-Will, all sensor modules (BME280, BH1750, soil, float, leak), a seven-state safety-first watering state machine, pump dosing (pulse/settle) with a daily volume cap, a leak-only buzzer alarm, an OLED status display, and traffic-light status LEDs (DL-040 through DL-049).
 - Watering-effectiveness watchdog with a dedicated `watering_fault` state (DL-053).
