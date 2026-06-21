@@ -126,7 +126,7 @@ static constexpr uint16_t LEAK_RAW_DRY = 0;  // clean dry baseline
 
 // Soil: water when raw RISES to/above TRIGGER (drying out); stop when it
 // FALLS to/below STOP (re-wetted). Hysteresis prevents toggling. (DL-020)
-static constexpr uint16_t SOIL_THRESHOLD_TRIGGER = 2400;  // start watering at/above
+static constexpr uint16_t SOIL_THRESHOLD_TRIGGER = 2352;  // start watering at/above (~30%, DL-073)
 static constexpr uint16_t SOIL_THRESHOLD_STOP    = 2200;  // stop watering at/below
 
 // Leak: enter CRITICAL at/above this; latched until ACK button. (DL-026)
