@@ -5,13 +5,18 @@ Transport option B (DL-076): image bytes arrive over HTTP, while the capture
 event / presence travels over MQTT (handled by the listener, added later).
 
 This service accepts an HTTP POST of a JPEG, stores it on the Pi filesystem,
-computes an Excess-Green vegetation ratio ("greenness"), and records
-(ts, path, greenness) in SQLite. All image processing is Pi-side; the XIAO
-only captures and uploads.
+measures the plant's greenness, and records the result in SQLite. All image
+processing is Pi-side; the XIAO only captures and uploads.
 
-Greenness = fraction of pixels whose Excess-Green index (ExG = 2g - r - b on
-per-pixel normalized RGB) exceeds GREEN_EXG_THRESHOLD. ExG is a standard
-vegetation index; the ratio tracks foliage area in frame, not health stress.
+Metrics (DL-079): the full image is kept, but greenness is measured on the
+*largest connected green blob* (the plant), so it self-locates if the pot shifts
+and ignores small stray green specks (a status LED, a reflection). Recorded:
+  greenness   - full-frame Excess-Green ratio (ExG = 2g - r - b on per-pixel
+                normalized RGB, fraction over threshold; kept for continuity).
+  green_area  - largest green blob as a fraction of the frame ("how much
+                plant"); resolution-independent, the growth signal.
+  green_ratio - green fraction within that blob's bounding box ("how green the
+                plant region is").
 
 Config via environment (systemd EnvironmentFile=/etc/plant-hub/credentials):
   IMAGE_RECEIVER_PORT   default 8080
@@ -20,7 +25,8 @@ Config via environment (systemd EnvironmentFile=/etc/plant-hub/credentials):
   GREEN_EXG_THRESHOLD   default 0.10
 
 Endpoints:
-  POST /image   raw JPEG body  -> {ts, path, bytes, width, height, greenness}
+  POST /image   raw JPEG body  -> {ts, path, bytes, width, height,
+                                   greenness, green_area, green_ratio}
   GET  /health                 -> {status: ok}
 """
 import os
@@ -47,14 +53,36 @@ def init_db():
         conn.execute("PRAGMA busy_timeout=5000;")
         conn.execute(
             "CREATE TABLE IF NOT EXISTS camera_readings ("
-            "ts TEXT PRIMARY KEY, path TEXT NOT NULL, greenness REAL NOT NULL)"
+            "ts TEXT PRIMARY KEY, path TEXT NOT NULL, greenness REAL NOT NULL, "
+            "green_area REAL, green_ratio REAL)"
         )
+        # Add the dual-metric columns to a pre-existing table (DL-079).
+        for col in ("green_area REAL", "green_ratio REAL"):
+            try:
+                conn.execute("ALTER TABLE camera_readings ADD COLUMN %s" % col)
+            except sqlite3.OperationalError:
+                pass  # column already exists
         conn.commit()
     finally:
         conn.close()
 
 
-def compute_greenness(jpeg_bytes):
+def compute_metrics(jpeg_bytes):
+    """Return (greenness, green_area, green_ratio, (w, h)).
+
+    greenness   - full-frame Excess-Green ratio (kept for continuity and the
+                  regression fixture).
+    green_area  - largest green blob as a fraction of the frame ("how much
+                  plant"). A fraction, so it is resolution-independent and
+                  survives a capture-size change; self-locating, so it tracks the
+                  plant even if the pot shifts within the frame.
+    green_ratio - green fraction within that blob's bounding box ("how green the
+                  plant region is").
+
+    The largest connected green blob is used so small stray green specks (a
+    status LED, a reflection) are ignored. Falls back to the full-frame ratio if
+    scipy is unavailable.
+    """
     img = Image.open(BytesIO(jpeg_bytes)).convert("RGB")
     arr = np.asarray(img, dtype=np.float64)
     r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
@@ -62,17 +90,37 @@ def compute_greenness(jpeg_bytes):
     total[total == 0] = 1.0
     rn, gn, bn = r / total, g / total, b / total
     exg = 2.0 * gn - rn - bn
-    return float((exg > EXG_THRESHOLD).mean()), img.size
+    mask = exg > EXG_THRESHOLD
+
+    greenness = float(mask.mean())
+    green_area = greenness
+    green_ratio = greenness
+    try:
+        from scipy import ndimage
+        labels, n = ndimage.label(mask)
+        if n > 0:
+            sizes = ndimage.sum(mask, labels, index=np.arange(1, n + 1))
+            largest = int(np.argmax(sizes)) + 1
+            blob = labels == largest
+            green_area = float(blob.sum()) / float(mask.size)
+            ys, xs = np.where(blob)
+            region = mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
+            green_ratio = float(region.mean())
+    except ImportError:
+        pass
+
+    return greenness, green_area, green_ratio, img.size
 
 
-def record(ts, path, greenness):
+def record(ts, path, greenness, green_area, green_ratio):
     conn = sqlite3.connect(DB_PATH, timeout=30)
     try:
         conn.execute("PRAGMA busy_timeout=5000;")
         conn.execute(
-            "INSERT OR REPLACE INTO camera_readings (ts, path, greenness) "
-            "VALUES (?, ?, ?)",
-            (ts, path, greenness),
+            "INSERT OR REPLACE INTO camera_readings "
+            "(ts, path, greenness, green_area, green_ratio) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ts, path, greenness, green_area, green_ratio),
         )
         conn.commit()
     finally:
@@ -110,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "not a jpeg"})
             return
         try:
-            greenness, (w, h) = compute_greenness(data)
+            greenness, green_area, green_ratio, (w, h) = compute_metrics(data)
         except Exception as exc:
             self._json(400, {"error": "decode failed: %s" % exc})
             return
@@ -121,13 +169,16 @@ class Handler(BaseHTTPRequestHandler):
         path = os.path.join(IMAGE_DIR, fname)
         with open(path, "wb") as fh:
             fh.write(data)
-        record(ts, path, greenness)
+        record(ts, path, greenness, green_area, green_ratio)
 
-        print("stored %s  %dx%d  %d bytes  greenness=%.4f"
-              % (fname, w, h, len(data), greenness), flush=True)
+        print("stored %s  %dx%d  %d bytes  greenness=%.4f area=%.4f ratio=%.4f"
+              % (fname, w, h, len(data), greenness, green_area, green_ratio),
+              flush=True)
         self._json(200, {"ts": ts, "path": path, "bytes": len(data),
                          "width": w, "height": h,
-                         "greenness": round(greenness, 4)})
+                         "greenness": round(greenness, 4),
+                         "green_area": round(green_area, 4),
+                         "green_ratio": round(green_ratio, 4)})
 
     def log_message(self, fmt, *args):
         return

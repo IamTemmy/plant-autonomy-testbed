@@ -44,11 +44,24 @@ reading the dashboard trend.
 - `PLANT_DB` (`/home/basilpi/plant-hub/plant.db`)
 - `GREEN_EXG_THRESHOLD` (0.10)
 
+## Plant isolation — largest green blob (DL-079)
+
+The full image is always saved, but greenness is measured on the **largest connected green blob** rather than the whole frame. The plant is the dominant contiguous green mass; this makes the metric **self-locating** (it tracks the plant even if the pot is bumped or shifted within the frame) and lets it **ignore small stray green specks** like a breadboard status LED or a leaf highlight. Connected components come from `scipy.ndimage`; if scipy is unavailable the code falls back to the full-frame ratio.
+
+Three values are recorded per capture:
+
+- `greenness` — full-frame ExG ratio (kept for continuity and the regression fixture).
+- `green_area` — the largest green blob as a **fraction of the frame** ("how much plant"). A fraction, so it is resolution-independent and survives a capture-size change (e.g. SVGA → UXGA); this is the growth signal.
+- `green_ratio` — green fraction **within that blob's bounding box** ("how green the plant region is").
+
 ## Deploy
 
 The repo holds source + docs; the **running copy is Pi-local** at
 `/home/basilpi/plant-hub/image_receiver.py`. numpy and Pillow must be present in
-the hub venv. Smoke-test from any machine on the network with a real JPEG:
+the hub venv, plus **scipy** (for the largest-blob isolation, DL-079); install it
+once with `pip install scipy` in the venv (the falls-back-to-full-frame path
+runs without it, but the plant-isolation metrics need it). Smoke-test from any
+machine on the network with a real JPEG:
 
 ```bash
 curl -X POST --data-binary @plant.jpg -H "Content-Type: image/jpeg" \
