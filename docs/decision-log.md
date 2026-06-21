@@ -98,6 +98,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-076](#dl-076) | 2026-06-19 | Camera vision arc, slice 1 — Pi image receiver: HTTP bytes, ExG greenness, no OpenCV | Active |
 | [DL-077](#dl-077) | 2026-06-19 | XIAO ESP32-S3 Sense vision-node bring-up validated (PSRAM, OV3660, frames); data-cable lesson | Active |
 | [DL-078](#dl-078) | 2026-06-20 | Camera node v1 — capture + HTTP POST to the Pi receiver, validated end-to-end | Active |
+| [DL-079](#dl-079) | 2026-06-21 | Receiver dual-metric: greenness on largest green blob (self-locating), green_area + green_ratio | Active |
 
 ---
 
@@ -2387,6 +2388,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Not yet (later slices).** MQTT capture event + presence (DL-059 watchdog), hourly/photoperiod-gated cadence, top-down tripod mounting, dashboard latest-image panel + greenness trend, rolling image retention.
 
 **Files.** `firmware/camera-node/` (platformio.ini, README, src/{main,net_wifi,camera,poster}.{h,cpp}, config.h, secrets.h.example).
+
+---
+
+<a id="dl-079"></a>
+### DL-079 — Receiver plant isolation: greenness on the largest green blob
+
+**Date:** 2026-06-21 · **Status:** Active — validated on the live plant.
+
+**Context.** Full-frame greenness (DL-076) has two weaknesses once the camera is mounted over the real plant: it counts any green in frame (a contaminant risk), and it implicitly assumes the plant stays centered. The pot can realistically be bumped — by cleaning, by people, by knocking the grow-light stand — and the drift would not be noticed until hours of corrupted data later. The metric should locate the plant itself.
+
+**Decision.** Measure greenness on the **largest connected green blob** in the ExG mask (the plant is the dominant contiguous green mass), keeping the full image saved. This is self-locating (survives the pot shifting within frame) and ignores small stray green specks (a breadboard status LED, a leaf highlight) — it is not object tracking, which would be overkill for a stationary plant; "find the green" *is* the tracking here. Three values are recorded: `greenness` (full-frame ExG ratio, unchanged — kept for continuity and the regression fixture); `green_area` (largest blob as a **fraction of the frame**, "how much plant" — a fraction, so resolution-independent and comparable across a capture-size change; the growth signal); and `green_ratio` (green fraction within that blob's bounding box, "how green the plant region is"). Connected components via `scipy.ndimage`; if scipy is absent the code falls back to the full-frame ratio. The `camera_readings` schema gains `green_area`/`green_ratio`, added with `ALTER TABLE` guards so an existing table migrates in place. The one non-plant green source in frame (sticky notes) was removed physically rather than filtered.
+
+**Validation.** Deployed to the Pi (scipy installed in the hub venv) and run against the live mounted basil. The regression fixture still yields **greenness ≈ 0.4817** (full-frame metric untouched). On the plant, `green_ratio` (~0.62) sits well above full-frame `greenness` (~0.20), confirming the blob isolates the plant region rather than the whole beige frame; `green_area` (~0.03) and `green_ratio` were **stable frame-to-frame and held across SVGA/UXGA/QXGA** captures (area ~0.029→0.026, ratio ~0.62→0.56), confirming the fraction-based metrics are resolution-independent. The largest-blob selection correctly tracked the basil, not the breadboard LED.
+
+**Notes.** scipy installs on the Pi 4 from the piwheels aarch64 wheel (scipy 1.18.0, no source build). Full-frame `greenness` falls at higher resolution as finer leaf-gap and soil pixels resolve out of the green mask — expected, and the reason `green_ratio`/`green_area` (measured on the isolated blob) are the durable metrics across a resolution change.
+
+**Files.** `hub/09-camera/image_receiver.py`, `hub/09-camera/README.md`.
 
 ---
 

@@ -30,6 +30,7 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 - `06-dashboard` — read-only Streamlit dashboard (cream botanical theme, Plotly charts, UTC storage with America/Chicago display); LAN- and Tailscale-accessible (DL-037, DL-038).
 - `08-grow-light` — Shelly device-side RPC scheduler for the grow-light photoperiod (DL-054).
 - `09-camera` — Pi-side image receiver: HTTP `POST /image` → filesystem + Excess-Green greenness → new `camera_readings` table; the hub half of the vision-node transport (bytes over HTTP, capture event/presence over MQTT). Includes `test-fixtures/greenness-reference-chart.jpg`, a greenness regression reference (≈ 0.4817) (DL-076).
+- `09-camera` — greenness now measured on the **largest connected green blob** (self-locating, ignores stray green specks); records `green_area` (plant fraction of frame) and `green_ratio` (green density in the plant region) alongside full-frame `greenness`; adds a scipy dependency (DL-079).
 - `04-listener/alerter.py` — push-notification alerting layer via [ntfy](https://ntfy.sh): leak, watering-fault, reservoir-empty, prolonged-offline, and flapping-reboot alerts with recovery pings and a daily heartbeat summary, polled and edge-triggered from the listener; the topic is configured off-repo via the systemd `EnvironmentFile` (DL-061).
 
 **Vision node** under `firmware/camera-node/` (XIAO ESP32-S3 Sense) — v1: capture a JPEG on a timer and HTTP POST it to the Pi receiver (`hub/09-camera`); modular WiFi/camera/poster, gitignored `secrets.h`; validated end-to-end (DL-078).
