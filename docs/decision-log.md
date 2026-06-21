@@ -99,6 +99,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-077](#dl-077) | 2026-06-19 | XIAO ESP32-S3 Sense vision-node bring-up validated (PSRAM, OV3660, frames); data-cable lesson | Active |
 | [DL-078](#dl-078) | 2026-06-20 | Camera node v1 — capture + HTTP POST to the Pi receiver, validated end-to-end | Active |
 | [DL-079](#dl-079) | 2026-06-21 | Receiver dual-metric: greenness on largest green blob (self-locating), green_area + green_ratio | Active |
+| [DL-080](#dl-080) | 2026-06-21 | Deployment capture resolution: UXGA chosen (SVGA/UXGA/QXGA compared); evidence images committed | Active |
 
 ---
 
@@ -2405,6 +2406,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Notes.** scipy installs on the Pi 4 from the piwheels aarch64 wheel (scipy 1.18.0, no source build). Full-frame `greenness` falls at higher resolution as finer leaf-gap and soil pixels resolve out of the green mask — expected, and the reason `green_ratio`/`green_area` (measured on the isolated blob) are the durable metrics across a resolution change.
 
 **Files.** `hub/09-camera/image_receiver.py`, `hub/09-camera/README.md`.
+
+---
+
+<a id="dl-080"></a>
+### DL-080 — Deployment capture resolution: UXGA
+
+**Date:** 2026-06-21 · **Status:** Active — decided from on-hardware comparison.
+
+**Context.** The OV3660 supports SVGA through QXGA. The deployment resolution trades image detail (useful for a future ML plant-health classifier, which would train on the real captured archive) against payload size over a weak WiFi link (RSSI ≈ −79 dBm) and long-term storage. Decided empirically by capturing the same mounted, lit plant at each size and comparing.
+
+**Evidence.** Three captures (`jpeg_quality = 10`) kept under `hub/09-camera/test-fixtures/resolution-comparison/`: SVGA 800×600 (~33 KB), UXGA 1600×1200 (~110 KB), QXGA 2048×1536 (~170 KB). **SVGA → UXGA is a dramatic detail jump** (SVGA blurs leaf veins/edges; UXGA resolves them — the detail a classifier needs). **UXGA → QXGA is marginal** (small sensor + indoor light limit real detail beyond ~2 MP) while the file is ~55% larger.
+
+**Decision.** **UXGA** (`FRAMESIZE_UXGA`). It captures the bulk of the usable detail; QXGA's extra detail is barely visible and not worth ~55% larger files on a marginal link and in long-term storage. Both UXGA and QXGA posted at 100% over the (good-cable) link, but UXGA leaves more headroom on the weak signal. The Pi-side `green_area`/`green_ratio` metrics are fractions and held steady across all three sizes (DL-079), so the resolution choice does not disturb the greenness trend — it is purely an image-quality-vs-cost call. The `FRAMESIZE_UXGA` change itself lands with the deployment firmware (a later slice); this entry records the decision and its evidence.
+
+**Aside (USB flashing).** Repeated `Write timeout` / lost-connection failures while flashing this series were root-caused to a **marginal USB-C data cable**, not the board or QXGA payload (the failures were on the USB upload, not the WiFi POST). Replacing the cable fixed it. The flaky cable is still usable as a power-only deployment cable. Keep the known-good data cable for reflashing the mounted node.
+
+**Files.** `hub/09-camera/test-fixtures/resolution-comparison/` (svga-800x600.jpg, uxga-1600x1200.jpg, qxga-2048x1536.jpg, README.md).
 
 ---
 
