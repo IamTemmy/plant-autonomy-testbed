@@ -92,6 +92,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-070](#dl-070) | 2026-06-15 | Instrument Shelly uptime/RSSI — separate reboots from WiFi dropouts | Active |
 | [DL-071](#dl-071) | 2026-06-15 | Power-chart gridlines + land the DL-067 sargable code (omitted from 5d717e6) | Active |
 | [DL-072](#dl-072) | 2026-06-15 | Housekeeping — unify Shelly device label to grow-light; dedup import; gitignore handoff | Active |
+| [DL-073](#dl-073) | 2026-06-15 | Lower soil watering trigger to ~30% (was ~21.6%) | Active |
 | [DL-074](#dl-074) | 2026-06-16 | Hub-side photoperiod enforcement — self-heal Shelly reboots/misfires | Active |
 | [DL-075](#dl-075) | 2026-06-17 | Shelly reboot cause investigation — not WiFi/RAM/power; flaky unit, masked by DL-074 | Active |
 | [DL-076](#dl-076) | 2026-06-19 | Camera vision arc, slice 1 — Pi image receiver: HTTP bytes, ExG greenness, no OpenCV | Active |
@@ -2267,6 +2268,21 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** Both files compile; zero `device='shelly'` references remain in code or docs; the live migration left 0 `shelly` rows.
 
 **Files.** `hub/11-shelly-monitor/shelly_monitor.py`, `hub/11-shelly-monitor/README.md`, `hub/06-dashboard/dashboard.py`, `.gitignore`.
+
+---
+
+<a id="dl-073"></a>
+### DL-073 — Lower soil watering trigger to ~30%
+
+**Date:** 2026-06-15 · **Status:** Active — firmware change flashed 2026-06-19; watering-cycle validation pending next dry-down.
+
+**Context.** The soil looked dry between waterings, and reaching the old trigger took close to a week. Ten days of logged moisture confirm it: a clean, near-linear dry-down of ~4 %/day, so from a ~47% post-water level to the old 21.6% trigger is ~6 days. Basil prefers consistent moisture. (Caveat noted: the capacitive probe reads at root depth, so surface drying ≠ root-zone dry; watering earlier suits basil, with overwatering/root-rot the risk to watch if drainage is slow.)
+
+**Decision.** Lower `SOIL_THRESHOLD_TRIGGER` from 2400 to **2352** in `config.h`; leave `SOIL_THRESHOLD_STOP` at 2200. Percent via the linear calibration (`DRY=2523` → 0%, `WET=1953` → 100%): `raw = 2523 − 0.30×570 = 2352` ≈ **30%** (old 2400 ≈ 21.6%; stop 2200 ≈ 57%). Effect: waters at ~30% instead of ~21.6% — roughly every ~4 days in smaller, more frequent top-ups rather than ~weekly. The hysteresis band is 152 raw counts (~27 points), an order of magnitude above the ~10–16-count sensor noise (DL-020), so no toggling. The daily mL cap (DL-058) still backstops volume.
+
+**Validation.** Threshold lowering is data-driven from the 10-day dry-down curve (~4 %/day). Flashed to the WROVER on 2026-06-19 and verified running clean — heartbeats, all sensors valid, FSM in `monitoring`. At flash time the soil read raw **2034 (~85%)** — wetter than the auto-stop (2200, ~57%) and well below the new trigger, consistent with a recent manual top-up — so watering correctly did **not** fire. The 2352 (~30%) trigger therefore awaits the next natural dry-down; the full cycle (`monitoring` → `watering`, pump fires, soil rises toward ~57%, clean stop, no immediate re-trigger) is to be confirmed then.
+
+**Files.** `firmware/integrated/src/config.h`.
 
 ---
 
