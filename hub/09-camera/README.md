@@ -54,6 +54,8 @@ Three values are recorded per capture:
 - `green_area` — the largest green blob as a **fraction of the frame** ("how much plant"). A fraction, so it is resolution-independent and survives a capture-size change (e.g. SVGA → UXGA); this is the growth signal.
 - `green_ratio` — green fraction **within that blob's bounding box** ("how green the plant region is").
 
+See [`METRICS.md`](METRICS.md) for how to interpret these values, reference readings, and what the camera can and cannot tell you.
+
 ## Deploy
 
 The repo holds source + docs; the **running copy is Pi-local** at
