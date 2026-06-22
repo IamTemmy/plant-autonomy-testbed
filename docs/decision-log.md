@@ -102,6 +102,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-080](#dl-080) | 2026-06-21 | Deployment capture resolution: UXGA chosen (SVGA/UXGA/QXGA compared); evidence images committed | Active |
 | [DL-081](#dl-081) | 2026-06-21 | Deployment firmware: UXGA + jpeg_quality 10 + hourly cadence; photoperiod gating left to the receiver | Active |
 | [DL-082](#dl-082) | 2026-06-21 | Receiver photoperiod gating (shared grow-light window) + installed as a systemd service | Active |
+| [DL-083](#dl-083) | 2026-06-21 | Camera metrics interpretation guide (METRICS.md); calibration deferred to the baseline run | Active |
 
 ---
 
@@ -2459,6 +2460,21 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** Gating unit- and integration-tested (in-window keep / out-of-window `{skipped}` with zero files and zero rows; normal and overnight-wrap windows). On the Pi the service came up `active (running)`, bound `:8080`, and correctly gated night-time posts (it is 23:xx local, outside 07:00–19:00) — the XIAO's POSTs return `{"skipped": "outside photoperiod"}` and nothing is written. The keep-path resumes automatically in daylight.
 
 **Files.** `hub/09-camera/image_receiver.py` (gating); `hub/09-camera/plant-image-receiver.service` installed to `/etc/systemd/system/` (operational, file already in repo from DL-076).
+
+---
+
+<a id="dl-083"></a>
+### DL-083 — Camera metrics interpretation guide
+
+**Date:** 2026-06-21 · **Status:** Active.
+
+**Context.** The three recorded values (`greenness`, `green_area`, `green_ratio`) were uncalibrated raw numbers — reasonable to the people who built them, opaque to anyone else (and to future-self). Before an unattended baseline run, the metrics needed a written interpretation so the data is meaningful.
+
+**What the doc says.** `hub/09-camera/METRICS.md` defines each metric in plain terms (`green_area` = plant size as a frame fraction, the growth signal; `green_ratio` = density/lushness within the plant region; `greenness` = full-frame, kept for continuity only), gives the reference readings measured so far, and explains how to read a *trend* (e.g. `green_ratio` falling while `green_area` holds = early yellowing/thinning). It states the honest scope: the camera measures aggregate vigour and growth, not specific defects (holes, localised browning, leaf-vs-soil brown) — those are the later ML phase, for which the hourly archive is the training set.
+
+**Calibration is deferred, deliberately.** Absolute health thresholds require a baseline of *this* plant under *this* light, which the first multi-day run produces. Until then the doc directs reading relative change against the plant's own recent history, not fixed cutoffs; it is to be revised with concrete normal ranges and alert thresholds once a healthy baseline band exists. This entry records that decision so the absence of thresholds is intentional, not an oversight.
+
+**Files.** `hub/09-camera/METRICS.md` (new), `hub/09-camera/README.md` (pointer).
 
 ---
 
