@@ -8,10 +8,10 @@
 static constexpr char IMAGE_POST_URL[] = "http://10.6.19.139:8080/image";
 
 // ---- Capture cadence ----
-// TEST value for bring-up validation — intentionally short so a POST is visible
-// within seconds. Final deployment cadence is hourly and photoperiod-gated
-// (a later slice); change this one line then.
-static constexpr unsigned long CAPTURE_INTERVAL_MS = 20000;  // 20 s (test)
+// Deployment cadence: hourly. Photoperiod gating (only keep daytime captures)
+// is enforced Pi-side by the receiver, which shares the grow-light window
+// (GROW_ON_HOUR/GROW_OFF_HOUR), so the node stays dumb and has no clock.
+static constexpr unsigned long CAPTURE_INTERVAL_MS = 3600000;  // 1 hour
 
 // ---- WiFi (mirrors the WROVER net_wifi timing) ----
 static constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS    = 15000;

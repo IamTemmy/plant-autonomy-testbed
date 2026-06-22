@@ -8,7 +8,7 @@ Production firmware for the camera node (the XIAO ESP32-S3 Sense chosen in DL-03
 
 - `main.cpp` — orchestration: init camera + WiFi, then on a cadence capture → POST.
 - `net_wifi.{h,cpp}` — bounded blocking connect at boot, non-blocking reconnects; WiFi loss is non-fatal (captures skip while down, resume on reconnect).
-- `camera.{h,cpp}` — XIAO `CAMERA_MODEL_XIAO_ESP32S3` pin map; init + capture (SVGA JPEG, framebuffer in PSRAM).
+- `camera.{h,cpp}` — XIAO `CAMERA_MODEL_XIAO_ESP32S3` pin map; init + capture (UXGA 1600x1200 JPEG, framebuffer in PSRAM).
 - `poster.{h,cpp}` — `HTTPClient` POST of the raw JPEG to `IMAGE_POST_URL`; logs the receiver's JSON reply (incl. greenness).
 - `config.h` — non-secret config: Pi endpoint URL, capture cadence, WiFi/HTTP timeouts.
 - `secrets.h.example` — template for `secrets.h` (gitignored).
@@ -39,12 +39,12 @@ Camera node starting
 Camera ready
 WiFi: connecting to JSU_DEVICE....
 WiFi: connected, IP 10.6.x.x  RSSI -NN
-captured 800x600  ~16000 bytes -> POST
+captured 1600x1200  ~110000 bytes -> POST
 POST 200: {"ts": ..., "greenness": 0.xx, ...}
 ```
 
-A `POST 200` with a greenness value — and a matching new row in the Pi's `camera_readings` (and a `cam-*.jpg` in `hub`'s image dir) — confirms the end-to-end path. The capture cadence in `config.h` is a short **test** value; the deployment cadence (hourly, photoperiod-gated) is a later slice.
+A `POST 200` with a greenness value — and a matching new row in the Pi's `camera_readings` (and a `cam-*.jpg` in `hub`'s image dir) — confirms the end-to-end path. The deployment cadence in `config.h` is **hourly** (UXGA, DL-080/DL-081); photoperiod gating (keep only daytime captures) is enforced Pi-side by the receiver, which shares the grow-light window, so the node carries no clock. To bench-test, temporarily drop `CAPTURE_INTERVAL_MS` to a few seconds.
 
 ## Not yet (later slices)
 
-MQTT capture-event + presence (DL-059 watchdog), hourly/photoperiod-gated cadence, top-down tripod mounting, dashboard latest-image panel and greenness trend, rolling image retention.
+MQTT capture-event + presence (DL-059 watchdog), dashboard latest-image panel and greenness trend, rolling image retention.

@@ -34,8 +34,8 @@ bool camera_begin() {
     config.pin_pwdn = PWDN_GPIO_NUM; config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = 20000000;
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size   = FRAMESIZE_SVGA;   // 800x600
-    config.jpeg_quality = 12;
+    config.frame_size   = FRAMESIZE_UXGA;   // 1600x1200 (deployment, DL-080)
+    config.jpeg_quality = 10;                // lower number = less compression
     config.fb_count     = psramFound() ? 2 : 1;
     config.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;
     config.fb_location  = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
