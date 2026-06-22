@@ -100,6 +100,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-078](#dl-078) | 2026-06-20 | Camera node v1 — capture + HTTP POST to the Pi receiver, validated end-to-end | Active |
 | [DL-079](#dl-079) | 2026-06-21 | Receiver dual-metric: greenness on largest green blob (self-locating), green_area + green_ratio | Active |
 | [DL-080](#dl-080) | 2026-06-21 | Deployment capture resolution: UXGA chosen (SVGA/UXGA/QXGA compared); evidence images committed | Active |
+| [DL-081](#dl-081) | 2026-06-21 | Deployment firmware: UXGA + jpeg_quality 10 + hourly cadence; photoperiod gating left to the receiver | Active |
 
 ---
 
@@ -2423,6 +2424,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Aside (USB flashing).** Repeated `Write timeout` / lost-connection failures while flashing this series were root-caused to a **marginal USB-C data cable**, not the board or QXGA payload (the failures were on the USB upload, not the WiFi POST). Replacing the cable fixed it. The flaky cable is still usable as a power-only deployment cable. Keep the known-good data cable for reflashing the mounted node.
 
 **Files.** `hub/09-camera/test-fixtures/resolution-comparison/` (svga-800x600.jpg, uxga-1600x1200.jpg, qxga-2048x1536.jpg, README.md).
+
+---
+
+<a id="dl-081"></a>
+### DL-081 — Deployment firmware: UXGA, hourly cadence
+
+**Date:** 2026-06-21 · **Status:** Active — firmware edited; flashed at go-live.
+
+**Context.** Moving the camera node from bench-test settings to deployment settings, ahead of an unattended multi-day run. Three changes to `firmware/camera-node/`, none of them new logic — they implement decisions already made.
+
+**Changes.** (1) `FRAMESIZE_UXGA` 1600×1200, implementing the resolution decision of DL-080. (2) `jpeg_quality` 12 → 10 (less compression, more detail for the future training archive). (3) `CAPTURE_INTERVAL_MS` 20 s → 3600000 (hourly).
+
+**Photoperiod gating stays off the node.** The node carries no clock and captures every hour, day or night; whether to *keep* a capture is decided Pi-side by the receiver against the shared grow-light window (DL-082). Rationale (DL): the Pi is the always-on, NTP-correct photoperiod authority (it already runs the enforcer, DL-074), so the window is defined once; the XIAO stays dumb, with no NTP/timezone code to fail on a node that is hard to debug once mounted. The cost is a few discarded dark frames per night — trivial.
+
+**Validation.** UXGA capture + POST already validated on the live plant at 100% over the link (DL-080 evidence run). The cadence and quality values are config constants observed individually during that run; the hourly interval is verified in situ at go-live (first hourly capture lands).
+
+**Files.** `firmware/camera-node/src/camera.cpp`, `firmware/camera-node/src/config.h`, `firmware/camera-node/README.md`.
 
 ---
 
