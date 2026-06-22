@@ -23,16 +23,24 @@ Config via environment (systemd EnvironmentFile=/etc/plant-hub/credentials):
   IMAGE_DIR             default /home/basilpi/plant-hub/images
   PLANT_DB              default /home/basilpi/plant-hub/plant.db
   GREEN_EXG_THRESHOLD   default 0.10
+  LOCAL_TZ              default America/Chicago   } photoperiod gate, shared with
+  GROW_ON_HOUR          default 7                 } the grow-light enforcer
+  GROW_OFF_HOUR         default 19                } (hub/08-grow-light)
+
+Captures POSTed outside the GROW_ON_HOUR..GROW_OFF_HOUR window are silently
+discarded (DL-082), so the dataset holds only lit daytime frames.
 
 Endpoints:
   POST /image   raw JPEG body  -> {ts, path, bytes, width, height,
                                    greenness, green_area, green_ratio}
+                                   or {skipped} if outside the photoperiod
   GET  /health                 -> {status: ok}
 """
 import os
 import json
 import sqlite3
 import datetime
+from zoneinfo import ZoneInfo
 from io import BytesIO
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -43,6 +51,24 @@ PORT = int(os.environ.get("IMAGE_RECEIVER_PORT", "8080"))
 IMAGE_DIR = os.environ.get("IMAGE_DIR", "/home/basilpi/plant-hub/images")
 DB_PATH = os.environ.get("PLANT_DB", "/home/basilpi/plant-hub/plant.db")
 EXG_THRESHOLD = float(os.environ.get("GREEN_EXG_THRESHOLD", "0.10"))
+
+# Photoperiod gating (DL-082): only daytime/lit captures are kept. These read the
+# SAME env as the grow-light enforcer (hub/08-grow-light/photoperiod.py), loaded
+# from /etc/plant-hub/credentials, so the window is defined once and cannot drift.
+LOCAL_TZ = ZoneInfo(os.environ.get("LOCAL_TZ", "America/Chicago"))
+GROW_ON_HOUR = int(os.environ.get("GROW_ON_HOUR", "7"))
+GROW_OFF_HOUR = int(os.environ.get("GROW_OFF_HOUR", "19"))
+
+
+def within_photoperiod(now=None):
+    """True if the local hour is inside the grow-light window. Mirrors the
+    enforcer's desired_on() exactly, including the overnight-wrap case."""
+    if now is None:
+        now = datetime.datetime.now(LOCAL_TZ)
+    hour = now.hour
+    if GROW_ON_HOUR < GROW_OFF_HOUR:
+        return GROW_ON_HOUR <= hour < GROW_OFF_HOUR
+    return hour >= GROW_ON_HOUR or hour < GROW_OFF_HOUR
 MAX_BYTES = 5 * 1024 * 1024
 
 
@@ -157,6 +183,15 @@ class Handler(BaseHTTPRequestHandler):
         if data[:2] != b"\xff\xd8":
             self._json(400, {"error": "not a jpeg"})
             return
+
+        if not within_photoperiod():
+            # Outside the grow-light window: silently discard (DL-082) — no file,
+            # no row, no log. Keeps the dataset to lit daytime captures. A dark
+            # image *during* the window is still kept, so a light failure shows as
+            # an anomalously low daytime greenness rather than being hidden.
+            self._json(200, {"skipped": "outside photoperiod"})
+            return
+
         try:
             greenness, green_area, green_ratio, (w, h) = compute_metrics(data)
         except Exception as exc:
