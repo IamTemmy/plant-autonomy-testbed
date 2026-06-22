@@ -101,6 +101,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-079](#dl-079) | 2026-06-21 | Receiver dual-metric: greenness on largest green blob (self-locating), green_area + green_ratio | Active |
 | [DL-080](#dl-080) | 2026-06-21 | Deployment capture resolution: UXGA chosen (SVGA/UXGA/QXGA compared); evidence images committed | Active |
 | [DL-081](#dl-081) | 2026-06-21 | Deployment firmware: UXGA + jpeg_quality 10 + hourly cadence; photoperiod gating left to the receiver | Active |
+| [DL-082](#dl-082) | 2026-06-21 | Receiver photoperiod gating (shared grow-light window) + installed as a systemd service | Active |
 
 ---
 
@@ -2441,6 +2442,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** UXGA capture + POST already validated on the live plant at 100% over the link (DL-080 evidence run). The cadence and quality values are config constants observed individually during that run; the hourly interval is verified in situ at go-live (first hourly capture lands).
 
 **Files.** `firmware/camera-node/src/camera.cpp`, `firmware/camera-node/src/config.h`, `firmware/camera-node/README.md`.
+
+---
+
+<a id="dl-082"></a>
+### DL-082 — Receiver photoperiod gating + run as a service
+
+**Date:** 2026-06-21 · **Status:** Active — validated running on the Pi.
+
+**Context.** Two things were needed to make the camera node fit for an unattended multi-day run: keep the dataset to lit daytime frames, and stop depending on a hand-run receiver in a terminal.
+
+**Photoperiod gating.** The receiver discards any capture POSTed outside the grow-light window — no file, no row, no log (silent). It reads the **same** `GROW_ON_HOUR`/`GROW_OFF_HOUR`/`LOCAL_TZ` environment as the grow-light enforcer (DL-074, `hub/08-grow-light/photoperiod.py`), from `/etc/plant-hub/credentials`, and mirrors its `desired_on()` window logic (including the overnight-wrap case), so the window is defined once and the two cannot drift. Gating is on **time**, not image brightness: a *dark* image arriving *during* the window is still kept, so a grow-light failure surfaces as anomalously low daytime greenness rather than being silently dropped.
+
+**Service.** The drafted `plant-image-receiver.service` (DL-076) was installed and enabled: `active (running)`, `enabled` (auto-starts on boot), `Restart=on-failure`, runs from the hub venv, loads the shared `EnvironmentFile`. It now survives Pi reboots and crashes without a terminal — the property an unattended deployment requires.
+
+**Validation.** Gating unit- and integration-tested (in-window keep / out-of-window `{skipped}` with zero files and zero rows; normal and overnight-wrap windows). On the Pi the service came up `active (running)`, bound `:8080`, and correctly gated night-time posts (it is 23:xx local, outside 07:00–19:00) — the XIAO's POSTs return `{"skipped": "outside photoperiod"}` and nothing is written. The keep-path resumes automatically in daylight.
+
+**Files.** `hub/09-camera/image_receiver.py` (gating); `hub/09-camera/plant-image-receiver.service` installed to `/etc/systemd/system/` (operational, file already in repo from DL-076).
 
 ---
 
