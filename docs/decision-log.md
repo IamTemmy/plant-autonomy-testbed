@@ -103,6 +103,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-081](#dl-081) | 2026-06-21 | Deployment firmware: UXGA + jpeg_quality 10 + hourly cadence; photoperiod gating left to the receiver | Active |
 | [DL-082](#dl-082) | 2026-06-21 | Receiver photoperiod gating (shared grow-light window) + installed as a systemd service | Active |
 | [DL-083](#dl-083) | 2026-06-21 | Camera metrics interpretation guide (METRICS.md); calibration deferred to the baseline run | Active |
+| [DL-084](#dl-084) | 2026-06-21 | Camera receiver stores ts in UTC (was naive local) — matches hub standard, fixes dashboard display | Active |
 
 ---
 
@@ -2475,6 +2476,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Calibration is deferred, deliberately.** Absolute health thresholds require a baseline of *this* plant under *this* light, which the first multi-day run produces. Until then the doc directs reading relative change against the plant's own recent history, not fixed cutoffs; it is to be revised with concrete normal ranges and alert thresholds once a healthy baseline band exists. This entry records that decision so the absence of thresholds is intentional, not an oversight.
 
 **Files.** `hub/09-camera/METRICS.md` (new), `hub/09-camera/README.md` (pointer).
+
+---
+
+<a id="dl-084"></a>
+### DL-084 — Camera receiver: store timestamps in UTC
+
+**Date:** 2026-06-21 · **Status:** Active — validated.
+
+**Context.** Surfaced while checking whether the lab's timezone (Jackson, MS = Central) was handled correctly. The Pi's *system* clock was set to America/New_York (Eastern), but the photoperiod gate and grow-light enforcer both compute in America/Chicago (correct for Jackson), so the **gate was already right** and the light was on schedule. The real defect was elsewhere: the camera receiver stamped `camera_readings.ts` with `datetime.now()` — **naive local time** — while the entire rest of the hub stores **UTC** (`listener.utc_now_iso()` = `...strftime('%Y-%m-%dT%H:%M:%SZ')`) and the dashboard reads every `ts` as UTC (`pd.to_datetime(ts, utc=True)`) before converting to the America/Chicago display zone. A naive-local camera ts would be misread as UTC by the dashboard and shifted by the UTC offset.
+
+**Fix.** The receiver now stamps `ts` (and the image filename instant) with `datetime.now(timezone.utc)` formatted `%Y-%m-%dT%H:%M:%S.%fZ` — UTC with a trailing `Z`, consistent with the hub standard. The photoperiod gate is unchanged: it still evaluates `datetime.now(LOCAL_TZ)` in Central, independent of how the row is stored.
+
+**Consequence.** With the receiver storing UTC and the gate using an explicit zone, the **Pi's system timezone no longer affects any stored data or gating** — it is purely cosmetic (journald/`timedatectl` display). No Pi clock change is required for correctness; setting it to America/Chicago is an optional nicety so logs read in local time.
+
+**Validation.** Posted to the patched receiver: stored `ts` ends in `Z` and equals UTC now; the dashboard's own parse (`to_datetime(utc=True).tz_convert('America/Chicago')`) renders it as the correct Jackson local time. The legacy naive-local rows from bring-up are irrelevant — all camera test data is wiped at go-live, so the table starts clean in UTC.
+
+**Files.** `hub/09-camera/image_receiver.py`.
 
 ---
 
