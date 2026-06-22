@@ -198,8 +198,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "decode failed: %s" % exc})
             return
 
-        now = datetime.datetime.now()
-        ts = now.isoformat(timespec="microseconds")
+        # Store ts in UTC with a trailing Z, matching the rest of the hub
+        # (listener's utc_now_iso). The dashboard reads ts as UTC and converts
+        # to the display zone; a naive local ts would be misread. Filename keeps
+        # the same UTC instant for a stable, sortable name.
+        now = datetime.datetime.now(datetime.timezone.utc)
+        ts = now.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         fname = "cam-" + now.strftime("%Y%m%d-%H%M%S-%f") + ".jpg"
         path = os.path.join(IMAGE_DIR, fname)
         with open(path, "wb") as fh:
