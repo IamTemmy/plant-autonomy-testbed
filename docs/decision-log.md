@@ -104,6 +104,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-082](#dl-082) | 2026-06-21 | Receiver photoperiod gating (shared grow-light window) + installed as a systemd service | Active |
 | [DL-083](#dl-083) | 2026-06-21 | Camera metrics interpretation guide (METRICS.md); calibration deferred to the baseline run | Active |
 | [DL-084](#dl-084) | 2026-06-21 | Camera receiver stores ts in UTC (was naive local) — matches hub standard, fixes dashboard display | Active |
+| [DL-085](#dl-085) | 2026-06-24 | Shelly went unreachable unattended (WiFi-drop, no reconnect); 3-layer self-recovery: restore_last + daily reboot + on-device WiFi watchdog | Active |
 
 ---
 
@@ -2493,6 +2494,30 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** Posted to the patched receiver: stored `ts` ends in `Z` and equals UTC now; the dashboard's own parse (`to_datetime(utc=True).tz_convert('America/Chicago')`) renders it as the correct Jackson local time. The legacy naive-local rows from bring-up are irrelevant — all camera test data is wiped at go-live, so the table starts clean in UTC.
 
 **Files.** `hub/09-camera/image_receiver.py`.
+
+---
+
+<a id="dl-085"></a>
+### DL-085 — Shelly self-recovery after an unattended WiFi drop
+
+**Date:** 2026-06-24 · **Status:** Active — installed and running; field recovery pending a real outage.
+
+**Incident.** Returned from a multi-day trip to a photoperiod-fault alert: the grow light had been **off all day**. Root-caused from the logs without changing state first. The Pi enforcer and the independent Shelly monitor both failed every 2-minute tick with `[Errno 113] No route to host` — the Pi had no network path to the Shelly. The Shelly's own clock/schedules were intact and its `uptime` was ~23.5 h (it had **not** rebooted or lost power), so the device was alive but **off WiFi and not auto-reconnecting** — a documented Shelly firmware behaviour (Gen4, fw 1.7.99), not a signal problem (RSSI was -72). Pressing the physical button restored the relay locally; network connectivity returned around the same time. Diagnosis confirmed: WiFi-drop-without-reconnect, unattended.
+
+**Key realisation.** Software on the Pi cannot recover this, because the Pi's only channel to the Shelly *is* the network that is down — you cannot send a "toggle" to an unreachable device. The button worked precisely because it is physical/local. So the recovery must run **on the device itself**, independent of the network. (Ruled out along the way: IP change — the enforcer later succeeded at the same hardcoded IP; and "louder/repeated alerts" — an alert you cannot act on from afar does not restore the light. The fix had to be autonomous on-device recovery.)
+
+**Three-layer fix (all on the Shelly).**
+1. **`initial_state = restore_last`** (already set) — a reboot returns the switch to its prior state, so a daytime reboot does not leave the light dark; the Pi enforcer re-asserts within ~2 min regardless.
+2. **Daily 02:00 `Shelly.Reboot` schedule** — a blind nightly reboot (light already off, zero plant impact) that clears any half-open WiFi state the watchdog's own check might not detect.
+3. **On-device WiFi watchdog script** (`wifi-watchdog.js`) — checks WiFi every 60 s and, after ~5 min of sustained disconnection, calls `Shelly.Reboot()` on itself; auto-starts on boot (so it survives its own reboots). Conservative: only a sustained outage triggers a reboot, and the counter resets the instant WiFi returns, so brief blips do not cause reboot loops.
+
+**Install.** `install_wifi_watchdog.py` pushes the script via the Shelly's local RPC from the Pi — which works under campus client isolation (DL-028), since the Pi can reach the Shelly even when a browser cannot. Idempotent (re-running updates the script in place).
+
+**Lessons.** (a) Recovery for a network-unreachable device must be **on the device**, not commanded over the network. (b) Shelly `Script.PutCode` **rejects non-ASCII** (a UTF-8 em-dash in a comment returned `bad argument 'code'`); the source is ASCII-only and the installer scrubs to ASCII before upload. (c) `PutCode` also caps code length per call — upload in <=512-byte chunks. (d) The Shelly's own onboard schedule was already known unreliable (DL-074); this is a second strike, so if the watchdog does not hold up in the field, the next escalation is an upstream power-cycle plug or replacing the unit.
+
+**Data note.** 2026-06-24 camera captures happened with the light off (dim ambient), so that day's greenness reads low (avg green_ratio ~0.50 vs ~0.53–0.55 on lit days) and is **excluded from the healthy baseline**. 2026-06-22 and 06-23 are clean lit baseline days. The baseline run resumes once the Shelly fix is trusted.
+
+**Files.** `hub/08-grow-light/wifi-watchdog.js`, `hub/08-grow-light/install_wifi_watchdog.py`. Shelly-side (not in repo): daily 02:00 reboot schedule (job id 3); `initial_state` already `restore_last`.
 
 ---
 
