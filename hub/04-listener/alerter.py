@@ -163,7 +163,13 @@ def _latest_lux(conn):
 
 def _check_grow_light(conn, now_mono):
     """Alert if measured lux disagrees with the photoperiod schedule for long enough."""
-    expected_on = GROW_ON_HOUR <= datetime.now(LOCAL_TZ).hour < GROW_OFF_HOUR
+    # Wrap-aware photoperiod window, consistent with photoperiod.py and
+    # image_receiver.py (handles an overnight window where ON > OFF).
+    hour = datetime.now(LOCAL_TZ).hour
+    if GROW_ON_HOUR < GROW_OFF_HOUR:
+        expected_on = GROW_ON_HOUR <= hour < GROW_OFF_HOUR
+    else:
+        expected_on = hour >= GROW_ON_HOUR or hour < GROW_OFF_HOUR
     lux, age = _latest_lux(conn)
 
     # No fresh lux (e.g. controller offline) -> can't verify; stand down quietly.

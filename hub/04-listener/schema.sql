@@ -122,3 +122,16 @@ CREATE INDEX IF NOT EXISTS idx_fault_events_acknowledged
     ON fault_events (acknowledged);
 CREATE INDEX IF NOT EXISTS idx_fault_events_ts
     ON fault_events (ts);
+
+-- ============================================================
+-- camera_readings: per-capture greenness metrics (DL-076, DL-079)
+-- Written directly by the camera image receiver (hub/09-camera), not via the
+-- MQTT pipeline, so it carries no message_id/run_id. ts is UTC ISO (DL-084).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS camera_readings (
+    ts          TEXT PRIMARY KEY,
+    path        TEXT NOT NULL,
+    greenness   REAL NOT NULL,
+    green_area  REAL,
+    green_ratio REAL
+);
