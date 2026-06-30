@@ -13,7 +13,7 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 **Project scaffolding**
 - `README.md`, `LICENSE` (MIT), `.gitignore` (macOS / PlatformIO / Python / editor artifacts), and this `CHANGELOG.md`.
 - `docs/decision-log.md` — the authoritative engineering decision record (DL-001 onward).
-- `docs/explainers/phase3-hub.md` and `docs/hub-setup.md` — narrative explainer and hub setup notes.
+- `docs/explainers/phase3-hub.md` — narrative explainer for the hub phase.
 
 **Phase 1 — component bench tests** under `firmware/test-sketches/`, each a standalone PlatformIO project with its own README:
 - `01-bme280` (DL-015; re-validated on the integrated bench in DL-019), `02-pump-mosfet` (DL-018), `03-soil-moisture` (DL-020), `04-bh1750` (DL-021), `05-float-switch` (DL-023), `06-oled` (DL-024), `07-feedback-io` / `08-buttons` / `09-buzzer` (user-feedback subsystem, DL-025), `10-leak-sensor` (DL-026).
@@ -60,5 +60,7 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 - Button C reassigned GPIO35 → GPIO26 (GPIO35 has no internal pull-up; GPIO26 was freed by the DL-010 grow-light architecture).
 
 ### Fixed
+
+- Repo audit fixes (DL-086): corrected a dangling `docs/hub-setup.md` reference in this changelog, made the `alerter.py` grow-light photoperiod check wrap-aware (consistent with `photoperiod.py`/`image_receiver.py`; no change for the current 07–19 window), and moved the `camera_readings` table definition into `hub/04-listener/schema.sql`.
 
 - Repaired this changelog: removed a leaked heredoc delimiter and a duplicated listener-service entry, stripped escape artifacts from an earlier bad paste (literal backslash-escaped backticks and `\u2014` em-dash sequences), restructured to the grouped Keep a Changelog format, and brought it current through DL-055.

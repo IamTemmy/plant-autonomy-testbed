@@ -105,6 +105,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-083](#dl-083) | 2026-06-21 | Camera metrics interpretation guide (METRICS.md); calibration deferred to the baseline run | Active |
 | [DL-084](#dl-084) | 2026-06-21 | Camera receiver stores ts in UTC (was naive local) — matches hub standard, fixes dashboard display | Active |
 | [DL-085](#dl-085) | 2026-06-24 | Shelly went unreachable unattended (WiFi-drop, no reconnect); 3-layer self-recovery: restore_last + daily reboot + on-device WiFi watchdog | Active |
+| [DL-086](#dl-086) | 2026-06-29 | Repo audit fixes: corrected a dangling CHANGELOG doc reference, made the alerter photoperiod check wrap-aware, and moved camera_readings into schema.sql | Active |
 
 ---
 
@@ -2518,6 +2519,24 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Data note.** 2026-06-24 camera captures happened with the light off (dim ambient), so that day's greenness reads low (avg green_ratio ~0.50 vs ~0.53–0.55 on lit days) and is **excluded from the healthy baseline**. 2026-06-22 and 06-23 are clean lit baseline days. The baseline run resumes once the Shelly fix is trusted.
 
 **Files.** `hub/08-grow-light/wifi-watchdog.js`, `hub/08-grow-light/install_wifi_watchdog.py`. Shelly-side (not in repo): daily 02:00 reboot schedule (job id 3); `initial_state` already `restore_last`.
+
+---
+
+<a id="dl-086"></a>
+### DL-086 — Repo audit fixes (CHANGELOG reference, alerter wrap, schema.sql)
+
+**Date:** 2026-06-29 · **Status:** Active.
+
+**Context.** A deep sweep of the repo (decision-log parity, CHANGELOG references, service compilation) came back clean except for three minor pre-existing inconsistencies from an earlier remote audit. None affected the running system; all three are corrected here as a single cleanup slice.
+
+**Fixes.**
+1. **Dangling doc reference.** The CHANGELOG claimed `docs/explainers/phase3-hub.md` *and* `docs/hub-setup.md` were added, but the latter was never created. Corrected the line to reference only the explainer that exists; no other broken `docs/*.md` references remain.
+2. **Alerter photoperiod wrap.** `_check_grow_light` in `hub/04-listener/alerter.py` computed `expected_on` with the naive `ON <= hour < OFF`, which is wrong for an overnight window (ON > OFF) and was inconsistent with `photoperiod.py` and `image_receiver.py`. Replaced with the wrap-aware form they use. Verified the normal 07–19 window is **identical** to the old formula (zero behaviour change today); the fix only matters if the window is ever set to wrap past midnight.
+3. **camera_readings in schema.sql.** Six of the seven tables were defined in `hub/04-listener/schema.sql`; `camera_readings` was created lazily in `image_receiver.py` instead. Added it to `schema.sql` (no `message_id`/`run_id`, since the receiver writes it directly; `ts` is UTC ISO per DL-084). Verified the schema-file columns match the receiver-created table **exactly**, so a database built from `schema.sql` is identical to one created lazily — no drift. The receiver's idempotent `CREATE TABLE IF NOT EXISTS` is left in place as a harmless safety net.
+
+**Validation.** `alerter.py` compiles; wrap logic checked for both window orientations and confirmed identical to the old formula for 07–19; `schema.sql` parses in SQLite and `camera_readings` column types/constraints match the receiver; no dangling `docs/*.md` references remain.
+
+**Files.** `CHANGELOG.md`, `hub/04-listener/alerter.py`, `hub/04-listener/schema.sql`.
 
 ---
 
