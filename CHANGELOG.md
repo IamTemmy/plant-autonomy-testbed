@@ -52,6 +52,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Changed
 
+- Recorded field validation of the Shelly self-recovery (DL-085) over a multi-day absence: the daily 02:00 reboot is confirmed firing nightly and the watchdog is reboot-persistent; the reactive WiFi-loss recovery is still pending a real outage to exercise it.
+
 - `hub/04-listener` — routes FSM state (`plant/state/wrover`) and device presence (`plant/status/<device>`) into the database (DL-052, DL-055); added a device-presence timeout watchdog that catches a device hung-but-still-connected, which the Last-Will misses (DL-059), and reboot detection from `uptime_s` resets, recorded as `system_status` markers (DL-060).
 - `hub/06-dashboard` — added a watering-system state banner, a `watering_fault` display, and device-presence/offline awareness: the banner and header pill reflect "WROVER offline" when its Last-Will fires (DL-052, DL-053, DL-055); greys stale environment cards when the WROVER is offline (DL-056), added a soil-moisture trend with a watering-episode overlay (DL-057), switched the daily-watering banner from seconds to mL (DL-058), and surfaced a last-reboot indicator with a flapping warning at ≥ 2 reboots/24h (DL-060).
 - Firmware daily water cap re-expressed from pump run-time to volume (`MAX_DAILY_PUMP_ML = 200`), and the daily reset moved from a boot-relative rolling 24h window to true local-calendar midnight via NTP (DL-058).

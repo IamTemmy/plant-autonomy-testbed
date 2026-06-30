@@ -2521,6 +2521,8 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 
 **Files.** `hub/08-grow-light/wifi-watchdog.js`, `hub/08-grow-light/install_wifi_watchdog.py`. Shelly-side (not in repo): daily 02:00 reboot schedule (job id 3); `initial_state` already `restore_last`.
 
+**Field validation (2026-06-29).** Held over a multi-day absence. Across 2026-06-25 to 06-29 the grow light stayed healthy every day (12 lit captures/day, `green_ratio` ~0.49–0.53) and the photoperiod enforcer logged **zero** `No route to host` ticks — the Shelly never went unreachable. Its uptime confirmed the **02:00 daily reboot is firing nightly** (uptime resets each morning), and the watchdog was still `running=True` after several of those reboots, proving auto-start-on-boot survives. Net: the **preventive layer (daily reboot) is validated and the watchdog is armed and reboot-persistent**, but the **reactive WiFi-loss recovery remains untested by a real outage** (nothing dropped — plausibly because the nightly reboot clears accumulated state before it degrades into a drop). Status stays Active pending a real drop to exercise the watchdog.
+
 ---
 
 <a id="dl-086"></a>
