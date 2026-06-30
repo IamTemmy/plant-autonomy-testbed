@@ -53,6 +53,12 @@ SOIL_SETTLING_MIN = int(os.environ.get("SOIL_SETTLING_MIN", "30"))
 _SOIL_RECENT_MIN = 5   # "now" = average over the last this-many minutes
 _SOIL_BASE_HALF = 5    # baseline window = [LOOKBACK-HALF, LOOKBACK+HALF] min ago
 
+# Silent-camera detection (DL-088): the camera node POSTs an hourly capture that the
+# receiver records in camera_readings. If no fresh row arrives during the lit window the
+# imaging pipeline is down (node power/WiFi, or the receiver service) -- a silent failure
+# nothing else catches. Reuses the GROW_ON_HOUR/GROW_OFF_HOUR photoperiod window.
+CAMERA_STALE_S = int(os.environ.get("CAMERA_STALE_S", "7200"))  # 2h; tolerates one missed capture
+
 # Latched FSM states worth a push, with (title, body, priority, tags).
 FAULT_ALERTS = {
     "leak_fault": (
@@ -80,6 +86,8 @@ _st = {
     "gl_mismatch_kind": None,    # "dark_during_on" | "lit_during_off"
     "gl_alerted": None,          # mismatch kind we've alerted on (for recovery)
     "ext_water_alerted": False,  # external-watering event currently alerted (debounce)
+    "cam_window_since": None,    # monotonic time we entered the lit window (re-armed daily)
+    "cam_alerted": False,        # silent-camera alert currently firing (for recovery)
 }
 
 
@@ -159,6 +167,20 @@ def _latest_lux(conn):
     except Exception:
         age = None
     return (row[0], age)
+
+
+def _latest_camera_age_s(conn):
+    """Seconds since the most recent camera_readings row, or None if there are none."""
+    ts = _scalar(conn, "SELECT MAX(ts) FROM camera_readings")
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - dt).total_seconds()
 
 
 def _check_grow_light(conn, now_mono):
@@ -274,6 +296,44 @@ def _check_external_watering(conn):
 
 # ---- the periodic evaluation ----------------------------------------------
 
+def _check_camera(conn, now_mono):
+    """Alert if no camera image arrives during the lit window (silent node or receiver)."""
+    hour = datetime.now(LOCAL_TZ).hour
+    if GROW_ON_HOUR < GROW_OFF_HOUR:
+        in_window = GROW_ON_HOUR <= hour < GROW_OFF_HOUR
+    else:
+        in_window = hour >= GROW_ON_HOUR or hour < GROW_OFF_HOUR
+
+    # Outside the lit window the camera is meant to be silent: stand down and re-arm.
+    if not in_window:
+        _st["cam_window_since"] = None
+        _st["cam_alerted"] = False
+        return
+
+    # On entering the window (or after a restart) start the clock, and hold off judging
+    # until a capture could plausibly have arrived -- so dawn, when the newest row is
+    # still yesterday's, does not false-alarm.
+    if _st["cam_window_since"] is None:
+        _st["cam_window_since"] = now_mono
+    if now_mono - _st["cam_window_since"] < CAMERA_STALE_S:
+        return
+
+    age = _latest_camera_age_s(conn)
+    silent = age is None or age > CAMERA_STALE_S
+
+    if silent:
+        if not _st["cam_alerted"]:
+            notify("Camera may be down",
+                   f"No camera image in over {CAMERA_STALE_S // 3600}h during the lit "
+                   f"window. Check the camera node (power/WiFi) and the image-receiver "
+                   f"service.", "default", ["camera"])
+            _st["cam_alerted"] = True
+    elif _st["cam_alerted"]:
+        notify("Camera back", "Camera images are arriving again.",
+               "default", ["white_check_mark"])
+        _st["cam_alerted"] = False
+
+
 def evaluate(conn):
     """Poll current state and fire any newly-warranted alerts. Called on a timer."""
     if not NTFY_TOPIC:
@@ -329,10 +389,13 @@ def evaluate(conn):
     # 4) Grow-light photoperiod verification.
     _check_grow_light(conn, now_mono)
 
-    # 5) External (manual) watering detection.
+    # 5) Silent-camera detection (no image arriving during the lit window).
+    _check_camera(conn, now_mono)
+
+    # 6) External (manual) watering detection.
     _check_external_watering(conn)
 
-    # 6) Daily heartbeat summary at the configured local hour.
+    # 7) Daily heartbeat summary at the configured local hour.
     now_local = datetime.now(LOCAL_TZ)
     today = now_local.date()
     if now_local.hour >= HEARTBEAT_HOUR and _st["last_heartbeat_date"] != today:
