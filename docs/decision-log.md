@@ -107,6 +107,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-085](#dl-085) | 2026-06-24 | Shelly went unreachable unattended (WiFi-drop, no reconnect); 3-layer self-recovery: restore_last + daily reboot + on-device WiFi watchdog | Active |
 | [DL-086](#dl-086) | 2026-06-29 | Repo audit fixes: corrected a dangling CHANGELOG doc reference, made the alerter photoperiod check wrap-aware, and moved camera_readings into schema.sql | Active |
 | [DL-087](#dl-087) | 2026-06-29 | Documented the 7-day camera baseline ranges in METRICS.md (descriptive only, no alert thresholds yet) | Active |
+| [DL-088](#dl-088) | 2026-06-30 | Silent-camera alert: the alerter notifies if no camera image arrives during the lit window (catches a dead node or receiver) | Active |
 
 ---
 
@@ -2555,6 +2556,26 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Deliberately not done.** No alert thresholds. The metric has only been observed healthy, never under stress, so any "below X = distressed" cutoff would be a guess; thresholds wait for a known-unhealthy reference (the user's call to document ranges only for now).
 
 **Files.** `hub/09-camera/METRICS.md`.
+
+---
+
+<a id="dl-088"></a>
+### DL-088 — Silent-camera alert (no image during the lit window)
+
+**Date:** 2026-06-30 · **Status:** Active — deployed and validated live (positive path covered by unit tests; awaiting a real daytime outage for field confirmation).
+
+**Problem.** Every other failure the system catches is "loud" — a fault state, a lux/schedule disagreement, a moisture anomaly. A dead camera is **silent**: the node simply stops POSTing and no `camera_readings` row appears. Nothing watched for that absence, so an unattended camera failure (node power/WiFi loss, or the image-receiver service down) would go unnoticed for as long as the user was away — the same blind spot the grow-light incident (DL-085) exposed, but for the imaging pipeline.
+
+**Approach.** Added `_check_camera()` to `alerter.py` (which already runs inside `plant-listener` with ntfy + dedup). It is an **end-to-end liveness check**: it watches the pipeline's *output* (rows in `camera_readings`), so it fires regardless of which link broke — node, WiFi, POST, or receiver. Logic:
+- **Lit window only.** Reuses the wrap-aware `GROW_ON_HOUR`/`GROW_OFF_HOUR` window; outside it the camera is meant to be silent, so the check stands down and re-arms.
+- **Dawn hold-off.** On entering the window (or after a listener restart) it starts a monotonic clock and waits one full `CAMERA_STALE_S` before judging, so daybreak — when the newest row is still the previous evening's — does not false-alarm.
+- **Staleness.** After the hold-off, if the newest `camera_readings` row is older than `CAMERA_STALE_S` (or there are none), it sends one "Camera may be down" push pointing at both suspects (node and receiver), then a "Camera back" recovery push when rows resume. Edge-triggered/debounced like the other checks.
+
+**Threshold.** `CAMERA_STALE_S` defaults to **7200 s (2 h)** — tolerates one missed hourly capture (the node's RSSI is weak, ~-79 to -83, so an occasional dropped POST is expected) before alerting. Env-overridable.
+
+**Validation.** Seven deterministic scenario tests pass (out-of-window stand-down, dawn hold-off, no-rows alert, stale-row alert, fresh-row quiet, recovery notification, dedup). Deployed to the Pi via diff-before-overwrite + `plant-listener` restart; the listener re-imported `alerter` cleanly (no traceback) and the check correctly stayed silent (deployed at night, outside the window). The positive fire path is unit-proven; a real daytime camera outage will be the field confirmation.
+
+**Files.** `hub/04-listener/alerter.py`.
 
 ---
 
