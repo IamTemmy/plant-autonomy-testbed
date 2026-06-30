@@ -49,6 +49,39 @@ Pair these with the soil-moisture and watering data: a `green_area`/`green_ratio
 - **Specular glare** from the grow light on glossy leaves blows small patches to white, which slightly *under*-counts green. It is consistent frame-to-frame, so it biases the absolute value a touch low but does not distort the trend.
 - **Self-locating, within reason.** The metric follows the largest green blob, so it tolerates the pot shifting within the frame; it cannot help if the plant moves entirely out of view.
 
+## Observed baseline (first run — fixed framing)
+
+The first multi-day run established a normal band for **this plant, under this light, at the current camera placement** (top-down, fixed height). The framing is final — the stand is deliberately not lowered, to leave headroom for vertical growth and keep the leaves clear of grow-light heat — so these ranges are the stable reference for this placement and would need re-establishing if the camera ever moves. Window: **2026-06-22 to 06-29, 84 captures over 7 days** (12/day). **2026-06-24 is excluded** as a precaution: the grow light was off that day (DL-085); its daily averages look unremarkable, but its intra-day `green_ratio` dipped (min 0.355), so it is not trusted as healthy-baseline data.
+
+Daily averages (UXGA, lit hours):
+
+| Day | greenness | green_area | green_ratio |
+|-----|----------|-----------|------------|
+| 2026-06-22 | 0.039 | 0.026 | 0.548 |
+| 2026-06-23 | 0.051 | 0.028 | 0.528 |
+| 2026-06-24 | 0.032 | 0.028 | 0.504 | _(excluded — light off)_
+| 2026-06-25 | 0.048 | 0.025 | 0.493 |
+| 2026-06-26 | 0.045 | 0.026 | 0.516 |
+| 2026-06-27 | 0.037 | 0.019 | 0.527 |
+| 2026-06-28 | 0.041 | 0.019 | 0.533 |
+| 2026-06-29 | 0.046 | 0.023 | 0.523 |
+
+Aggregate over the 84 included captures (median, with p10–p90 as the typical range and min–max as the extremes):
+
+| Metric | median | typical (p10–p90) | range (min–max) | stdev |
+|--------|--------|-------------------|-----------------|-------|
+| `green_area` | 0.023 | 0.006–0.034 | 0.003–0.059 | 0.010 |
+| `green_ratio` | 0.534 | 0.464–0.556 | 0.379–0.608 | 0.037 |
+| `greenness` | 0.045 | 0.012–0.066 | 0.007–0.130 | 0.021 |
+
+What the run shows:
+
+- **`green_ratio` is stable (~0.49–0.55 daily).** Density held steady all week — the plant stayed uniformly green. This is the tightest, most trustworthy metric here (stdev 0.037), and it refines the earlier rough "~0.60" orientation figure down to a measured **~0.53**.
+- **`green_area` recorded the prune.** A single prune (~June 25–26) shows as a mild step-down from ~0.027 to ~0.019 around June 27–28, easing toward 0.023 by the 29th — the expected signature of removing foliage, not a health decline (the "step change = physical event" behaviour described above).
+- **`greenness` is noisy (0.032–0.051 day to day) with no trend** — it reacts to per-capture lighting/shadow rather than the plant, confirming its role as a continuity value only.
+
+These are **descriptive ranges, not alert thresholds** — see Calibration status.
+
 ## Calibration status
 
-Absolute health thresholds ("below X = distressed") are **not set yet** — they require a baseline of this plant under this light, which the first multi-day run establishes. Until then, read **relative change against the plant's own recent history**, not against fixed cutoffs. Once a healthy baseline band exists, this document should be revised with concrete normal ranges and alert thresholds.
+A **healthy baseline band is now documented** (see *Observed baseline* above) from the first 7-day run. Absolute alert thresholds ("below X = distressed") are still **not set**, by design: the metric has only been seen healthy, never under stress, so any cutoff now would be a guess. Read **relative change against the plant's own recent history and the baseline band**, not against fixed cutoffs. Thresholds should be added once there is a known-unhealthy reference to anchor them — ideally captured when a real decline or controlled stress occurs.

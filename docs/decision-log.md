@@ -106,6 +106,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-084](#dl-084) | 2026-06-21 | Camera receiver stores ts in UTC (was naive local) — matches hub standard, fixes dashboard display | Active |
 | [DL-085](#dl-085) | 2026-06-24 | Shelly went unreachable unattended (WiFi-drop, no reconnect); 3-layer self-recovery: restore_last + daily reboot + on-device WiFi watchdog | Active |
 | [DL-086](#dl-086) | 2026-06-29 | Repo audit fixes: corrected a dangling CHANGELOG doc reference, made the alerter photoperiod check wrap-aware, and moved camera_readings into schema.sql | Active |
+| [DL-087](#dl-087) | 2026-06-29 | Documented the 7-day camera baseline ranges in METRICS.md (descriptive only, no alert thresholds yet) | Active |
 
 ---
 
@@ -2537,6 +2538,21 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** `alerter.py` compiles; wrap logic checked for both window orientations and confirmed identical to the old formula for 07–19; `schema.sql` parses in SQLite and `camera_readings` column types/constraints match the receiver; no dangling `docs/*.md` references remain.
 
 **Files.** `CHANGELOG.md`, `hub/04-listener/alerter.py`, `hub/04-listener/schema.sql`.
+
+---
+
+<a id="dl-087"></a>
+### DL-087 — Camera baseline ranges documented in METRICS.md
+
+**Date:** 2026-06-29 · **Status:** Active.
+
+**Context.** The first multi-day camera run produced a clean 7-day baseline (2026-06-22 to 06-29, 84 captures at 12/day; 2026-06-24 excluded as a grow-light-off day, DL-085). The framing is now final (top-down, fixed height — deliberately not lowered, to leave growth headroom and keep leaves clear of grow-light heat), so these ranges are the stable reference for this placement.
+
+**What was documented.** Added an *Observed baseline* section to `hub/09-camera/METRICS.md`: per-day averages for all three metrics, aggregate ranges (median, p10–p90 typical, min–max, stdev) over the 84 included captures, and the run's findings — `green_ratio` stable at a measured ~0.53 (refining the earlier rough ~0.60 figure), `green_area` recording the single prune (~June 25–26) as a mild dip to ~0.019 around June 27–28, and `greenness` confirmed as a noisy continuity-only value. Updated *Calibration status* to note the baseline band now exists.
+
+**Deliberately not done.** No alert thresholds. The metric has only been observed healthy, never under stress, so any "below X = distressed" cutoff would be a guess; thresholds wait for a known-unhealthy reference (the user's call to document ranges only for now).
+
+**Files.** `hub/09-camera/METRICS.md`.
 
 ---
 

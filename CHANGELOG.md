@@ -10,6 +10,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Added
 
+- Documented the camera's 7-day observed baseline ranges in `hub/09-camera/METRICS.md` (descriptive ranges for the current fixed framing; no alert thresholds yet) (DL-087).
+
 **Project scaffolding**
 - `README.md`, `LICENSE` (MIT), `.gitignore` (macOS / PlatformIO / Python / editor artifacts), and this `CHANGELOG.md`.
 - `docs/decision-log.md` — the authoritative engineering decision record (DL-001 onward).
