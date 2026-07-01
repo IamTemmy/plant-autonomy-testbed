@@ -109,6 +109,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-087](#dl-087) | 2026-06-29 | Documented the 7-day camera baseline ranges in METRICS.md (descriptive only, no alert thresholds yet) | Active |
 | [DL-088](#dl-088) | 2026-06-30 | Silent-camera alert: the alerter notifies if no camera image arrives during the lit window (catches a dead node or receiver) | Active |
 | [DL-089](#dl-089) | 2026-06-30 | FSM maintenance mode: an NVS-persisted, intentional watering pause toggled by a long-press of the MANUAL button (distinct from a fault) | Active |
+| [DL-090](#dl-090) | 2026-06-30 | Dashboard camera panel (latest image + green_ratio/green_area trend with the DL-087 baseline band); also taught the dashboard the maintenance state | Active |
 
 ---
 
@@ -2598,6 +2599,25 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Deferred.** A *remote* maintenance toggle (from the dashboard/Pi) would require adding the WROVER's first MQTT command-subscribe channel — a separate, larger slice. This slice is the local (button) mechanism.
 
 **Files.** `firmware/integrated/src/config.h`, `firmware/integrated/src/fsm.h`, `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-090"></a>
+### DL-090 — Dashboard camera panel (+ maintenance state display)
+
+**Date:** 2026-06-30 · **Status:** Active.
+
+**Context.** The camera data (`camera_readings`) existed in the DB and `METRICS.md` but was not visible in the Streamlit dashboard. Added a "Plant camera" section so the plant can be watched at a glance — useful right now during the gnat dry-down.
+
+**What was added.**
+- **Latest capture** — the newest image with its local timestamp, plus `green_ratio` and `green_area` as cards beside it. `green_ratio` is colour-coded against the baseline band (ok/warn). Guarded for "no captures yet" and "file missing on disk."
+- **Greenness trend** — a plotly chart with 24h / 7d tabs (matching the soil section): `green_ratio` on the left axis (primary foliage metric), `green_area` on a right axis (~25x smaller scale), with the **DL-087 baseline band** shaded as the normal reference and the baseline median as a dotted line. Full-frame `greenness` is omitted as noise.
+- **Baseline as named constants** (`GREEN_RATIO_BASELINE_LOW/HIGH/MEDIAN`) near the top of the dashboard, with a comment to update them if the baseline is re-established — so revising the band later is a one-line edit rather than a hunt through plot code.
+- **Maintenance state display.** DL-089 added the `maintenance` FSM state, but the dashboard's `STATE_DISPLAY` didn't know it, so the banner rendered a bare grey "maintenance". Added the entry so it shows as an amber "Maintenance — Watering paused intentionally; long-press MANUAL to resume."
+
+**Validation.** Rendered on-device (confirmed in-browser): the panel shows the latest image, the metric cards, and the trend with the baseline band; the banner correctly reads "Maintenance." Real-device testing then surfaced performance issues on Safari/mobile (image not loading, page not scrolling) driven by the 10 s full-page rerun against a now-heavier page — addressed in DL-091.
+
+**Files.** `hub/06-dashboard/dashboard.py`.
 
 ---
 
