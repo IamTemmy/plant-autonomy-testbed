@@ -19,7 +19,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 
 DB_PATH = Path(__file__).parent / "plant.db"
-REFRESH_SECONDS = 10
+REFRESH_SECONDS = 30
 LOCAL_TZ = ZoneInfo("America/Chicago")
 
 # Camera greenness baseline band (DL-087; 7-day run 2026-06-22 to 06-29, excl. 06-24).
@@ -687,6 +687,17 @@ def _render_camera_tab(hours: int, key: str):
     )
 
 
+@st.cache_data(show_spinner=False, max_entries=4)
+def load_camera_image(path: str, max_width: int = 800):
+    """Downscaled copy of a capture for the dashboard (cached per path)."""
+    from PIL import Image
+    img = Image.open(path)
+    img.load()
+    if img.width > max_width:
+        img = img.resize((max_width, round(img.height * max_width / img.width)))
+    return img
+
+
 _cam = latest_camera()
 if _cam is None:
     st.info("No camera captures recorded yet.")
@@ -695,7 +706,10 @@ else:
     img_col, meta_col = st.columns([2, 1])
     with img_col:
         if _cam_path and Path(_cam_path).exists():
-            st.image(_cam_path, use_container_width=True)
+            try:
+                st.image(load_camera_image(_cam_path), use_container_width=True)
+            except Exception:
+                st.image(_cam_path, use_container_width=True)
             st.caption(f"Latest capture: {format_local(_cam_ts)}")
         else:
             st.warning("Latest image file is not available on disk.")
