@@ -8,6 +8,8 @@
 #include "net_mqtt.h"
 #include "buzzer.h"
 
+#include <Preferences.h>
+
 enum State {
     ST_MONITORING,
     ST_WATERING,
@@ -17,9 +19,25 @@ enum State {
     ST_LEAK_FAULT,
     ST_STOPPED,
     ST_WATERING_FAULT,
+    ST_MAINTENANCE,
 };
 
 static State state = ST_MONITORING;
+
+// Maintenance mode persists across reboots so an intentional watering pause
+// (e.g. a dry-down for pest control) survives a power blip (DL-089).
+static Preferences prefs;
+static void maint_persist(bool on) {
+    prefs.begin("plant", false);
+    prefs.putBool("maint", on);
+    prefs.end();
+}
+static bool maint_load() {
+    prefs.begin("plant", true);
+    const bool m = prefs.getBool("maint", false);
+    prefs.end();
+    return m;
+}
 
 // Timing / accounting
 static unsigned long last_tick_ms          = 0;
@@ -49,6 +67,10 @@ struct Button {
     int           stable;
     unsigned long change_ms;
     bool          pressed_edge;
+    bool          released_edge;
+    bool          long_edge;
+    unsigned long press_ms;
+    bool          long_fired;
 };
 static Button btn_stop{0, HIGH, HIGH, 0, false};
 static Button btn_ack{0, HIGH, HIGH, 0, false};
@@ -64,6 +86,7 @@ static const char* state_name(State s) {
         case ST_LEAK_FAULT:      return "leak_fault";
         case ST_STOPPED:         return "stopped";
         case ST_WATERING_FAULT:  return "watering_fault";
+        case ST_MAINTENANCE:     return "maintenance";
     }
     return "unknown";
 }
@@ -74,11 +97,17 @@ static void button_init(Button& b, uint8_t pin) {
     b.stable = HIGH;
     b.change_ms = 0;
     b.pressed_edge = false;
+    b.released_edge = false;
+    b.long_edge = false;
+    b.press_ms = 0;
+    b.long_fired = false;
     pinMode(pin, INPUT_PULLUP);
 }
 
 static void button_update(Button& b, unsigned long now) {
     b.pressed_edge = false;
+    b.released_edge = false;
+    b.long_edge = false;
     const int raw = digitalRead(b.pin);
     if (raw != b.last_raw) {
         b.last_raw = raw;
@@ -86,7 +115,19 @@ static void button_update(Button& b, unsigned long now) {
     }
     if (now - b.change_ms >= BUTTON_DEBOUNCE_MS && raw != b.stable) {
         b.stable = raw;
-        if (b.stable == LOW) b.pressed_edge = true;  // press pulls to GND
+        if (b.stable == LOW) {           // press pulls to GND
+            b.pressed_edge = true;
+            b.press_ms = now;
+            b.long_fired = false;
+        } else {
+            b.released_edge = true;
+        }
+    }
+    // Long-press: held continuously past the threshold, fires once per hold.
+    if (b.stable == LOW && !b.long_fired &&
+        now - b.press_ms >= BTN_LONGPRESS_MS) {
+        b.long_edge = true;
+        b.long_fired = true;
     }
 }
 
@@ -127,6 +168,7 @@ static void drive_leds() {
         case ST_LEAK_FAULT:               r = true; break;
         case ST_STOPPED:                  r = true; blink = true; break;
         case ST_WATERING_FAULT:           r = true; y = true; break;
+        case ST_MAINTENANCE:              g = true; y = true; break;
     }
     if (blink && !blink_on) { g = false; y = false; r = false; }
     digitalWrite(LED_GREEN,  g ? HIGH : LOW);
@@ -149,10 +191,15 @@ void fsm_begin() {
     pump_begin();
     buzzer_begin();
 
-    state = ST_MONITORING;
     last_tick_ms = millis();
     daily_window_start_ms = millis();
-    Serial.println("[FSM] init -> monitoring");
+    if (maint_load()) {
+        state = ST_MAINTENANCE;
+        Serial.println("[FSM] init -> maintenance (restored from NVS)");
+    } else {
+        state = ST_MONITORING;
+        Serial.println("[FSM] init -> monitoring");
+    }
 }
 
 void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReading& leak) {
@@ -222,6 +269,21 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
     } else if (state == ST_WATERING_FAULT) {
         // Latched: soil never responded to watering. Clear on ACK once fixed.
         if (btn_ack.pressed_edge) state = ST_MONITORING;
+    } else if (state == ST_MAINTENANCE) {
+        // Intentional pause (DL-089): watering disabled; a long-press of MANUAL
+        // resumes. Not a fault -- safety (leak/stop) is still checked above.
+        pump_off();
+        if (btn_manual.long_edge) {
+            state = ST_MONITORING;
+            maint_persist(false);
+            Serial.println("[FSM] maintenance -> monitoring (resumed)");
+        }
+    } else if (btn_manual.long_edge) {
+        // Enter the intentional pause from any normal/recoverable state.
+        pump_off();
+        state = ST_MAINTENANCE;
+        maint_persist(true);
+        Serial.println("[FSM] -> maintenance (watering paused)");
     } else {
         // ---- Not in fault: recoverable gating, then normal operation ----
         if (flt.reservoir_empty) {
@@ -235,7 +297,7 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
                 state = ST_MONITORING;  // block cleared
             }
             if (state == ST_MONITORING) {
-                if (btn_manual.pressed_edge) {
+                if (btn_manual.released_edge && !btn_manual.long_fired) {
                     enter_watering(ST_MANUAL, now, soil.valid ? soil.raw : ADC_MAX);
                 } else if (soil.valid && soil.raw >= SOIL_THRESHOLD_TRIGGER) {
                     enter_watering(ST_WATERING, now, soil.raw);

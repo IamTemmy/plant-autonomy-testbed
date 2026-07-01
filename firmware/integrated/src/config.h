@@ -52,6 +52,7 @@ static constexpr uint32_t MQTT_PUBLISH_INTERVAL_MS   = 30000;  // telemetry publ
 // State machine (DL-046)
 static constexpr uint32_t LED_BLINK_MS        = 400;    // status LED blink period
 static constexpr uint32_t BUTTON_DEBOUNCE_MS  = 50;     // pushbutton debounce
+static constexpr uint32_t BTN_LONGPRESS_MS    = 2000;   // hold MANUAL this long to toggle maintenance mode (DL-089)
 static constexpr uint32_t LEAK_DEBOUNCE_MS    = 3000;   // leak must persist this long to latch
 static constexpr uint32_t WATER_PULSE_MS      = 5000;   // pump-on duration per watering pulse (~5 mL at 1.0 mL/s, DL-049)
 static constexpr uint32_t WATER_SETTLE_MS     = 10000;  // wait for water to wick to the off-center probe before re-reading (DL-049)

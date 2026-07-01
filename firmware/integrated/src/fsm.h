@@ -4,9 +4,11 @@
 // and publishing state to plant/state/wrover.
 //
 // States: monitoring, watering, manual, reservoir_empty, daily_limit,
-// leak_fault, stopped. Safety (leak, stop button) is evaluated first every
-// tick and overrides all states; faults latch until ACK. Reservoir-empty and
-// daily-limit are recoverable blocks. See DL-046 for the full design.
+// leak_fault, stopped, watering_fault, maintenance. Safety (leak, stop button)
+// is evaluated first every tick and overrides all states; faults latch until
+// ACK. Reservoir-empty and daily-limit are recoverable blocks. Maintenance is
+// an intentional, NVS-persisted watering pause toggled by a long-press of the
+// MANUAL button (DL-089). See DL-046 for the full design.
 
 #include "soil.h"
 #include "float_switch.h"
