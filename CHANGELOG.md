@@ -10,6 +10,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Added
 
+- Rolling camera-image retention (DL-092): the nightly retention job now prunes camera JPEG files older than 90 days (env-overridable) while keeping the small `camera_readings` metric rows, bounding SD-card growth without losing the growth signal.
+
 - Dashboard "Plant camera" panel (DL-090): latest capture with `green_ratio`/`green_area` cards and a 24h/7d greenness trend showing the DL-087 baseline band. Also taught the dashboard the `maintenance` FSM state so it renders as a labelled amber banner.
 
 - FSM maintenance mode (DL-089): an intentional, NVS-persisted watering pause toggled by a long-press of the MANUAL button. Distinct from a fault (steady green+yellow LEDs, `maintenance` state, no alert), it blocks watering while leaving leak/stop safety active, and survives reboots — for dry-downs, maintenance, or absences.

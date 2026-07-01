@@ -111,6 +111,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-089](#dl-089) | 2026-06-30 | FSM maintenance mode: an NVS-persisted, intentional watering pause toggled by a long-press of the MANUAL button (distinct from a fault) | Active |
 | [DL-090](#dl-090) | 2026-06-30 | Dashboard camera panel (latest image + green_ratio/green_area trend with the DL-087 baseline band); also taught the dashboard the maintenance state | Active |
 | [DL-091](#dl-091) | 2026-06-30 | Dashboard performance: slowed the refresh to 30s and downscaled+cached the camera image, fixing scroll/image failures on Safari and mobile | Active |
+| [DL-092](#dl-092) | 2026-06-30 | Rolling camera-image retention: the nightly job now prunes JPEG files older than 90 days while keeping the small camera_readings metric rows | Active |
 
 ---
 
@@ -2638,6 +2639,25 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Deferred (the real structural fix).** `st.tabs` would not help (Streamlit runs every tab's code each rerun). The proper improvement is a **multipage app** (a lean overview page plus separate Camera / Watering / Power pages that only load when visited), optionally with `st.fragment` so only the status banner refreshes on the fast cadence. Deferred as a possible dashboard restructure after Phase 5.
 
 **Files.** `hub/06-dashboard/dashboard.py`.
+
+---
+
+<a id="dl-092"></a>
+### DL-092 — Rolling camera-image retention
+
+**Date:** 2026-06-30 · **Status:** Active.
+
+**Context.** The hourly camera captures (~110 KB each, ~1.3 MB/day) accumulate on the Pi's SD card with no bound — roughly 0.5 GB/year. The DB side was already trimmed nightly by the retention job (DL earlier), but that job only pruned rows; the image files were never touched. This closes that gap.
+
+**Decision — prune files, keep rows.** The `camera_readings` metric rows (`green_ratio`, `green_area`, `greenness`) are tiny and are the long-term growth signal, so they are kept; only the large JPEG **files** are pruned on a rolling window. Old rows will point at deleted files, which is harmless: the dashboard guards a missing file and only ever displays the newest capture (never old enough to be pruned). This decouples cheap, valuable metric history from expensive image storage.
+
+**Implementation.** Added `prune_images(image_dir, days)` to the existing nightly `retention.py` (no new service). It scans `IMAGE_DIR` and deletes `*.jpg` files whose mtime is older than `IMAGE_RETENTION_DAYS`, logging the count and MB freed. mtime equals capture/write time in normal operation and is timezone-agnostic (an absolute epoch compare), avoiding the UTC-vs-local ambiguity of parsing filenames. A **filesystem scan** (rather than driving off the DB) was chosen so it also sweeps any orphan files and needs no DB writes — fully decoupled from the metric history. It runs after the DB connection is closed, and guards a disabled window (`days <= 0`) and a missing directory. Both `IMAGE_DIR` (default `/home/basilpi/plant-hub/images`) and `IMAGE_RETENTION_DAYS` are env-overridable.
+
+**Window.** 90 days (~120 MB) — chosen for more visual history; still modest on the SD card. Metrics are retained regardless.
+
+**Validation.** A unit test covered old/recent/non-JPEG/uppercase-`.JPG` files plus the disabled and missing-directory guards (only files older than the window deleted, correct count). On the Pi, a by-hand run reported `images: removed 0 files older than 90d` — correct, since the oldest capture is only ~9 days old — and the `done:` line now reports both rows and image files.
+
+**Files.** `hub/10-maintenance/retention.py`.
 
 ---
 
