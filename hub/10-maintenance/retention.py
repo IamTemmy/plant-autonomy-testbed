@@ -8,7 +8,9 @@ without bound. Query speed is unaffected -- DL-067 made the windowed queries
 ride the time indexes, so they only touch their window regardless of table
 size -- but the file and the Pi's SD card are not infinite. This job trims the
 high-frequency tables to a rolling window and leaves the sparse, valuable
-tables (runs, actuator_events, fault_events) untouched.
+tables (runs, actuator_events, fault_events) untouched. It also prunes old
+camera image files (large JPEGs) from the images directory, while keeping their
+small, valuable metric rows in camera_readings.
 
 Run nightly via plant-retention.timer. Safe to run by hand.
 
@@ -40,6 +42,12 @@ TABLES = {
     "sensor_readings": int(os.environ.get("RETENTION_SENSOR_DAYS", "30")),
 }
 
+# Camera images live on disk, not in the DB. The metric rows in camera_readings
+# are tiny and worth keeping long-term; the JPEG files are large, so prune the
+# files on their own rolling window and leave the rows in place.
+IMAGE_DIR = os.environ.get("IMAGE_DIR", "/home/basilpi/plant-hub/images")
+IMAGE_RETENTION_DAYS = int(os.environ.get("IMAGE_RETENTION_DAYS", "90"))
+
 
 def log(msg):
     print(f"{datetime.now(timezone.utc).strftime(ISO)} [retention] {msg}", flush=True)
@@ -66,6 +74,35 @@ def prune(conn, table, days):
     return removed
 
 
+def prune_images(image_dir, days):
+    """Delete camera JPEGs older than `days` (by mtime). Only the image files
+    are removed; the metric rows in camera_readings are kept. mtime equals the
+    capture/write time in normal operation, and is timezone-agnostic."""
+    if days <= 0:
+        log(f"images: retention disabled (days={days}), skipping")
+        return 0
+    if not os.path.isdir(image_dir):
+        log(f"images: dir not found ({image_dir}), skipping")
+        return 0
+    cutoff = time.time() - days * 86400
+    removed = 0
+    freed = 0
+    for entry in os.scandir(image_dir):
+        if not entry.is_file() or not entry.name.lower().endswith(".jpg"):
+            continue
+        try:
+            info = entry.stat()
+            if info.st_mtime < cutoff:
+                freed += info.st_size
+                os.remove(entry.path)
+                removed += 1
+        except OSError as e:
+            log(f"images: could not remove {entry.name}: {e}")
+    log(f"images: removed {removed} files older than {days}d "
+        f"({freed / 1048576:.1f} MB freed) from {image_dir}")
+    return removed
+
+
 def main():
     if not os.path.exists(DB_PATH):
         log(f"DB not found: {DB_PATH}")
@@ -85,7 +122,9 @@ def main():
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     finally:
         conn.close()
-    log(f"done: {total} rows removed in {time.time() - t0:.1f}s")
+    # Image files are on disk, not in the DB, so this runs after the DB is closed.
+    images = prune_images(IMAGE_DIR, IMAGE_RETENTION_DAYS)
+    log(f"done: {total} rows and {images} image files removed in {time.time() - t0:.1f}s")
     return 0
 
 
