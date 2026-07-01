@@ -10,6 +10,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Added
 
+- FSM maintenance mode (DL-089): an intentional, NVS-persisted watering pause toggled by a long-press of the MANUAL button. Distinct from a fault (steady green+yellow LEDs, `maintenance` state, no alert), it blocks watering while leaving leak/stop safety active, and survives reboots — for dry-downs, maintenance, or absences.
+
 - Silent-camera alert (DL-088): `alerter.py` now sends an ntfy push if no camera image arrives during the lit photoperiod window (2 h default), catching a dead camera node or a down image-receiver — with a dawn hold-off to avoid false alarms and a recovery notification when images resume.
 
 - Documented the camera's 7-day observed baseline ranges in `hub/09-camera/METRICS.md` (descriptive ranges for the current fixed framing; no alert thresholds yet) (DL-087).

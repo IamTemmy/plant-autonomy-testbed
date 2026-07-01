@@ -108,6 +108,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-086](#dl-086) | 2026-06-29 | Repo audit fixes: corrected a dangling CHANGELOG doc reference, made the alerter photoperiod check wrap-aware, and moved camera_readings into schema.sql | Active |
 | [DL-087](#dl-087) | 2026-06-29 | Documented the 7-day camera baseline ranges in METRICS.md (descriptive only, no alert thresholds yet) | Active |
 | [DL-088](#dl-088) | 2026-06-30 | Silent-camera alert: the alerter notifies if no camera image arrives during the lit window (catches a dead node or receiver) | Active |
+| [DL-089](#dl-089) | 2026-06-30 | FSM maintenance mode: an NVS-persisted, intentional watering pause toggled by a long-press of the MANUAL button (distinct from a fault) | Active |
 
 ---
 
@@ -2576,6 +2577,27 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** Seven deterministic scenario tests pass (out-of-window stand-down, dawn hold-off, no-rows alert, stale-row alert, fresh-row quiet, recovery notification, dedup). Deployed to the Pi via diff-before-overwrite + `plant-listener` restart; the listener re-imported `alerter` cleanly (no traceback) and the check correctly stayed silent (deployed at night, outside the window). The positive fire path is unit-proven; a real daytime camera outage will be the field confirmation.
 
 **Files.** `hub/04-listener/alerter.py`.
+
+---
+
+<a id="dl-089"></a>
+### DL-089 — FSM maintenance mode (intentional, persisted watering pause)
+
+**Date:** 2026-06-30 · **Status:** Active — compiled, flashed, and validated on-device.
+
+**Problem.** There was no clean way to *intentionally* stop watering. A dry-down for pest control (letting the surface dry to discourage fungus gnats) meant removing the delivery tube, which — correctly — tripped the DL-053 watering-effectiveness watchdog into `ST_WATERING_FAULT` and left the system sitting in an error state all day. That conflates "deliberately paused" with "broken": it looks like a fault, it can mask a *real* fault, and it clears straight back to watering. An intentional pause deserves to be a first-class state.
+
+**Design.** Added `ST_MAINTENANCE` to the FSM:
+- **Blocks watering, but is not a fault.** Safety (leak, stop button) is still evaluated first every tick and overrides maintenance, so nothing about pausing disables protection. The pump is held off while paused.
+- **Distinct, calm signalling.** Steady green+yellow LEDs (no red, no buzzer) and a `maintenance` state published on the retained state topic. Because `maintenance` is not in the alerter's `FAULT_ALERTS` and there is no low-moisture alert (the only soil alert watches for *rises*), the drying-out triggers no false notifications.
+- **Toggled by a long-press of the MANUAL button** (≥ `BTN_LONGPRESS_MS` = 2 s). Button handling gained release-edge and long-press-edge detection; a *short* press still does a manual watering pulse (moved to the release edge), a *long* press enters/leaves maintenance. STOP and ACK are untouched.
+- **Persisted in NVS** (`Preferences`, namespace `plant`, key `maint`) so an intentional pause survives a reboot/power blip — essential for a multi-day dry-down. Restored on boot in `fsm_begin()`.
+
+**Validation (on-device).** Compiled clean (Preferences linked; flash 63.5%). On the WROVER: a long-press entered maintenance directly from the watering state (`[PUMP] OFF`, `-> maintenance`); the system then held for many ticks with soil at 27–29 % (above the ~30 % trigger) and **did not water**, confirming the pause overrides the dry-soil trigger; a reboot came back `init -> maintenance (restored from NVS)`, confirming persistence. Known cosmetic: on the *first-ever* boot of this firmware a single `nvs_open failed: NOT_FOUND` [E] line prints before the `plant` namespace has been written; `getBool` returns the default and it self-resolves after the first pause is set (the reboot showed no such error). Not yet exercised (left paused for the dry-down): exiting via long-press and the release-edge manual-water tap — both symmetric to what was tested; to be verified on resume.
+
+**Deferred.** A *remote* maintenance toggle (from the dashboard/Pi) would require adding the WROVER's first MQTT command-subscribe channel — a separate, larger slice. This slice is the local (button) mechanism.
+
+**Files.** `firmware/integrated/src/config.h`, `firmware/integrated/src/fsm.h`, `firmware/integrated/src/fsm.cpp`.
 
 ---
 
