@@ -58,6 +58,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Changed
 
+- Dashboard performance (DL-091): slowed the auto-refresh from 10 s to 30 s and downscaled+cached the camera image, fixing image-load and scroll failures on Safari and mobile caused by the full-page rerun against a heavier page.
+
 - Recorded field validation of the Shelly self-recovery (DL-085) over a multi-day absence: the daily 02:00 reboot is confirmed firing nightly and the watchdog is reboot-persistent; the reactive WiFi-loss recovery is still pending a real outage to exercise it.
 
 - `hub/04-listener` — routes FSM state (`plant/state/wrover`) and device presence (`plant/status/<device>`) into the database (DL-052, DL-055); added a device-presence timeout watchdog that catches a device hung-but-still-connected, which the Last-Will misses (DL-059), and reboot detection from `uptime_s` resets, recorded as `system_status` markers (DL-060).

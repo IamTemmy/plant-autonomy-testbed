@@ -110,6 +110,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-088](#dl-088) | 2026-06-30 | Silent-camera alert: the alerter notifies if no camera image arrives during the lit window (catches a dead node or receiver) | Active |
 | [DL-089](#dl-089) | 2026-06-30 | FSM maintenance mode: an NVS-persisted, intentional watering pause toggled by a long-press of the MANUAL button (distinct from a fault) | Active |
 | [DL-090](#dl-090) | 2026-06-30 | Dashboard camera panel (latest image + green_ratio/green_area trend with the DL-087 baseline band); also taught the dashboard the maintenance state | Active |
+| [DL-091](#dl-091) | 2026-06-30 | Dashboard performance: slowed the refresh to 30s and downscaled+cached the camera image, fixing scroll/image failures on Safari and mobile | Active |
 
 ---
 
@@ -2616,6 +2617,25 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 - **Maintenance state display.** DL-089 added the `maintenance` FSM state, but the dashboard's `STATE_DISPLAY` didn't know it, so the banner rendered a bare grey "maintenance". Added the entry so it shows as an amber "Maintenance — Watering paused intentionally; long-press MANUAL to resume."
 
 **Validation.** Rendered on-device (confirmed in-browser): the panel shows the latest image, the metric cards, and the trend with the baseline band; the banner correctly reads "Maintenance." Real-device testing then surfaced performance issues on Safari/mobile (image not loading, page not scrolling) driven by the 10 s full-page rerun against a now-heavier page — addressed in DL-091.
+
+**Files.** `hub/06-dashboard/dashboard.py`.
+
+---
+
+<a id="dl-091"></a>
+### DL-091 — Dashboard performance pass (refresh cadence + image)
+
+**Date:** 2026-06-30 · **Status:** Active.
+
+**Problem.** Real-device testing of DL-090 showed the page failing on slower browsers: on Safari and mobile the plant image would not appear and the page would not scroll to the bottom; everything felt sluggish. Root cause: Streamlit re-runs the *entire* script on every refresh, and the refresh was every 10 s against a page that had just grown to six plotly charts plus a full-size (UXGA, ~110 KB) image. On slower browsers each rerun outlasted the gap between them, so it cancelled the in-flight image download and blocked scrolling. Fast machines (Windows/Chrome) had enough headroom to hide it.
+
+**Fix.**
+- **Refresh 10 s -> 30 s.** The vital numbers don't change second to second; a 3x slower cadence gives the page time to finish rendering (and load the image) between reruns, and makes the full-page "rerun" overlay far less intrusive.
+- **Downscale + cache the image.** A cached loader (`st.cache_data`, keyed on the capture path) resizes the image to 800 px wide once per new hourly capture instead of re-serving the full UXGA file every rerun; falls back to the raw path if resizing fails. Pillow was already in the venv (the receiver uses it).
+
+**Validation (on-device).** After deploy: the full page renders top-to-bottom on Mac Chrome + Safari and on mobile, the Safari image loads, and scrolling works. Mobile is still somewhat heavy — expected, since the page still runs all six charts every rerun.
+
+**Deferred (the real structural fix).** `st.tabs` would not help (Streamlit runs every tab's code each rerun). The proper improvement is a **multipage app** (a lean overview page plus separate Camera / Watering / Power pages that only load when visited), optionally with `st.fragment` so only the status banner refreshes on the fast cadence. Deferred as a possible dashboard restructure after Phase 5.
 
 **Files.** `hub/06-dashboard/dashboard.py`.
 
