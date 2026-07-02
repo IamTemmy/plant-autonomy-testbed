@@ -10,6 +10,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Added
 
+- Remote maintenance command (DL-093, slice 1): the WROVER now subscribes to `plant/cmd/maintenance` and toggles the intentional pause on `on`/`off` — its first inbound MQTT command, scoped to that one topic so it can never drive the pump.
+
 - Rolling camera-image retention (DL-092): the nightly retention job now prunes camera JPEG files older than 90 days (env-overridable) while keeping the small `camera_readings` metric rows, bounding SD-card growth without losing the growth signal.
 
 - Dashboard "Plant camera" panel (DL-090): latest capture with `green_ratio`/`green_area` cards and a 24h/7d greenness trend showing the DL-087 baseline band. Also taught the dashboard the `maintenance` FSM state so it renders as a labelled amber banner.

@@ -112,6 +112,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-090](#dl-090) | 2026-06-30 | Dashboard camera panel (latest image + green_ratio/green_area trend with the DL-087 baseline band); also taught the dashboard the maintenance state | Active |
 | [DL-091](#dl-091) | 2026-06-30 | Dashboard performance: slowed the refresh to 30s and downscaled+cached the camera image, fixing scroll/image failures on Safari and mobile | Active |
 | [DL-092](#dl-092) | 2026-06-30 | Rolling camera-image retention: the nightly job now prunes JPEG files older than 90 days while keeping the small camera_readings metric rows | Active |
+| [DL-093](#dl-093) | 2026-07-01 | Remote maintenance command (slice 1): the WROVER subscribes to plant/cmd/maintenance and toggles the pause on on/off, the device's first inbound MQTT command | Active |
 
 ---
 
@@ -2658,6 +2659,27 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** A unit test covered old/recent/non-JPEG/uppercase-`.JPG` files plus the disabled and missing-directory guards (only files older than the window deleted, correct count). On the Pi, a by-hand run reported `images: removed 0 files older than 90d` — correct, since the oldest capture is only ~9 days old — and the `done:` line now reports both rows and image files.
 
 **Files.** `hub/10-maintenance/retention.py`.
+
+---
+
+<a id="dl-093"></a>
+### DL-093 — Remote maintenance command (slice 1: WROVER subscribe + act)
+
+**Date:** 2026-07-01 · **Status:** Active.
+
+**Context.** Maintenance mode (DL-089) could only be toggled by a physical MANUAL long-press. With the device parked in maintenance for the gnat dry-down, that meant walking to the board to change anything. This adds a remote path — and it is the WROVER's **first inbound MQTT command**; until now the device only published.
+
+**Design — tightly scoped.** The WROVER subscribes to exactly one topic, `plant/cmd/maintenance`, payload `on` or `off` (non-retained, QoS 0). Subscribing to a single, specific topic — not a wildcard — is the safety scoping: the only action the command channel can cause is toggling the intentional pause, never running the pump. Watering stays gated behind physical presence and the FSM's own safety logic.
+
+**Flow.** The MQTT callback parses the payload and calls `fsm_request_maintenance(bool)`, which sets a pending flag. `fsm_tick()` consumes the flag **once per tick** (cleared unconditionally, so an inapplicable request is dropped) and applies it through the *same* safety-ordered branch as the button: leak/stop/faults still override, entering pauses the pump, exiting returns to monitoring. The main loop already runs `mqtt_tick()` before `fsm_tick()`, so a command lands the same iteration. The remote path is idempotent (`on` while paused is a no-op) and logs a `via remote` variant to distinguish it from the button. The subscription is re-established on every reconnect, since subscriptions do not survive a broker reconnect.
+
+**Validation (on-device).** Flashed; on boot the FSM restored maintenance from NVS and the monitor showed `MQTT: subscribed to cmd/maintenance`. Publishing `on` from the Pi (`mosquitto_pub`) produced `MQTT: remote maintenance ON` with the FSM staying in maintenance, pump off, no watering — the full broker -> device -> callback -> FSM path, confirmed safe and idempotent. The enter guard was also implicitly confirmed: soil sat at raw ~2380 (past the 2352 trigger) yet did not water, because maintenance suppresses it.
+
+**Not yet exercised.** The `off` / exit transition was deliberately not tested: exiting to monitoring with soil past the trigger would immediately water and end the dry-down. It is correct by construction (mirrors the validated button exit) and will get its first real run when the dry-down ends — which is also its first genuine use.
+
+**Next.** Slice 2 — a dashboard button that publishes the same command, so the toggle is available from the UI, not just the CLI.
+
+**Files.** `firmware/integrated/src/config.h`, `firmware/integrated/src/fsm.h`, `firmware/integrated/src/fsm.cpp`, `firmware/integrated/src/net_mqtt.cpp`.
 
 ---
 
