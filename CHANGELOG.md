@@ -10,6 +10,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Added
 
+- Dashboard maintenance toggle button (DL-094, slice 2): a state-aware control that publishes the same `plant/cmd/maintenance` command — the dashboard's first action control, scoped to maintenance only, with DB access still read-only.
+
 - Remote maintenance command (DL-093, slice 1): the WROVER now subscribes to `plant/cmd/maintenance` and toggles the intentional pause on `on`/`off` — its first inbound MQTT command, scoped to that one topic so it can never drive the pump.
 
 - Rolling camera-image retention (DL-092): the nightly retention job now prunes camera JPEG files older than 90 days (env-overridable) while keeping the small `camera_readings` metric rows, bounding SD-card growth without losing the growth signal.

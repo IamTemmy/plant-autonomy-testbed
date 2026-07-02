@@ -113,6 +113,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-091](#dl-091) | 2026-06-30 | Dashboard performance: slowed the refresh to 30s and downscaled+cached the camera image, fixing scroll/image failures on Safari and mobile | Active |
 | [DL-092](#dl-092) | 2026-06-30 | Rolling camera-image retention: the nightly job now prunes JPEG files older than 90 days while keeping the small camera_readings metric rows | Active |
 | [DL-093](#dl-093) | 2026-07-01 | Remote maintenance command (slice 1): the WROVER subscribes to plant/cmd/maintenance and toggles the pause on on/off, the device's first inbound MQTT command | Active |
+| [DL-094](#dl-094) | 2026-07-01 | Remote maintenance command (slice 2): a state-aware dashboard button publishes the same command, the dashboard's first action control | Active |
 
 ---
 
@@ -2680,6 +2681,25 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Next.** Slice 2 — a dashboard button that publishes the same command, so the toggle is available from the UI, not just the CLI.
 
 **Files.** `firmware/integrated/src/config.h`, `firmware/integrated/src/fsm.h`, `firmware/integrated/src/fsm.cpp`, `firmware/integrated/src/net_mqtt.cpp`.
+
+---
+
+<a id="dl-094"></a>
+### DL-094 — Remote maintenance command (slice 2: dashboard button)
+
+**Date:** 2026-07-01 · **Status:** Active.
+
+**Context.** DL-093 added the remote command channel; the CLI could toggle maintenance over Tailscale but the dashboard could not. This adds the button — the **dashboard's first action control**. Until now it was a pure read-only view.
+
+**Design.** A single state-aware button sits under the status banner. It reads the current FSM state and offers only the opposite action: "Pause watering (maintenance)" (publishes `on`) when running, "Resume watering" (publishes `off`) when paused. It is hidden during fault states (leak/stopped/watering_fault), where a maintenance toggle would not apply. On click it publishes to `plant/cmd/maintenance` via a paho one-shot (`mqtt.publish.single`) and shows a sent notice; it never assumes success — the WROVER is the source of truth, and the banner reflects the real state on the next 30 s refresh. The click is the only trigger (Streamlit's `st.button` returns True only on the click rerun), so auto-refresh reruns cannot re-fire it.
+
+**Scope / safety.** The button publishes only maintenance on/off — same tight scope as the firmware subscription (DL-093); no pump control. Database access stays read-only (`query_only=ON`); the control acts purely by publishing MQTT, never by writing the DB, so the read-only guarantee on the data is preserved.
+
+**Infra.** The dashboard service previously had no `EnvironmentFile`, so it lacked broker credentials. Added `EnvironmentFile=/etc/plant-hub/credentials` to `plant-dashboard.service` (matching the other hub services) so it can read `MQTT_USER`/`MQTT_PASS`. systemd reads the root-only file as root before dropping to the `basilpi` user, so no file-permission change was needed.
+
+**Validation.** Deployed; the button renders under the banner and correctly showed "Resume watering" — confirming it read the live maintenance state. The publish/click path was not exercised end-to-end here: with the device mid dry-down, clicking Resume would publish `off`, exit to monitoring, and immediately water (soil is past the trigger). It gets its first real run when the dry-down ends — alongside the DL-093 exit-path check already parked for that time. The command channel itself was re-confirmed via the CLI `on` publish.
+
+**Files.** `hub/06-dashboard/dashboard.py`, `hub/07-dashboard-service/plant-dashboard.service`.
 
 ---
 
