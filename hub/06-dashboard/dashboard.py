@@ -4,10 +4,14 @@ Plant Autonomy Testbed — Streamlit dashboard (polished).
 Read-only view of the SQLite database populated by the listener service.
 Light cream theme, green primary, semantic status colors.
 
+Database access is read-only; the single control (maintenance toggle) acts
+only by publishing an MQTT command, never by writing to the DB.
+
 Run with:
     streamlit run dashboard.py --server.address 0.0.0.0 --server.port 8501
 """
 
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +21,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
+import paho.mqtt.publish as mqtt_publish
 
 DB_PATH = Path(__file__).parent / "plant.db"
 REFRESH_SECONDS = 30
@@ -343,6 +348,30 @@ def reboots_recent(device: str = "wrover", hours: int = 24) -> int:
     return int(df.iloc[0]["n"]) if not df.empty else 0
 
 
+# Remote maintenance toggle (DL-094): publishes the same command as the CLI to
+# plant/cmd/maintenance. The WROVER is the source of truth, so the banner above
+# reflects the real FSM state on the next refresh, not an assumed one.
+MAINT_CMD_TOPIC = "plant/cmd/maintenance"
+_FAULT_STATES = {"leak_fault", "stopped", "watering_fault"}
+
+
+def send_maintenance_cmd(value: str) -> bool:
+    user = os.environ.get("MQTT_USER")
+    password = os.environ.get("MQTT_PASS")
+    if not user or not password:
+        st.error("MQTT credentials are not available to the dashboard service.")
+        return False
+    try:
+        mqtt_publish.single(
+            MAINT_CMD_TOPIC, value, hostname="localhost",
+            auth={"username": user, "password": password},
+        )
+        return True
+    except Exception as e:
+        st.error(f"Could not send command: {e}")
+        return False
+
+
 def render_state_banner():
     fsm = latest_fsm_state()
     if device_online_status("wrover") == "offline":
@@ -415,6 +444,15 @@ st.caption(f"Last refreshed: {now_local}  ·  auto-refresh every {REFRESH_SECOND
 # ----------------------------------------------------------------------
 
 render_state_banner()
+
+_fsm = latest_fsm_state()
+if _fsm and _fsm["state"] and _fsm["state"] not in _FAULT_STATES:
+    _in_maint = _fsm["state"] == "maintenance"
+    _label = "Resume watering" if _in_maint else "Pause watering (maintenance)"
+    _cmd = "off" if _in_maint else "on"
+    if st.button(_label, key="maint_toggle"):
+        if send_maintenance_cmd(_cmd):
+            st.success(f"Sent '{_cmd}'. The banner will update once the device confirms.")
 
 _reboot = latest_reboot("wrover")
 if _reboot is not None:

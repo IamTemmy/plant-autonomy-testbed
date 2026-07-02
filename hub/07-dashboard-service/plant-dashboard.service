@@ -8,6 +8,7 @@ Wants=network-online.target
 Type=simple
 User=basilpi
 Group=basilpi
+EnvironmentFile=/etc/plant-hub/credentials
 WorkingDirectory=/home/basilpi/plant-hub
 ExecStart=/home/basilpi/plant-hub/venv/bin/streamlit run /home/basilpi/plant-hub/dashboard.py --server.address 0.0.0.0 --server.port 8501 --server.headless true --browser.gatherUsageStats false
 Restart=on-failure
