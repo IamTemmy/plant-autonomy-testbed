@@ -85,6 +85,7 @@ static constexpr char     MQTT_TOPIC_SENSORS_SOIL[]   = "plant/sensors/soil";   
 static constexpr char     MQTT_TOPIC_SENSORS_FLOAT[]  = "plant/sensors/float";   // reservoir level
 static constexpr char     MQTT_TOPIC_SENSORS_LEAK[]   = "plant/sensors/leak";    // leak detection
 static constexpr char     MQTT_TOPIC_STATE[]          = "plant/state/wrover";    // FSM state (retained)
+static constexpr char     MQTT_TOPIC_CMD_MAINT[]     = "plant/cmd/maintenance"; // inbound: "on"|"off"
 
 // ---- Sensor validity bounds (plausibility guards) -------------------------
 // A reading outside these ranges signals a sensor fault, not a real value;

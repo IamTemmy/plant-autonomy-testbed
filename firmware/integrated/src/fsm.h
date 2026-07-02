@@ -21,6 +21,12 @@ void fsm_begin();
 // latest cached sensor readings. Non-blocking.
 void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReading& leak);
 
+// Request an intentional maintenance pause on/off from outside the FSM (e.g.
+// a remote MQTT command). Idempotent and safe: the request is consumed on the
+// next fsm_tick() through the same safety-ordered path as the MANUAL long-press
+// (faults still override; entering pauses the pump).
+void fsm_request_maintenance(bool on);
+
 // Accessors for the display layer.
 const char* fsm_state_name();
 unsigned long fsm_daily_pump_ms();

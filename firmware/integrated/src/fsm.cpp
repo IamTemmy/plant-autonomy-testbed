@@ -39,6 +39,15 @@ static bool maint_load() {
     return m;
 }
 
+// Pending remote maintenance request (set by fsm_request_maintenance from the
+// MQTT callback, consumed once per fsm_tick). volatile: set outside the tick.
+static volatile bool maint_req_pending = false;
+static volatile bool maint_req_on = false;
+void fsm_request_maintenance(bool on) {
+    maint_req_on = on;
+    maint_req_pending = true;
+}
+
 // Timing / accounting
 static unsigned long last_tick_ms          = 0;
 static unsigned long daily_window_start_ms = 0;
@@ -253,6 +262,13 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
 
     const State prev = state;
 
+    // Consume any pending remote maintenance command once per tick so the
+    // transition runs through the safety-ordered chain below, exactly like the
+    // button. Cleared unconditionally: a request that does not apply is dropped.
+    const bool rem_pending = maint_req_pending;
+    const bool rem_on = maint_req_on;
+    maint_req_pending = false;
+
     // ---- Safety first: evaluated every tick, overrides all states ----
     if (leak_confirmed) {
         pump_off();
@@ -273,17 +289,21 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
         // Intentional pause (DL-089): watering disabled; a long-press of MANUAL
         // resumes. Not a fault -- safety (leak/stop) is still checked above.
         pump_off();
-        if (btn_manual.long_edge) {
+        if (btn_manual.long_edge || (rem_pending && !rem_on)) {
             state = ST_MONITORING;
             maint_persist(false);
-            Serial.println("[FSM] maintenance -> monitoring (resumed)");
+            Serial.println(btn_manual.long_edge
+                ? "[FSM] maintenance -> monitoring (resumed)"
+                : "[FSM] maintenance -> monitoring (resumed via remote)");
         }
-    } else if (btn_manual.long_edge) {
+    } else if (btn_manual.long_edge || (rem_pending && rem_on)) {
         // Enter the intentional pause from any normal/recoverable state.
         pump_off();
         state = ST_MAINTENANCE;
         maint_persist(true);
-        Serial.println("[FSM] -> maintenance (watering paused)");
+        Serial.println(btn_manual.long_edge
+            ? "[FSM] -> maintenance (watering paused)"
+            : "[FSM] -> maintenance (watering paused via remote)");
     } else {
         // ---- Not in fault: recoverable gating, then normal operation ----
         if (flt.reservoir_empty) {

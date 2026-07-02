@@ -7,6 +7,7 @@
 #include "config.h"
 #include "secrets.h"
 #include "net_wifi.h"
+#include "fsm.h"
 
 static WiFiClient   wifi_client;
 static PubSubClient mqtt(wifi_client);
@@ -19,12 +20,31 @@ static unsigned long mqtt_next_attempt_ms = 0;
 // reflects the device as offline without us having to send anything.
 static const char MQTT_WILL_PAYLOAD[] = "{\"online\":false}";
 
+// Inbound message handler. We subscribe to exactly one command topic
+// (plant/cmd/maintenance), so the only action possible is toggling the
+// intentional maintenance pause -- never the pump. Payload is "on" or "off".
+static void mqtt_on_message(char* topic, byte* payload, unsigned int length) {
+    if (strcmp(topic, MQTT_TOPIC_CMD_MAINT) != 0) {
+        return;
+    }
+    if (length == 2 && strncmp((const char*)payload, "on", 2) == 0) {
+        fsm_request_maintenance(true);
+        Serial.println("MQTT: remote maintenance ON");
+    } else if (length == 3 && strncmp((const char*)payload, "off", 3) == 0) {
+        fsm_request_maintenance(false);
+        Serial.println("MQTT: remote maintenance OFF");
+    } else {
+        Serial.println("MQTT: cmd/maintenance ignored (expected on|off)");
+    }
+}
+
 bool mqtt_connected() {
     return mqtt.connected();
 }
 
 void mqtt_begin() {
     mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+    mqtt.setCallback(mqtt_on_message);
     // No connect here; WiFi may not be up yet. mqtt_tick() handles it.
 }
 
@@ -132,6 +152,8 @@ void mqtt_tick() {
     if (ok) {
         Serial.println("connected.");
         mqtt_publish_status(0);  // announce online immediately (retained)
+        mqtt.subscribe(MQTT_TOPIC_CMD_MAINT);  // inbound maintenance on|off
+        Serial.println("MQTT: subscribed to cmd/maintenance");
     } else {
         Serial.print("failed, rc=");
         Serial.println(mqtt.state());
