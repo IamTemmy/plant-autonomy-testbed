@@ -117,6 +117,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-095](#dl-095) | 2026-07-02 | Split the single-file dashboard into a multipage app — the real fix for mobile heaviness | Active |
 | [DL-096](#dl-096) | 2026-07-02 | Recompose the Overview: hoist active faults and listener-run into the top status cluster, and drop the camera green_ratio/green_area cards there (already shown on the Camera page) | Active |
 | [DL-097](#dl-097) | 2026-07-02 | Rename the Power page to Grow light and move recent activity onto it, slim the Overview, and set the nav order (Overview · Watering · Camera · Grow light · Controls) with a gear icon for Controls | Active |
+| [DL-098](#dl-098) | 2026-07-02 | Rewrite the dashboard README for the multipage app (tree, pages, live environment, scoped maintenance control, pillow/paho-mqtt deps) and refresh the desktop screenshots | Active |
 
 ---
 
@@ -2752,6 +2753,19 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** Patch applied on the Mac with the rename tracked (76% similarity); `dashboard.py`, `growlight.py`, and `overview.py` redeployed and the stale `power.py` removed from the Pi; service restarted clean — no journal errors, dashboard serves HTTP 200. The Power tab is gone, Grow light carries the draw trend plus the on/off table, and the Overview no longer lists recent activity.
 
 **Files.** `hub/06-dashboard/dashboard.py`, `hub/06-dashboard/dash_pages/growlight.py` (renamed from `power.py`), `hub/06-dashboard/dash_pages/overview.py`.
+
+---
+
+<a id="dl-098"></a>
+### DL-098 — Dashboard README rewrite + screenshot refresh
+
+**Date:** 2026-07-02 · **Status:** Active.
+
+**Context.** The `hub/06-dashboard/README.md` had drifted badly from reality after DL-090/094/095/097: it called the app read-only and single-file, listed only `dashboard.py` + `config.toml`, described the old one-page layout with environment *placeholders*, and its `pip install` line omitted `pillow` and `paho-mqtt` — both now imported, so following it would break the camera image and the maintenance publish. The committed screenshots still showed the pre-multipage UI.
+
+**Decision.** Rewrite the README to match the deployed system: the multipage tree (`dashboard.py` router, `dash_common.py`, and the five `dash_pages/` files), a per-page description, the live plant-environment cards, and the accurate framing — read-only over the data with one scoped control (the maintenance toggle publishes MQTT, never writes the DB). Correct the dependency list (`streamlit pandas plotly streamlit-autorefresh pillow paho-mqtt`) and note the control needs `MQTT_USER`/`MQTT_PASS` via the service `EnvironmentFile`. Replace the desktop screenshots with four current captures (Overview, Watering, Camera, Grow light) under descriptive names; drop the stale mobile shots. The decision log is left as historical record — only current-state docs are corrected.
+
+**Files.** `hub/06-dashboard/README.md`, `docs/images/dashboard-{overview,watering,camera,growlight}.png` (added), `docs/images/dashboard-desktop-3.png` + `docs/images/dashboard-mobile-{1,2}.png` (removed).
 
 ---
 
