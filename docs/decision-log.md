@@ -118,6 +118,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-096](#dl-096) | 2026-07-02 | Recompose the Overview: hoist active faults and listener-run into the top status cluster, and drop the camera green_ratio/green_area cards there (already shown on the Camera page) | Active |
 | [DL-097](#dl-097) | 2026-07-02 | Rename the Power page to Grow light and move recent activity onto it, slim the Overview, and set the nav order (Overview · Watering · Camera · Grow light · Controls) with a gear icon for Controls | Active |
 | [DL-098](#dl-098) | 2026-07-02 | Rewrite the dashboard README for the multipage app (tree, pages, live environment, scoped maintenance control, pillow/paho-mqtt deps) and refresh the desktop screenshots | Active |
+| [DL-099](#dl-099) | 2026-07-02 | Correct the top-level and dashboard-service READMEs to the current system: drop the read-only overstatement, repoint dashboard images, and note the maintenance MQTT credentials and that Tailscale remote access is already in place | Active |
 
 ---
 
@@ -2766,6 +2767,19 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Decision.** Rewrite the README to match the deployed system: the multipage tree (`dashboard.py` router, `dash_common.py`, and the five `dash_pages/` files), a per-page description, the live plant-environment cards, and the accurate framing — read-only over the data with one scoped control (the maintenance toggle publishes MQTT, never writes the DB). Correct the dependency list (`streamlit pandas plotly streamlit-autorefresh pillow paho-mqtt`) and note the control needs `MQTT_USER`/`MQTT_PASS` via the service `EnvironmentFile`. Replace the desktop screenshots with four current captures (Overview, Watering, Camera, Grow light) under descriptive names; drop the stale mobile shots. The decision log is left as historical record — only current-state docs are corrected.
 
 **Files.** `hub/06-dashboard/README.md`, `docs/images/dashboard-{overview,watering,camera,growlight}.png` (added), `docs/images/dashboard-desktop-3.png` + `docs/images/dashboard-mobile-{1,2}.png` (removed).
+
+---
+
+<a id="dl-099"></a>
+### DL-099 — Top + service README corrections
+
+**Date:** 2026-07-02 · **Status:** Active.
+
+**Context.** With the dashboard README rewritten (DL-098), two docs still described an older reality. The top-level README called the dashboard "read-only" (it has had the scoped maintenance control since DL-094) and pointed at the now-removed `dashboard-desktop-1/-2.png`. The dashboard-service README claimed the service needs no MQTT credentials and listed remote access as "LAN only, Tailscale comes next" — both false since DL-094 (`EnvironmentFile`) and DL-038 (Tailscale).
+
+**Decision.** Correct the top README's dashboard summary — read-only over the data, with one scoped MQTT-publishing control — and repoint its two images to `dashboard-overview.png` and `dashboard-watering.png`, removing the orphaned `dashboard-desktop-1/-2.png`. Fix the service README: the dashboard now loads MQTT credentials via its `EnvironmentFile` (DL-094) for the maintenance publish, and remote access over Tailscale (DL-038) is in place, leaving only HTTPS-on-the-app and dashboard auth as not-yet-handled. This closes the documentation truth-up; the three older audit findings (the CHANGELOG reference, the `alerter.py` photoperiod wrap, and `camera_readings` in `schema.sql`) were already resolved in DL-086.
+
+**Files.** `README.md`, `hub/07-dashboard-service/README.md`, `docs/images/dashboard-desktop-{1,2}.png` (removed).
 
 ---
 
