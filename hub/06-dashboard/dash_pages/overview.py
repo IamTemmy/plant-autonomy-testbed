@@ -58,7 +58,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 now_local = datetime.now(LOCAL_TZ).strftime("%Y-%m-%d %H:%M:%S %Z")
-st.caption(f"Last refreshed: {now_local}  ·  auto-refresh every {REFRESH_SECONDS}s")
+st.caption(f"Last refreshed: {now_local}")
 
 render_state_banner()
 
