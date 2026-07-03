@@ -2718,7 +2718,7 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 
 **Deploy.** Pi tree is now `dashboard.py` + `dash_common.py` + `dash_pages/{overview,camera,watering,power,controls}.py` under `/home/basilpi/plant-hub/`. No new dependencies (`streamlit_autorefresh`, Pillow already present). DB path unchanged (`dash_common.py` sits in `plant-hub/`, so `Path(__file__).parent / "plant.db"` resolves the same).
 
-**Validation.** <deployed; five pages load, journal clean, dashboard serves 200 — complete with the actual result>.
+**Validation.** Deployed to the Pi as `dashboard.py` + `dash_common.py` + `dash_pages/{overview,camera,watering,power,controls}.py`. The first restart failed with `ModuleNotFoundError: No module named 'dash_common'` because that file had not been copied to the Pi; after copying it, the service restarted clean — no journal errors, and the dashboard serves HTTP 200. All five pages load and the maintenance toggle renders on Controls. Confirmed on desktop and phone.
 
 **Files.** `hub/06-dashboard/dashboard.py`, `hub/06-dashboard/dash_common.py`, `hub/06-dashboard/dash_pages/overview.py`, `hub/06-dashboard/dash_pages/camera.py`, `hub/06-dashboard/dash_pages/watering.py`, `hub/06-dashboard/dash_pages/power.py`, `hub/06-dashboard/dash_pages/controls.py`.
 
