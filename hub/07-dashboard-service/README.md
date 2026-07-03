@@ -89,13 +89,6 @@ sudo systemctl show plant-dashboard.service --property=MainPID
 
 Different PID after the kill confirms systemd restarted the service.
 
-## Known noise in the logs
-
-Streamlit emits deprecation warnings for `use_container_width=True` in newer
-versions, recommending a new `width=...` parameter. These are warnings, not
-errors; the dashboard still functions. To be cleaned up in a future polish
-session.
-
 ## What this layer does not yet handle
 
 - **No HTTPS on the dashboard itself.** Plain HTTP; the Tailscale tailnet (DL-038)

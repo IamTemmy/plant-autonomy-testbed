@@ -120,6 +120,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-098](#dl-098) | 2026-07-02 | Rewrite the dashboard README for the multipage app (tree, pages, live environment, scoped maintenance control, pillow/paho-mqtt deps) and refresh the desktop screenshots | Active |
 | [DL-099](#dl-099) | 2026-07-02 | Correct the top-level and dashboard-service READMEs to the current system: drop the read-only overstatement, repoint dashboard images, and note the maintenance MQTT credentials and that Tailscale remote access is already in place | Active |
 | [DL-100](#dl-100) | 2026-07-03 | Per-page refresh cadence sized to each page's data rate (Overview/Controls 30s, Watering/Grow light 60s, Camera 5 min) replacing the global 30s; dropped the now-misleading global-refresh caption | Active |
+| [DL-101](#dl-101) | 2026-07-03 | Replace the deprecated `use_container_width=True` with `width="stretch"` across the dashboard pages, clearing the per-refresh deprecation warnings, and drop the now-obsolete log-noise note from the service README | Active |
 
 ---
 
@@ -2798,6 +2799,19 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** Deployed; service restarted clean (no journal errors, HTTP 200). The Camera page no longer flashes every 30 s while the Overview still ticks at 30 s.
 
 **Files.** `hub/06-dashboard/dashboard.py`, `hub/06-dashboard/dash_pages/{overview,watering,camera,growlight,controls}.py`.
+
+---
+
+<a id="dl-101"></a>
+### DL-101 — Clear the use_container_width deprecation warnings
+
+**Date:** 2026-07-03 · **Status:** Active — deployed.
+
+**Context.** Streamlit 1.58 on the Pi deprecated `use_container_width`; every refresh logged "Please replace `use_container_width` with `width` … removed after 2025-12-31" for each chart, dataframe, and image (confirmed firing in the service journal). Purely log noise — the widgets still rendered — but it cluttered the journal, and the service README already flagged it as noise to clean up.
+
+**Decision.** Replace all 11 `use_container_width=True` calls with `width="stretch"` — Streamlit's own recommended replacement — across `camera.py`, `growlight.py`, `overview.py`, and `watering.py`. `st.plotly_chart` was the risk: it has a separate `**kwargs`->`config` deprecation and a known upstream regression where passing `width=` can itself warn. On redeploy the journal was checked and is free of both the `use_container_width` warning and any `plotly_chart` kwargs warning. The now-obsolete "Known noise in the logs" section was removed from the dashboard-service README.
+
+**Files.** `hub/06-dashboard/dash_pages/{camera,growlight,overview,watering}.py`, `hub/07-dashboard-service/README.md`.
 
 ---
 
