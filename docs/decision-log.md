@@ -114,6 +114,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-092](#dl-092) | 2026-06-30 | Rolling camera-image retention: the nightly job now prunes JPEG files older than 90 days while keeping the small camera_readings metric rows | Active |
 | [DL-093](#dl-093) | 2026-07-01 | Remote maintenance command (slice 1): the WROVER subscribes to plant/cmd/maintenance and toggles the pause on on/off, the device's first inbound MQTT command | Active |
 | [DL-094](#dl-094) | 2026-07-01 | Remote maintenance command (slice 2): a state-aware dashboard button publishes the same command, the dashboard's first action control | Active |
+| [DL-095](#dl-095) | 2026-07-02 | Split the single-file dashboard into a multipage app — the real fix for mobile heaviness | Active |
 
 ---
 
@@ -2700,6 +2701,25 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** Deployed; the button renders under the banner and correctly showed "Resume watering" — confirming it read the live maintenance state. The publish/click path was not exercised end-to-end here: with the device mid dry-down, clicking Resume would publish `off`, exit to monitoring, and immediately water (soil is past the trigger). It gets its first real run when the dry-down ends — alongside the DL-093 exit-path check already parked for that time. The command channel itself was re-confirmed via the CLI `on` publish.
 
 **Files.** `hub/06-dashboard/dashboard.py`, `hub/07-dashboard-service/plant-dashboard.service`.
+
+---
+
+<a id="dl-095"></a>
+### DL-095 — Dashboard multipage restructure
+
+**Date:** 2026-07-02 · **Status:** Active.
+
+**Context.** The dashboard was a single ~885-line script. Streamlit re-executes the whole script every rerun (30 s auto-refresh), so all six Plotly charts plus the camera image rendered every cycle — usable everywhere after DL-091 but still heavy on mobile. `st.tabs` does not help (every tab's code runs each rerun). Multipage — where only the visited page's code runs — is the real fix.
+
+**Design.** Split by current-value vs history, not by topic. A lean **Overview** carries the vital glance — status banner, faults, current-state cards, latest capture with its green_ratio/green_area values, and the plant-environment cards — all single-row reads, no charts. The trend charts move to their own pages: **Camera** (green trend), **Watering** (soil + episodes), **Power** (power draw + listener-run status), **Controls** (the DL-094 maintenance toggle). Nav uses `st.navigation`/`st.Page` (Streamlit 1.58 on the Pi venv). Shared constants and helpers live in `dash_common.py`, imported by every page; page-specific query/plot helpers stay in their own page file. The move is behavior-preserving — every render block and helper is byte-identical to the pre-split file (AST/verbatim extraction), so no query, chart, or control logic changed.
+
+**Consequences.** `initial_sidebar_state` flips `collapsed`→`expanded` because the sidebar now hosts the page nav (mobile still auto-collapses to a hamburger). The entry keeps the name `dashboard.py`, so `plant-dashboard.service` (ExecStart, `EnvironmentFile`) is untouched. The 30 s auto-refresh stays global (one `st_autorefresh` in the entry); per-page cadence and `st.fragment` are deferred to DL-096. The latest-capture block appears on both Overview (glance) and Camera (full view) — the one intentional duplication; same helpers, same output.
+
+**Deploy.** Pi tree is now `dashboard.py` + `dash_common.py` + `dash_pages/{overview,camera,watering,power,controls}.py` under `/home/basilpi/plant-hub/`. No new dependencies (`streamlit_autorefresh`, Pillow already present). DB path unchanged (`dash_common.py` sits in `plant-hub/`, so `Path(__file__).parent / "plant.db"` resolves the same).
+
+**Validation.** <deployed; five pages load, journal clean, dashboard serves 200 — complete with the actual result>.
+
+**Files.** `hub/06-dashboard/dashboard.py`, `hub/06-dashboard/dash_common.py`, `hub/06-dashboard/dash_pages/overview.py`, `hub/06-dashboard/dash_pages/camera.py`, `hub/06-dashboard/dash_pages/watering.py`, `hub/06-dashboard/dash_pages/power.py`, `hub/06-dashboard/dash_pages/controls.py`.
 
 ---
 
