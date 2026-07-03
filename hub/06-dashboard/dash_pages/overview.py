@@ -25,7 +25,6 @@ from dash_common import (
     render_card,
     latest_camera,
     load_camera_image,
-    recent_actuator_events,
     current_run,
 )
 
@@ -143,19 +142,6 @@ else:
     else:
         st.warning("Latest image file is not available on disk.")
         st.caption(f"Recorded {format_local(_cam_ts)}")
-
-st.markdown("## Recent activity")
-
-events = recent_actuator_events(10)
-if events.empty:
-    st.info("No actuator events recorded yet.")
-else:
-    events["ts"] = events["ts"].apply(format_local)
-    events_display = events.rename(columns={
-        "ts": "Time", "actuator": "Device",
-        "action": "Action", "source": "Source",
-    })
-    st.dataframe(events_display, hide_index=True, use_container_width=True)
 
 st.markdown("## Plant environment")
 st.caption("Live readings from the ESP32 WROVER; cards fill in as each sensor comes online.")

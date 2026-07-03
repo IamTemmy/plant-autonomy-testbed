@@ -116,10 +116,10 @@ h2 {
 
 
 pages = [
-    st.Page("dash_pages/overview.py", title="Overview", icon="🌿", default=True),
-    st.Page("dash_pages/camera.py",   title="Camera",   icon="📷"),
-    st.Page("dash_pages/watering.py", title="Watering", icon="💧"),
-    st.Page("dash_pages/power.py",    title="Power",     icon="⚡"),
-    st.Page("dash_pages/controls.py", title="Controls",  icon="🎛️"),
+    st.Page("dash_pages/overview.py",  title="Overview",   icon="🌿", default=True),
+    st.Page("dash_pages/watering.py",  title="Watering",   icon="💧"),
+    st.Page("dash_pages/camera.py",    title="Camera",     icon="📷"),
+    st.Page("dash_pages/growlight.py", title="Grow light", icon="💡"),
+    st.Page("dash_pages/controls.py",  title="Controls",   icon="⚙️"),
 ]
 st.navigation(pages).run()

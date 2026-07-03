@@ -1,13 +1,13 @@
 """
-Power page (DL-095) - grow-light power draw (1h/24h) and the listener-run status.
-Page-local query/plot helpers; shared helpers from dash_common. Verbatim render.
+Grow light page (DL-097) - power draw (1h/24h) and recent on/off activity.
+Page-local query/plot helpers; shared helpers from dash_common.
 """
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from dash_common import LOCAL_TZ, COLORS, query_df
+from dash_common import LOCAL_TZ, COLORS, query_df, recent_actuator_events, format_local
 
 
 def power_history(hours: int) -> pd.DataFrame:
@@ -63,3 +63,17 @@ with tab_24h:
         df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_convert(LOCAL_TZ)
         st.plotly_chart(plot_power(df, 24), use_container_width=True, key="power_24h")
 
+
+
+st.markdown("## Recent activity")
+
+events = recent_actuator_events(10)
+if events.empty:
+    st.info("No actuator events recorded yet.")
+else:
+    events["ts"] = events["ts"].apply(format_local)
+    events_display = events.rename(columns={
+        "ts": "Time", "actuator": "Device",
+        "action": "Action", "source": "Source",
+    })
+    st.dataframe(events_display, hide_index=True, use_container_width=True)
