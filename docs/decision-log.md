@@ -115,6 +115,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-093](#dl-093) | 2026-07-01 | Remote maintenance command (slice 1): the WROVER subscribes to plant/cmd/maintenance and toggles the pause on on/off, the device's first inbound MQTT command | Active |
 | [DL-094](#dl-094) | 2026-07-01 | Remote maintenance command (slice 2): a state-aware dashboard button publishes the same command, the dashboard's first action control | Active |
 | [DL-095](#dl-095) | 2026-07-02 | Split the single-file dashboard into a multipage app — the real fix for mobile heaviness | Active |
+| [DL-096](#dl-096) | 2026-07-02 | Recompose the Overview: hoist active faults and listener-run into the top status cluster, and drop the camera green_ratio/green_area cards there (already shown on the Camera page) | Active |
 
 ---
 
@@ -2720,6 +2721,21 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** <deployed; five pages load, journal clean, dashboard serves 200 — complete with the actual result>.
 
 **Files.** `hub/06-dashboard/dashboard.py`, `hub/06-dashboard/dash_common.py`, `hub/06-dashboard/dash_pages/overview.py`, `hub/06-dashboard/dash_pages/camera.py`, `hub/06-dashboard/dash_pages/watering.py`, `hub/06-dashboard/dash_pages/power.py`, `hub/06-dashboard/dash_pages/controls.py`.
+
+---
+
+<a id="dl-096"></a>
+### DL-096 — Overview recomposition
+
+**Date:** 2026-07-02 · **Status:** Active — deployed.
+
+**Context.** Reviewing the live DL-095 Overview on desktop and phone surfaced three composition issues: active faults sat mid-page rather than with the other system-status signals; the listener-run panel had been parked on the Power page though it describes the whole hub, not power; and the latest-capture block repeated the `green_ratio`/`green_area` cards that already appear on the Camera page.
+
+**Decision.** Recompose the Overview top-to-bottom as: status banner, ESP32 reboot review, active faults, listener-run, current state, latest capture (image only), recent activity, plant environment. Faults and listener-run now form one system-status cluster directly under the reboot review. The listener-run panel moves off the Power page (its now-unused `current_run`/`format_local` imports are dropped there). The Overview's latest capture keeps the image but drops the two green-metric cards, which remain on the Camera page's trend. No query or helper logic changed — only which page renders each block, plus removal of the redundant cards.
+
+**Validation.** Patch applied on the Mac; `overview.py` and `power.py` redeployed to the Pi; service restarted clean (no journal errors, HTTP 200). Overview renders in the new order with the image-only capture; Power no longer shows listener-run. Confirmed on desktop and phone.
+
+**Files.** `hub/06-dashboard/dash_pages/overview.py`, `hub/06-dashboard/dash_pages/power.py`.
 
 ---
 
