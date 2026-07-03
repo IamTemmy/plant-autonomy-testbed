@@ -57,10 +57,10 @@ Four functional layers:
 
 ## Dashboard
 
-A read-only Streamlit dashboard on the Pi (LAN- and Tailscale-accessible) shows live state, sensor cards, and history. The soil-moisture trend overlays watering episodes, making the sense → act → verify loop visible at a glance.
+A Streamlit dashboard on the Pi (LAN- and Tailscale-accessible) shows live state, sensor cards, and history across separate Overview, Watering, Camera, and Grow light pages. It stays read-only over the data — its one control, a maintenance pause/resume toggle, acts only by publishing an MQTT command. The soil-moisture trend overlays watering episodes, making the sense → act → verify loop visible at a glance.
 
-![Dashboard — desktop](docs/images/dashboard-desktop-1.png)
-![Dashboard — soil & watering history](docs/images/dashboard-desktop-2.png)
+![Dashboard — overview](docs/images/dashboard-overview.png)
+![Dashboard — soil & watering history](docs/images/dashboard-watering.png)
 
 ## Hardware
 

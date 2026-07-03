@@ -3,8 +3,8 @@
 Promotes the Phase 3 Streamlit dashboard (`hub/06-dashboard/dashboard.py`) from
 manual-launch to a permanent system service that auto-starts at boot and
 auto-restarts on crash. Mirrors the listener-service pattern from
-[DL-036](../../docs/decision-log.md) but without credentials (the dashboard
-only reads SQLite, no MQTT auth needed).
+[DL-036](../../docs/decision-log.md) and, since DL-094, also loads MQTT credentials via an `EnvironmentFile` so its
+maintenance control can publish (database access itself stays read-only).
 
 See [DL-037](../../docs/decision-log.md) for the dashboard design.
 
@@ -28,7 +28,7 @@ See [DL-037](../../docs/decision-log.md) for the dashboard design.
 
 | Aspect | Listener service (DL-036) | Dashboard service (DL-037 follow-on) |
 |---|---|---|
-| Needs MQTT credentials | Yes — via EnvironmentFile | No — reads SQLite directly |
+| Needs MQTT credentials | Yes — via EnvironmentFile | Yes — via EnvironmentFile (DL-094), for the maintenance publish |
 | Soft / hard dependencies | `Requires=mosquitto.service` | `After=plant-listener.service` only (soft) |
 | Headless flags | N/A | `--server.headless true` (no auto-browser) |
 
@@ -98,7 +98,6 @@ session.
 
 ## What this layer does not yet handle
 
-- **No remote access.** LAN only. Tailscale comes next.
-- **No HTTPS.** Plain HTTP, fine for LAN. Tailscale will handle the encryption
-  layer when remote access lands.
-- **No password / auth on the dashboard itself.** Acceptable while LAN-only.
+- **No HTTPS on the dashboard itself.** Plain HTTP; the Tailscale tailnet (DL-038)
+  provides the encrypted transport for remote access, which is now in place.
+- **No password / auth on the dashboard itself.** Acceptable on the private tailnet.
