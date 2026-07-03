@@ -87,7 +87,7 @@ def _render_soil_tab(hours: int, key: str):
     if not edf.empty:
         edf["start"] = edf["start"].dt.tz_convert(LOCAL_TZ)
         edf["end"] = edf["end"].dt.tz_convert(LOCAL_TZ)
-    st.plotly_chart(plot_soil(sdf, edf), use_container_width=True, key=key)
+    st.plotly_chart(plot_soil(sdf, edf), width="stretch", key=key)
     if edf.empty:
         st.caption("No watering episodes in this window.")
     else:
@@ -97,7 +97,7 @@ def _render_soil_tab(hours: int, key: str):
             "Water (approx)": edf["ml"].round().astype(int).astype(str) + " mL",
             "Trigger": edf["trigger"],
         })
-        st.dataframe(tbl, hide_index=True, use_container_width=True)
+        st.dataframe(tbl, hide_index=True, width="stretch")
 
 
 st.markdown("## Soil moisture & watering")

@@ -71,7 +71,7 @@ def _render_camera_tab(hours: int, key: str):
         st.info("No camera readings in this window.")
         return
     cdf["ts"] = pd.to_datetime(cdf["ts"], utc=True).dt.tz_convert(LOCAL_TZ)
-    st.plotly_chart(plot_camera(cdf), use_container_width=True, key=key)
+    st.plotly_chart(plot_camera(cdf), width="stretch", key=key)
     st.caption(
         "Shaded band is the documented normal range for green_ratio (DL-087); "
         "dotted line is the baseline median. green_ratio (foliage density) is the "
@@ -91,9 +91,9 @@ else:
     with img_col:
         if _cam_path and Path(_cam_path).exists():
             try:
-                st.image(load_camera_image(_cam_path), use_container_width=True)
+                st.image(load_camera_image(_cam_path), width="stretch")
             except Exception:
-                st.image(_cam_path, use_container_width=True)
+                st.image(_cam_path, width="stretch")
             st.caption(f"Latest capture: {format_local(_cam_ts)}")
         else:
             st.warning("Latest image file is not available on disk.")

@@ -57,7 +57,7 @@ with tab_1h:
         st.info("No power readings in the last hour.")
     else:
         df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_convert(LOCAL_TZ)
-        st.plotly_chart(plot_power(df, 1), use_container_width=True, key="power_1h")
+        st.plotly_chart(plot_power(df, 1), width="stretch", key="power_1h")
 
 with tab_24h:
     df = power_history(24)
@@ -65,7 +65,7 @@ with tab_24h:
         st.info("No power readings in the last 24 hours.")
     else:
         df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_convert(LOCAL_TZ)
-        st.plotly_chart(plot_power(df, 24), use_container_width=True, key="power_24h")
+        st.plotly_chart(plot_power(df, 24), width="stretch", key="power_24h")
 
 
 
@@ -80,4 +80,4 @@ else:
         "ts": "Time", "actuator": "Device",
         "action": "Action", "source": "Source",
     })
-    st.dataframe(events_display, hide_index=True, use_container_width=True)
+    st.dataframe(events_display, hide_index=True, width="stretch")

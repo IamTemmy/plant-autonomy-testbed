@@ -78,7 +78,7 @@ if faults_df.empty:
     st.markdown('<div class="fault-banner-ok">✓ No unacknowledged faults</div>',
                 unsafe_allow_html=True)
 else:
-    st.dataframe(faults_df, hide_index=True, use_container_width=True)
+    st.dataframe(faults_df, hide_index=True, width="stretch")
 
 st.markdown("## Listener run")
 
@@ -139,9 +139,9 @@ else:
     _cam_ts, _cam_path = _cam[0], _cam[1]
     if _cam_path and Path(_cam_path).exists():
         try:
-            st.image(load_camera_image(_cam_path), use_container_width=True)
+            st.image(load_camera_image(_cam_path), width="stretch")
         except Exception:
-            st.image(_cam_path, use_container_width=True)
+            st.image(_cam_path, width="stretch")
         st.caption(f"Latest capture: {format_local(_cam_ts)}")
     else:
         st.warning("Latest image file is not available on disk.")
