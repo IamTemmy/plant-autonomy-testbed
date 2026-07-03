@@ -116,6 +116,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-094](#dl-094) | 2026-07-01 | Remote maintenance command (slice 2): a state-aware dashboard button publishes the same command, the dashboard's first action control | Active |
 | [DL-095](#dl-095) | 2026-07-02 | Split the single-file dashboard into a multipage app — the real fix for mobile heaviness | Active |
 | [DL-096](#dl-096) | 2026-07-02 | Recompose the Overview: hoist active faults and listener-run into the top status cluster, and drop the camera green_ratio/green_area cards there (already shown on the Camera page) | Active |
+| [DL-097](#dl-097) | 2026-07-02 | Rename the Power page to Grow light and move recent activity onto it, slim the Overview, and set the nav order (Overview · Watering · Camera · Grow light · Controls) with a gear icon for Controls | Active |
 
 ---
 
@@ -2736,6 +2737,21 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Validation.** Patch applied on the Mac; `overview.py` and `power.py` redeployed to the Pi; service restarted clean (no journal errors, HTTP 200). Overview renders in the new order with the image-only capture; Power no longer shows listener-run. Confirmed on desktop and phone.
 
 **Files.** `hub/06-dashboard/dash_pages/overview.py`, `hub/06-dashboard/dash_pages/power.py`.
+
+---
+
+<a id="dl-097"></a>
+### DL-097 — Grow light page (Power renamed) + Overview slim
+
+**Date:** 2026-07-02 · **Status:** Active — deployed.
+
+**Context.** After DL-096, "Power" was a thin page (a lone power-draw trend), and the recent-activity table — grow-light on/off events — sat on the Overview. Both describe the grow light, so they belong together; and recent activity is not vital-glance material for the Overview. A System page was considered for the operational panels but dropped: listener-run, the ESP32 reboot review, and device-online are things worth monitoring on time, so they stay on the Overview.
+
+**Decision.** Rename the Power page to **Grow light** (`power.py` -> `growlight.py`; nav title "Grow light", bulb icon) and move the recent-activity table onto it, since those on/off events are grow-light events. Remove recent activity from the Overview, which stays the vital glance: status banner, active faults, ESP32 reboot review, listener-run, current-state cards, latest capture, and environment cards. Set the sidebar order to Overview · Watering · Camera · Grow light · Controls, and switch the Controls icon to a gear. No query or helper logic changed — only page composition, the file rename, and nav metadata.
+
+**Validation.** Patch applied on the Mac with the rename tracked (76% similarity); `dashboard.py`, `growlight.py`, and `overview.py` redeployed and the stale `power.py` removed from the Pi; service restarted clean — no journal errors, dashboard serves HTTP 200. The Power tab is gone, Grow light carries the draw trend plus the on/off table, and the Overview no longer lists recent activity.
+
+**Files.** `hub/06-dashboard/dashboard.py`, `hub/06-dashboard/dash_pages/growlight.py` (renamed from `power.py`), `hub/06-dashboard/dash_pages/overview.py`.
 
 ---
 
