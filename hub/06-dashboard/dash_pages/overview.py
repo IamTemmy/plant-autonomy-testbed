@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 from dash_common import (
     REFRESH_SECONDS,
@@ -27,6 +28,9 @@ from dash_common import (
     load_camera_image,
     current_run,
 )
+
+
+st_autorefresh(interval=REFRESH_SECONDS * 1000, key="autorefresh_overview")
 
 
 faults_df = unacked_faults()

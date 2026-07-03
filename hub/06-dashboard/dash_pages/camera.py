@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 from dash_common import (
     LOCAL_TZ,
@@ -22,6 +23,9 @@ from dash_common import (
     render_card,
     format_local,
 )
+
+
+st_autorefresh(interval=300_000, key="autorefresh_camera")
 
 
 def camera_history(hours: int) -> pd.DataFrame:

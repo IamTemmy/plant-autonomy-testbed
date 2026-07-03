@@ -10,9 +10,6 @@ Run with:
 """
 
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
-
-from dash_common import REFRESH_SECONDS
 
 st.set_page_config(
     page_title="Plant Autonomy Testbed",
@@ -20,7 +17,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-st_autorefresh(interval=REFRESH_SECONDS * 1000, key="autorefresh")
 
 st.markdown("""
 <style>

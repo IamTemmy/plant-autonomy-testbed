@@ -6,8 +6,12 @@ Watering page (DL-095) - soil moisture over time with watering episodes shaded
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 from dash_common import LOCAL_TZ, COLORS, query_df
+
+
+st_autorefresh(interval=60_000, key="autorefresh_watering")
 
 
 def soil_history(hours: int) -> pd.DataFrame:

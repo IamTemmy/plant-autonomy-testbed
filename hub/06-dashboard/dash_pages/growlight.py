@@ -6,8 +6,12 @@ Page-local query/plot helpers; shared helpers from dash_common.
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 from dash_common import LOCAL_TZ, COLORS, query_df, recent_actuator_events, format_local
+
+
+st_autorefresh(interval=60_000, key="autorefresh_growlight")
 
 
 def power_history(hours: int) -> pd.DataFrame:

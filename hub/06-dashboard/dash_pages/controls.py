@@ -4,6 +4,7 @@ DL-094 status header. Banner shows current state; home for future remote actions
 """
 
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 
 from dash_common import (
     render_state_banner,
@@ -11,6 +12,9 @@ from dash_common import (
     _FAULT_STATES,
     send_maintenance_cmd,
 )
+
+
+st_autorefresh(interval=30_000, key="autorefresh_controls")
 
 
 st.markdown("## Controls")
