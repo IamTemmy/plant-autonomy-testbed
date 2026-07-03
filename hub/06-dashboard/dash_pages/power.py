@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from dash_common import LOCAL_TZ, COLORS, query_df, current_run, format_local
+from dash_common import LOCAL_TZ, COLORS, query_df
 
 
 def power_history(hours: int) -> pd.DataFrame:
@@ -63,15 +63,3 @@ with tab_24h:
         df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_convert(LOCAL_TZ)
         st.plotly_chart(plot_power(df, 24), use_container_width=True, key="power_24h")
 
-
-st.markdown("## Listener run")
-
-run = current_run()
-if run is None:
-    st.warning("No active listener run.")
-else:
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(f"**Run ID:** `{run['run_id']}`")
-    with c2:
-        st.markdown(f"**Started:** {format_local(run['started_ts'])}")

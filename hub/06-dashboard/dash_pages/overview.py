@@ -12,9 +12,6 @@ import streamlit as st
 from dash_common import (
     REFRESH_SECONDS,
     LOCAL_TZ,
-    GREEN_RATIO_BASELINE_LOW,
-    GREEN_RATIO_BASELINE_HIGH,
-    GREEN_RATIO_BASELINE_MEDIAN,
     unacked_faults,
     device_online_status,
     render_status_pill,
@@ -29,6 +26,7 @@ from dash_common import (
     latest_camera,
     load_camera_image,
     recent_actuator_events,
+    current_run,
 )
 
 
@@ -70,6 +68,27 @@ if _reboot is not None:
         st.warning(f"{_msg} &middot; {_n24} reboots in the last 24h — check power stability")
     else:
         st.caption(_msg)
+
+st.markdown("## Active faults")
+
+if faults_df.empty:
+    st.markdown('<div class="fault-banner-ok">✓ No unacknowledged faults</div>',
+                unsafe_allow_html=True)
+else:
+    st.dataframe(faults_df, hide_index=True, use_container_width=True)
+
+st.markdown("## Listener run")
+
+run = current_run()
+if run is None:
+    st.warning("No active listener run.")
+else:
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(f"**Run ID:** `{run['run_id']}`")
+    with c2:
+        st.markdown(f"**Started:** {format_local(run['started_ts'])}")
+
 
 st.markdown("## Current state")
 
@@ -114,28 +133,16 @@ _cam = latest_camera()
 if _cam is None:
     st.info("No camera captures recorded yet.")
 else:
-    _cam_ts, _cam_path, _cam_greenness, _cam_area, _cam_ratio = _cam
-    img_col, meta_col = st.columns([2, 1])
-    with img_col:
-        if _cam_path and Path(_cam_path).exists():
-            try:
-                st.image(load_camera_image(_cam_path), use_container_width=True)
-            except Exception:
-                st.image(_cam_path, use_container_width=True)
-            st.caption(f"Latest capture: {format_local(_cam_ts)}")
-        else:
-            st.warning("Latest image file is not available on disk.")
-            st.caption(f"Recorded {format_local(_cam_ts)}")
-    with meta_col:
-        _ratio_ok = (_cam_ratio is not None and
-                     GREEN_RATIO_BASELINE_LOW <= _cam_ratio <= GREEN_RATIO_BASELINE_HIGH)
-        render_card("green_ratio",
-                    f"{_cam_ratio:.3f}" if _cam_ratio is not None else "n/a",
-                    f"foliage density (baseline ~{GREEN_RATIO_BASELINE_MEDIAN:.2f})",
-                    "ok" if _ratio_ok else "warn")
-        render_card("green_area",
-                    f"{_cam_area:.3f}" if _cam_area is not None else "n/a",
-                    "fraction of frame that is plant", "neutral")
+    _cam_ts, _cam_path = _cam[0], _cam[1]
+    if _cam_path and Path(_cam_path).exists():
+        try:
+            st.image(load_camera_image(_cam_path), use_container_width=True)
+        except Exception:
+            st.image(_cam_path, use_container_width=True)
+        st.caption(f"Latest capture: {format_local(_cam_ts)}")
+    else:
+        st.warning("Latest image file is not available on disk.")
+        st.caption(f"Recorded {format_local(_cam_ts)}")
 
 st.markdown("## Recent activity")
 
@@ -149,14 +156,6 @@ else:
         "action": "Action", "source": "Source",
     })
     st.dataframe(events_display, hide_index=True, use_container_width=True)
-
-st.markdown("## Active faults")
-
-if faults_df.empty:
-    st.markdown('<div class="fault-banner-ok">✓ No unacknowledged faults</div>',
-                unsafe_allow_html=True)
-else:
-    st.dataframe(faults_df, hide_index=True, use_container_width=True)
 
 st.markdown("## Plant environment")
 st.caption("Live readings from the ESP32 WROVER; cards fill in as each sensor comes online.")
