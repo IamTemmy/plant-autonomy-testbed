@@ -119,6 +119,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-097](#dl-097) | 2026-07-02 | Rename the Power page to Grow light and move recent activity onto it, slim the Overview, and set the nav order (Overview · Watering · Camera · Grow light · Controls) with a gear icon for Controls | Active |
 | [DL-098](#dl-098) | 2026-07-02 | Rewrite the dashboard README for the multipage app (tree, pages, live environment, scoped maintenance control, pillow/paho-mqtt deps) and refresh the desktop screenshots | Active |
 | [DL-099](#dl-099) | 2026-07-02 | Correct the top-level and dashboard-service READMEs to the current system: drop the read-only overstatement, repoint dashboard images, and note the maintenance MQTT credentials and that Tailscale remote access is already in place | Active |
+| [DL-100](#dl-100) | 2026-07-03 | Per-page refresh cadence sized to each page's data rate (Overview/Controls 30s, Watering/Grow light 60s, Camera 5 min) replacing the global 30s; dropped the now-misleading global-refresh caption | Active |
 
 ---
 
@@ -2780,6 +2781,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Decision.** Correct the top README's dashboard summary — read-only over the data, with one scoped MQTT-publishing control — and repoint its two images to `dashboard-overview.png` and `dashboard-watering.png`, removing the orphaned `dashboard-desktop-1/-2.png`. Fix the service README: the dashboard now loads MQTT credentials via its `EnvironmentFile` (DL-094) for the maintenance publish, and remote access over Tailscale (DL-038) is in place, leaving only HTTPS-on-the-app and dashboard auth as not-yet-handled. This closes the documentation truth-up; the three older audit findings (the CHANGELOG reference, the `alerter.py` photoperiod wrap, and `camera_readings` in `schema.sql`) were already resolved in DL-086.
 
 **Files.** `README.md`, `hub/07-dashboard-service/README.md`, `docs/images/dashboard-desktop-{1,2}.png` (removed).
+
+---
+
+<a id="dl-100"></a>
+### DL-100 — Per-page refresh cadence
+
+**Date:** 2026-07-03 · **Status:** Active — deployed.
+
+**Context.** The dashboard refreshed on one global clock: a single `st_autorefresh` in the entry reran the whole current page every 30 s. That is far faster than most pages' data actually changes — the camera captures hourly (`CAPTURE_INTERVAL_MS = 3600000`) and Shelly power is sampled once a minute — so the Camera page, for example, redrew its Plotly trend ~120 times between new data points. The multipage split (DL-095) already removed cross-page work; this sizes each page's own refresh to its data rate.
+
+**Decision.** Remove the global `st_autorefresh` from `dashboard.py` and give each page its own, keyed and tuned: Overview and Controls 30 s (status and the maintenance banner should feel live), Watering and Grow light 60 s (soil moves slowly; power is sampled minutely), and Camera 5 min (captures are hourly, so 5 min still surfaces a new frame quickly with ~10x fewer redraws). `st.fragment` was considered for the Overview banner but rejected — post-DL-095 the Overview carries no charts, so its 30 s rerun is already cheap and a fragment would add complexity for a negligible gain.
+
+**Follow-up (same DL).** The Overview's "Last refreshed … · auto-refresh every 30s" caption became misleading once cadence varied per page, so the trailing clause was dropped; the caption now shows only the last-refresh time, which is correct on every page.
+
+**Validation.** Deployed; service restarted clean (no journal errors, HTTP 200). The Camera page no longer flashes every 30 s while the Overview still ticks at 30 s.
+
+**Files.** `hub/06-dashboard/dashboard.py`, `hub/06-dashboard/dash_pages/{overview,watering,camera,growlight,controls}.py`.
 
 ---
 
