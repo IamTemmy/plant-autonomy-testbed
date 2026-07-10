@@ -21,7 +21,8 @@ The system is **operational and watering autonomously**. Development has run in 
 | **Phase 1** | Each hardware component validated in isolation (bench sketches) | ✅ Complete |
 | **Phase 2** | Integrated ESP32-WROVER firmware — sensing, the watering state machine, dosing, fault detection | ✅ Complete |
 | **Phase 3** | Raspberry Pi telemetry hub — MQTT broker, database, live dashboard | ✅ Complete |
-| **Next** | Camera vision node, adaptive lighting, security hardening | 🔜 Roadmap |
+| **Phase 4** | Camera vision node — XIAO ESP32-S3 Sense capture, Pi-side greenness metrics, dashboard panel | ✅ Complete |
+| **Next** | Adaptive lighting, security hardening | 🔜 Roadmap |
 
 ## Engineering framing
 
@@ -32,7 +33,7 @@ The system is built on the **sense → plan → act** autonomy loop common to ro
 - **Closed-loop verification** — every action is checked against its expected effect. If the pump runs but the soil never gets wetter, the system concludes something is wrong (empty reservoir, failed pump, dead float), stops, and raises a fault rather than pumping into the void.
 - **Graceful degradation** — sensor or actuator failure does not produce unsafe behavior. Invalid sensor data halts watering; loss of WiFi/MQTT is non-fatal and the controller keeps running locally.
 - **Defined fallback states** — leaks, emergency stop, and ineffective watering each latch into a known safe state (pump off) and wait for an explicit acknowledgement.
-- **Explicit, inspectable behavior** — a state machine governs watering, and a 57-entry decision log makes every design choice auditable after the fact.
+- **Explicit, inspectable behavior** — a state machine governs watering, and a 101-entry decision log makes every design choice auditable after the fact.
 
 ## System architecture
 
@@ -42,7 +43,7 @@ Four functional layers:
 |---|---|
 | **Perception** | Capacitive soil-moisture sensor · BME280 (air temp/humidity/pressure) · BH1750 (light) · float switch (reservoir level) · conductive leak sensor |
 | **Planning** | ESP32-WROVER firmware — a `millis()`-based, non-blocking state machine with threshold logic, closed-loop watering verification, fault detection, and safety-first evaluation |
-| **Action** | 12 V peristaltic pump via a logic-level MOSFET · grow light on a Shelly Plug US Gen4 (device-side schedule over local RPC/MQTT) · OLED, traffic-light status LEDs, and buzzer for local feedback |
+| **Action** | 12 V peristaltic pump via a logic-level MOSFET · grow light on a Shelly Plug US Gen4, photoperiod enforced Pi-side over local RPC with the plug's onboard schedule as fallback (DL-074) · OLED, traffic-light status LEDs, and buzzer for local feedback |
 | **Telemetry** | WiFi → MQTT → Raspberry Pi 4 hub running Mosquitto, SQLite, and a Streamlit dashboard; remote access over Tailscale |
 
 ## What it does now
@@ -50,7 +51,7 @@ Four functional layers:
 - **Autonomous watering** — waters when soil crosses the dry threshold, in calibrated pulse/settle doses, stopping when re-wetted; a daily volume cap bounds total water.
 - **Closed-loop watering watchdog** — detects watering that isn't moving soil moisture and latches a `watering_fault` instead of running dry (catches an empty reservoir, dead pump, clog, or disconnected float).
 - **Safety states** — leak detection, emergency stop, reservoir-empty, and daily-limit handling, surfaced on status LEDs, an OLED, and a buzzer.
-- **Scheduled grow light** — a fixed daily photoperiod (07:00–19:00) run on the smart plug itself, so it holds even if the hub or network is down.
+- **Scheduled grow light** — a fixed daily photoperiod (07:00–19:00) enforced from the always-on Pi every ~2 min over local RPC, self-healing a plug reboot within one tick; the smart plug's onboard schedule is kept as a fallback so the light still cycles if the Pi is down (DL-074).
 - **Live remote dashboard** — current state, sensor readings, a soil-moisture trend with watering episodes overlaid, and power telemetry.
 - **Device-presence awareness** — if the controller drops offline, the dashboard detects it — via the MQTT Last-Will, and via a hub-side timeout watchdog that also catches a device hung but still TCP-connected — greys stale readings, and flags exactly when contact was lost. Controller reboots are detected from uptime resets and surfaced, with a warning if they start flapping.
 - **Push alerting** — genuine problems (leak, watering fault, empty reservoir, prolonged offline, flapping reboots) send a phone push notification over ntfy, each with a "Resolved" recovery ping, plus a low-priority daily heartbeat — reaching the operator anywhere, independent of the lab network.
@@ -78,7 +79,7 @@ A single 12 V supply feeds the actuators directly and an LM2596 buck converter f
 | Pump | 12 V peristaltic pump | ~1.0 mL/s, calibrated (DL-048) |
 | Pump driver | IRLB8721 logic-level N-channel MOSFET | + 1N4007 flyback diode (DL-009, DL-018) |
 | Logic power | LM2596 buck converter | 12 V → 5 V ahead of the extension board (DL-016, DL-017) |
-| Grow-light control | Shelly Plug US Gen4 | local RPC/MQTT, device-side scheduler (DL-054) |
+| Grow-light control | Shelly Plug US Gen4 | local RPC/MQTT; Pi-side photoperiod enforcement (DL-074), device schedule as fallback (DL-054) |
 | Local feedback | SSD1306 OLED (128×64), 3× traffic-light status LEDs, active buzzer | (DL-024, DL-044, DL-047) |
 | Operator input | 3× push buttons — STOP / MANUAL / ACK | (DL-025) |
 
@@ -86,12 +87,13 @@ A single 12 V supply feeds the actuators directly and an LM2596 buck converter f
 
 ```
 firmware/
-  test-sketches/   Phase 1 — one standalone PlatformIO sketch per component (01–13), each with a README
+  test-sketches/   Phase 1 — one standalone PlatformIO sketch per component (01–14), each with a README
   integrated/      Phase 2 — the integrated WROVER firmware (state machine, sensors, MQTT)
+  camera-node/     Phase 4 — vision node (XIAO ESP32-S3 Sense): capture + HTTP POST to the Pi receiver
 hub/
-  01-pi-setup … 08-grow-light   Phase 3 — Pi hub: broker, listener, dashboard, services, grow-light scheduler
+  01-pi-setup … 11-shelly-monitor   Phases 3–4 — Pi hub: broker, listener, dashboard, camera receiver, grow-light, retention, monitors
 docs/
-  decision-log.md  the authoritative engineering record (57 entries)
+  decision-log.md  the authoritative engineering record (101 entries)
   explainers/      narrative walkthroughs
   images/          validation and build evidence
 ```
@@ -106,7 +108,7 @@ Every meaningful choice — part substitutions, pin assignments, calibration, th
 
 ## Roadmap
 
-- **Vision node** — a Seeed XIAO ESP32-S3 Sense (replacing the original ESP32-CAM, DL-034) for time-lapse capture and basic color/health analysis on the Pi.
+- **Vision analysis** — the Seeed XIAO ESP32-S3 Sense node (replacing the original ESP32-CAM, DL-034) and Pi-side greenness metrics are live (DL-076–090); what remains is turning the greenness trend into growth/health analysis beyond foliage-area-in-frame.
 - **Adaptive lighting** — supplement the photoperiod from the BH1750 against a daily-light-integral target, rather than a fixed schedule.
 - **Security hardening** — dashboard authentication and MQTT over TLS.
 

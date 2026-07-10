@@ -121,6 +121,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-099](#dl-099) | 2026-07-02 | Correct the top-level and dashboard-service READMEs to the current system: drop the read-only overstatement, repoint dashboard images, and note the maintenance MQTT credentials and that Tailscale remote access is already in place | Active |
 | [DL-100](#dl-100) | 2026-07-03 | Per-page refresh cadence sized to each page's data rate (Overview/Controls 30s, Watering/Grow light 60s, Camera 5 min) replacing the global 30s; dropped the now-misleading global-refresh caption | Active |
 | [DL-101](#dl-101) | 2026-07-03 | Replace the deprecated `use_container_width=True` with `width="stretch"` across the dashboard pages, clearing the per-refresh deprecation warnings, and drop the now-obsolete log-noise note from the service README | Active |
+| [DL-102](#dl-102) | 2026-07-09 | Documentation currency audit — bring README and secondary docs back in step with the DL-101 system; applied in per-document sections | Active |
 
 ---
 
@@ -2812,6 +2813,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 **Decision.** Replace all 11 `use_container_width=True` calls with `width="stretch"` — Streamlit's own recommended replacement — across `camera.py`, `growlight.py`, `overview.py`, and `watering.py`. `st.plotly_chart` was the risk: it has a separate `**kwargs`->`config` deprecation and a known upstream regression where passing `width=` can itself warn. On redeploy the journal was checked and is free of both the `use_container_width` warning and any `plotly_chart` kwargs warning. The now-obsolete "Known noise in the logs" section was removed from the dashboard-service README.
 
 **Files.** `hub/06-dashboard/dash_pages/{camera,growlight,overview,watering}.py`, `hub/07-dashboard-service/README.md`.
+
+---
+
+<a id="dl-102"></a>
+### DL-102 — Documentation currency audit
+
+**Date:** 2026-07-09 · **Status:** Active — in progress.
+
+**Context.** A doc-only sweep after the DL-095–101 dashboard restructure found the deep component docs current (the dashboard README, DL-098; the grow-light README's Pi-enforcer writeup, DL-074) but several front-of-repo and index documents lagging the system: the root README still cited a 57-entry log, framed the deployed vision node (DL-076–090) as roadmap, and described the grow light as plug-scheduled rather than Pi-enforced (DL-074); the CHANGELOG stopped at DL-094; the explainers index omitted `tuning-from-data.md` and used pre-existence framing; and two component READMEs (`hub/08-grow-light`, `hub/09-camera`) lagged their own files. The decision-log index/anchor parity and all image references were clean. None of this affects the running system — it is documentation drift only — so it is corrected as a single audit, applied one document per commit for reviewability.
+
+**Fixes.** Applied in per-document sections; each lands as its own commit and appends a Validation line here as it deploys.
+1. **Root `README.md`.** Corrected the decision-log count (57 → 101, both mentions); moved the camera vision node from "Next/Roadmap" to a completed Phase 4 (matching the deployed `firmware/camera-node/` and `hub/09-camera` service) and reframed the roadmap bullet to the growth/health analysis that actually remains; corrected the grow-light description in the Action layer, the "what it does now" bullet, and the Hardware table to Pi-side enforcement with the plug schedule as fallback (DL-074); and refreshed the repository-layout tree (sketches 01–14, `firmware/camera-node/` added, hub range to `11-shelly-monitor`, 101 entries). The IRLB8721 MOSFET (DL-009) and Shelly Plug US Gen4 (DL-031) references were verified correct and left unchanged.
+
+**Validation.**
+- Section 1 (root README): _pending commit._
+
+**Files.** `README.md` (this section); further documents appended as their sections land.
 
 ---
 
