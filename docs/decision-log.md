@@ -2819,7 +2819,7 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 <a id="dl-102"></a>
 ### DL-102 — Documentation currency audit
 
-**Date:** 2026-07-09 · **Status:** Active — in progress.
+**Date:** 2026-07-09 · **Status:** Active — complete (all five sections landed).
 
 **Context.** A doc-only sweep after the DL-095–101 dashboard restructure found the deep component docs current (the dashboard README, DL-098; the grow-light README's Pi-enforcer writeup, DL-074) but several front-of-repo and index documents lagging the system: the root README still cited a 57-entry log, framed the deployed vision node (DL-076–090) as roadmap, and described the grow light as plug-scheduled rather than Pi-enforced (DL-074); the CHANGELOG stopped at DL-094; the explainers index omitted `tuning-from-data.md` and used pre-existence framing; and two component READMEs (`hub/08-grow-light`, `hub/09-camera`) lagged their own files. The decision-log index/anchor parity and all image references were clean. None of this affects the running system — it is documentation drift only — so it is corrected as a single audit, applied one document per commit for reviewability.
 
@@ -2835,7 +2835,9 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 - Section 2 (CHANGELOG): landed `b180200`; origin re-clone confirms all of DL-095–101 present in the changelog.
 - Section 3 (explainers index): landed `3275f29`; origin re-clone confirms `tuning-from-data.md` listed and no "once it exists" framing remains.
 - Section 4 (grow-light README): landed `2536fec`; origin re-clone confirms the "Three layers" intro and the on-device WiFi self-recovery section.
-- Section 5 (camera README): _pending commit._
+- Section 5 (camera README): landed `32b57f5`; origin re-clone confirms the `POST /image` response lists `green_area`/`green_ratio` and the `{skipped}` out-of-window case.
+
+All five sections are on origin and re-clone-verified; the deep component docs (dashboard README DL-098, grow-light enforcer writeup DL-074) were already current, and the decision-log index/anchor parity and image references were clean throughout, so the audit is complete.
 
 **Files.** `README.md` (§1), `CHANGELOG.md` (§2), `docs/explainers/README.md` (§3), `hub/08-grow-light/README.md` (§4), `hub/09-camera/README.md` (§5).
 
