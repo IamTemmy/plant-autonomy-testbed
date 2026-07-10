@@ -2827,13 +2827,15 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 1. **Root `README.md`.** Corrected the decision-log count (57 → 101, both mentions); moved the camera vision node from "Next/Roadmap" to a completed Phase 4 (matching the deployed `firmware/camera-node/` and `hub/09-camera` service) and reframed the roadmap bullet to the growth/health analysis that actually remains; corrected the grow-light description in the Action layer, the "what it does now" bullet, and the Hardware table to Pi-side enforcement with the plug schedule as fallback (DL-074); and refreshed the repository-layout tree (sketches 01–14, `firmware/camera-node/` added, hub range to `11-shelly-monitor`, 101 entries). The IRLB8721 MOSFET (DL-009) and Shelly Plug US Gen4 (DL-031) references were verified correct and left unchanged.
 2. **`CHANGELOG.md`.** The changelog stopped at DL-094, omitting the entire DL-095–101 dashboard arc. Added those seven entries in the existing Keep-a-Changelog grouping, newest-first: DL-095–100 (multipage restructure, Overview recomposition, Grow light page + nav order, dashboard/top/service README rewrites, per-page refresh cadence) under **Changed**, and DL-101 (clearing the `use_container_width` deprecation warnings) under **Fixed**.
 3. **`docs/explainers/README.md`.** The index omitted the existing `tuning-from-data.md` and framed the firmware and dashboard explainers as awaiting parts that did not yet exist ("once it exists" / "once the Streamlit app exists"), though both have shipped. Added the `tuning-from-data.md` entry and reworded the "what's not here yet" section to reflect that the code exists and only the narrative write-up is pending.
+4. **`hub/08-grow-light/README.md`.** The README described only two layers (Shelly onboard schedule, Pi enforcement) but the directory also ships the DL-085 on-device WiFi self-recovery — `wifi-watchdog.js` and its `install_wifi_watchdog.py` installer — which went undocumented. Added a third section covering the on-device watchdog (60 s check, ~5 min sustained-loss reboot, boot-persistent, restore-last), the daily 02:00 reboot backstop, and the RPC install path with its ASCII/chunking quirks; corrected the intro from "Two layers" to "Three layers".
 
 **Validation.**
 - Section 1 (root README): landed `0c76d5d`; origin re-clone confirms 101-entry count, camera as Phase 4, three DL-074 grow-light refs, refreshed layout tree, and no `57` remnants.
 - Section 2 (CHANGELOG): landed `b180200`; origin re-clone confirms all of DL-095–101 present in the changelog.
-- Section 3 (explainers index): _pending commit._
+- Section 3 (explainers index): landed `3275f29`; origin re-clone confirms `tuning-from-data.md` listed and no "once it exists" framing remains.
+- Section 4 (grow-light README): _pending commit._
 
-**Files.** `README.md` (§1), `CHANGELOG.md` (§2), `docs/explainers/README.md` (§3); further documents appended as their sections land.
+**Files.** `README.md` (§1), `CHANGELOG.md` (§2), `docs/explainers/README.md` (§3), `hub/08-grow-light/README.md` (§4); further documents appended as their sections land.
 
 ---
 
