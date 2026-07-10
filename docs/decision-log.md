@@ -2828,14 +2828,16 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 2. **`CHANGELOG.md`.** The changelog stopped at DL-094, omitting the entire DL-095–101 dashboard arc. Added those seven entries in the existing Keep-a-Changelog grouping, newest-first: DL-095–100 (multipage restructure, Overview recomposition, Grow light page + nav order, dashboard/top/service README rewrites, per-page refresh cadence) under **Changed**, and DL-101 (clearing the `use_container_width` deprecation warnings) under **Fixed**.
 3. **`docs/explainers/README.md`.** The index omitted the existing `tuning-from-data.md` and framed the firmware and dashboard explainers as awaiting parts that did not yet exist ("once it exists" / "once the Streamlit app exists"), though both have shipped. Added the `tuning-from-data.md` entry and reworded the "what's not here yet" section to reflect that the code exists and only the narrative write-up is pending.
 4. **`hub/08-grow-light/README.md`.** The README described only two layers (Shelly onboard schedule, Pi enforcement) but the directory also ships the DL-085 on-device WiFi self-recovery — `wifi-watchdog.js` and its `install_wifi_watchdog.py` installer — which went undocumented. Added a third section covering the on-device watchdog (60 s check, ~5 min sustained-loss reboot, boot-persistent, restore-last), the daily 02:00 reboot backstop, and the RPC install path with its ASCII/chunking quirks; corrected the intro from "Two layers" to "Three layers".
+5. **`hub/09-camera/README.md`.** The top-of-file `POST /image` bullet still listed the pre-DL-079/082 response `{ts, path, bytes, width, height, greenness}` and an insert of `(ts, path, greenness)`, out of step with the receiver (and with the README's own later sections, which document the two blob metrics). Corrected the response and insert tuple to include `green_area`/`green_ratio` and noted the `{skipped}` out-of-window case (DL-082).
 
 **Validation.**
 - Section 1 (root README): landed `0c76d5d`; origin re-clone confirms 101-entry count, camera as Phase 4, three DL-074 grow-light refs, refreshed layout tree, and no `57` remnants.
 - Section 2 (CHANGELOG): landed `b180200`; origin re-clone confirms all of DL-095–101 present in the changelog.
 - Section 3 (explainers index): landed `3275f29`; origin re-clone confirms `tuning-from-data.md` listed and no "once it exists" framing remains.
-- Section 4 (grow-light README): _pending commit._
+- Section 4 (grow-light README): landed `2536fec`; origin re-clone confirms the "Three layers" intro and the on-device WiFi self-recovery section.
+- Section 5 (camera README): _pending commit._
 
-**Files.** `README.md` (§1), `CHANGELOG.md` (§2), `docs/explainers/README.md` (§3), `hub/08-grow-light/README.md` (§4); further documents appended as their sections land.
+**Files.** `README.md` (§1), `CHANGELOG.md` (§2), `docs/explainers/README.md` (§3), `hub/08-grow-light/README.md` (§4), `hub/09-camera/README.md` (§5).
 
 ---
 
