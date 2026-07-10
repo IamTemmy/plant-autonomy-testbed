@@ -64,6 +64,18 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Changed
 
+- Dashboard per-page refresh cadence (DL-100): replaced the single global `st_autorefresh` with a per-page rate — Overview/Controls 30 s, Watering/Grow light 60 s, Camera 5 min — each keyed and tuned to that page's data rate, cutting redraws on the slow pages.
+
+- Top-level and dashboard-service README corrections (DL-099): trued-up the root README's dashboard summary (read-only over data, one scoped MQTT-publishing control) and repointed its images; noted in the service README that the dashboard loads MQTT credentials via its `EnvironmentFile` (DL-094) and that Tailscale remote access (DL-038) is already in place, leaving only HTTPS / dashboard-auth outstanding.
+
+- Dashboard README rewrite + screenshot refresh (DL-098): rewrote `hub/06-dashboard/README.md` for the multipage app (router + `dash_common.py` + five `dash_pages/` files, per-page descriptions, corrected `pillow` / `paho-mqtt` deps) and replaced the desktop screenshots with four current captures; dropped the stale mobile shots.
+
+- Grow light page + nav order (DL-097): renamed the Power page to **Grow light** (`power.py` → `growlight.py`, bulb icon) and moved the recent on/off activity onto it; set the sidebar order to Overview · Watering · Camera · Grow light · Controls with a gear icon for Controls, leaving the Overview as the vital glance.
+
+- Overview recomposition (DL-096): regrouped the Overview into one system-status cluster (status banner, ESP32 reboot review, active faults, listener-run) above current state, latest capture, and environment; moved the listener-run panel off the Power page and dropped the redundant green-metric cards (kept on the Camera page). Composition-only — no query or helper logic changed.
+
+- Dashboard multipage restructure (DL-095): split the single-file dashboard into a multipage Streamlit app — a `dashboard.py` router plus a shared `dash_common.py` and per-page modules under `dash_pages/` (Overview, Watering, Camera, Grow light, Controls) — so each page runs only its own queries per refresh. The real fix for the single-page version's heaviness on mobile (see also DL-091).
+
 - Dashboard performance (DL-091): slowed the auto-refresh from 10 s to 30 s and downscaled+cached the camera image, fixing image-load and scroll failures on Safari and mobile caused by the full-page rerun against a heavier page.
 
 - Recorded field validation of the Shelly self-recovery (DL-085) over a multi-day absence: the daily 02:00 reboot is confirmed firing nightly and the watchdog is reboot-persistent; the reactive WiFi-loss recovery is still pending a real outage to exercise it.
@@ -78,6 +90,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 - Button C reassigned GPIO35 → GPIO26 (GPIO35 has no internal pull-up; GPIO26 was freed by the DL-010 grow-light architecture).
 
 ### Fixed
+
+- Dashboard deprecation warnings (DL-101): replaced all 11 `use_container_width=True` calls with Streamlit's recommended `width="stretch"` across the dashboard pages, clearing the per-refresh deprecation warnings from the service journal; removed the now-obsolete log-noise note from the dashboard-service README.
 
 - Repo audit fixes (DL-086): corrected a dangling `docs/hub-setup.md` reference in this changelog, made the `alerter.py` grow-light photoperiod check wrap-aware (consistent with `photoperiod.py`/`image_receiver.py`; no change for the current 07–19 window), and moved the `camera_readings` table definition into `hub/04-listener/schema.sql`.
 

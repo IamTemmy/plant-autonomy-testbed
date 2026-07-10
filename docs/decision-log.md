@@ -2825,11 +2825,13 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 
 **Fixes.** Applied in per-document sections; each lands as its own commit and appends a Validation line here as it deploys.
 1. **Root `README.md`.** Corrected the decision-log count (57 → 101, both mentions); moved the camera vision node from "Next/Roadmap" to a completed Phase 4 (matching the deployed `firmware/camera-node/` and `hub/09-camera` service) and reframed the roadmap bullet to the growth/health analysis that actually remains; corrected the grow-light description in the Action layer, the "what it does now" bullet, and the Hardware table to Pi-side enforcement with the plug schedule as fallback (DL-074); and refreshed the repository-layout tree (sketches 01–14, `firmware/camera-node/` added, hub range to `11-shelly-monitor`, 101 entries). The IRLB8721 MOSFET (DL-009) and Shelly Plug US Gen4 (DL-031) references were verified correct and left unchanged.
+2. **`CHANGELOG.md`.** The changelog stopped at DL-094, omitting the entire DL-095–101 dashboard arc. Added those seven entries in the existing Keep-a-Changelog grouping, newest-first: DL-095–100 (multipage restructure, Overview recomposition, Grow light page + nav order, dashboard/top/service README rewrites, per-page refresh cadence) under **Changed**, and DL-101 (clearing the `use_container_width` deprecation warnings) under **Fixed**.
 
 **Validation.**
-- Section 1 (root README): _pending commit._
+- Section 1 (root README): landed `0c76d5d`; origin re-clone confirms 101-entry count, camera as Phase 4, three DL-074 grow-light refs, refreshed layout tree, and no `57` remnants.
+- Section 2 (CHANGELOG): _pending commit._
 
-**Files.** `README.md` (this section); further documents appended as their sections land.
+**Files.** `README.md` (§1), `CHANGELOG.md` (§2); further documents appended as their sections land.
 
 ---
 
