@@ -122,6 +122,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-100](#dl-100) | 2026-07-03 | Per-page refresh cadence sized to each page's data rate (Overview/Controls 30s, Watering/Grow light 60s, Camera 5 min) replacing the global 30s; dropped the now-misleading global-refresh caption | Active |
 | [DL-101](#dl-101) | 2026-07-03 | Replace the deprecated `use_container_width=True` with `width="stretch"` across the dashboard pages, clearing the per-refresh deprecation warnings, and drop the now-obsolete log-noise note from the service README | Active |
 | [DL-102](#dl-102) | 2026-07-09 | Documentation currency audit — bring README and secondary docs back in step with the DL-101 system; applied in per-document sections | Active |
+| [DL-103](#dl-103) | 2026-07-10 | Pi-vs-repo deployment reconciliation — hash-compare the flat `/home/basilpi/plant-hub/` deploy against origin; all runtime code current, two stale non-runtime files refreshed | Active |
 
 ---
 
@@ -2840,6 +2841,23 @@ All windows are env-overridable (`RETENTION_*_DAYS`) so they tune without a rede
 All five sections are on origin and re-clone-verified; the deep component docs (dashboard README DL-098, grow-light enforcer writeup DL-074) were already current, and the decision-log index/anchor parity and image references were clean throughout, so the audit is complete.
 
 **Files.** `README.md` (§1), `CHANGELOG.md` (§2), `docs/explainers/README.md` (§3), `hub/08-grow-light/README.md` (§4), `hub/09-camera/README.md` (§5).
+
+---
+
+<a id="dl-103"></a>
+### DL-103 — Pi-vs-repo deployment reconciliation
+
+**Date:** 2026-07-10 · **Status:** Active.
+
+**Context.** The hub runs as a flat (non-git) deploy at `/home/basilpi/plant-hub/`, so "the repo is current" does not by itself prove the running box is. After the DL-095–101 dashboard restructure and the DL-102 doc audit, the deployed tree was reconciled against origin `1145641` by hashing each tracked file (basenames are unique, so the repo's `hub/NN-*/` layout maps cleanly onto the flat deploy).
+
+**Findings.** 15 of 17 tracked files were byte-identical to origin, including the entire multipage dashboard (`dashboard.py` router, `dash_common.py`, all five `dash_pages/`), confirming the box runs the current restructured code (the old monolith survives only as `dashboard.py.bak`). The timer-driven services (`photoperiod`, `retention`, `shelly-monitor`) correctly show `inactive dead` with their `.timer` units active and firing; `mosquitto`, `plant-listener`, `plant-dashboard`, and `plant-image-receiver` are active. There is no `plant-alerter` unit by design — `listener.py` imports `alerter` and calls `alerter.evaluate()` in-process (DL-061). Two files differed, both non-runtime and both simply behind origin (no local edits ahead of the repo): `schema.sql` was pre-DL-086 (missing the `camera_readings` DDL; bootstrap-only, irrelevant to the long-established live DB), and `install_wifi_watchdog.py` predated the ASCII-scrub fix (a one-shot manual installer; the `wifi-watchdog.js` it deploys was already identical to origin and running).
+
+**Decision.** Refresh the two stale files in place from origin (`curl` from `raw.githubusercontent.com`); no service restart, since neither is read by a running service. Left the `*.bak` local backups as-is (harmless, untracked).
+
+**Validation.** After the refresh, both files re-hashed to origin (`schema.sql` → `f940b65f…`, `install_wifi_watchdog.py` → `91f03c1d…`); the deploy is now byte-identical to origin `1145641` on every tracked file. Closes the Pi-vs-repo reconciliation item carried since the dashboard restructure.
+
+**Files.** None in-repo — deployment-side reconciliation; recorded here for the log.
 
 ---
 
