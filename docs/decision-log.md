@@ -123,6 +123,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-101](#dl-101) | 2026-07-03 | Replace the deprecated `use_container_width=True` with `width="stretch"` across the dashboard pages, clearing the per-refresh deprecation warnings, and drop the now-obsolete log-noise note from the service README | Active |
 | [DL-102](#dl-102) | 2026-07-09 | Documentation currency audit — bring README and secondary docs back in step with the DL-101 system; applied in per-document sections | Active |
 | [DL-103](#dl-103) | 2026-07-10 | Pi-vs-repo deployment reconciliation — hash-compare the flat `/home/basilpi/plant-hub/` deploy against origin; all runtime code current, two stale non-runtime files refreshed | Active |
+| [DL-104](#dl-104) | 2026-07-15 | Bottom-watering calibration session — first supervised root/tray watering via the Phase-5 harness; hours-long dose→probe lag confirmed, moisture scale found mis-anchored; probe recalibration and FSM rework deferred until the sand topdressing is installed | Active |
 
 ---
 
@@ -2858,6 +2859,30 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Validation.** After the refresh, both files re-hashed to origin (`schema.sql` → `f940b65f…`, `install_wifi_watchdog.py` → `91f03c1d…`); the deploy is now byte-identical to origin `1145641` on every tracked file. Closes the Pi-vs-repo reconciliation item carried since the dashboard restructure.
 
 **Files.** None in-repo — deployment-side reconciliation; recorded here for the log.
+
+---
+
+<a id="dl-104"></a>
+### DL-104 — Bottom-watering calibration session (Phase 5, part 1)
+
+**Date:** 2026-07-15 · **Status:** Active — findings recorded; probe recalibration and watering-FSM rework deferred (see below).
+
+**Context.** "Phase 5" (root/bottom watering + soil-sensor placement) had been a planning label only, not a committed spec; pump flow was already characterized (1.0 mL/s, DL-048). The integrated firmware's watering algorithm is built for top-watering — 5 mL pulses, 10 s settle, an 8-pulse no-progress watchdog (DL-049/053) — which faults at ~40 mL against a slow-wicking bottom fill, so it cannot dispense a tray dose. A standalone guarded-manual harness (`firmware/bottom-water-calibration/`, committed `65e479c`) was built to run supervised sessions: fixed doses at 1.0 mL/s, soil telemetry on the normal MQTT topics (dashboard + SQLite), leak/abort/reservoir guards, per-dose (200 mL) and session (300 mL) caps, and a 30-min uptake lock. The plant had drought-drooped and fungus-gnat activity had dropped after the earlier maintenance dry-down.
+
+**What happened.** Two doses into a bone-dry pot (raw ~2580, past the 2523 dry anchor): 150 mL, then a 60 mL supplement ~8 h later (session 210 mL). Bottom-fill fit the tray with no overflow; leak/reservoir stayed clear throughout. The probe (embedded ~half-depth, mid-column) read a flat ~0% for hours after the first dose even though the tray fully absorbed — first contact only registered after the second dose. Over the following ~3 days the reading climbed and settled: raw fell from a 2582 dry peak to a ~2432–2470 plateau with a daily evapotranspiration cycle, currently ~2460 (~11%), drying slowly. The plant recovered to healthy; gnat activity further declined.
+
+**Findings.**
+1. **Dose→probe lag is hours, not minutes.** The 30-min uptake lock is a valid re-dose interlock but useless as an "absorbed enough?" judge; autonomous logic needs a multi-hour, trend-based evaluation horizon.
+2. **A mid-column probe under-reports a bottom fill** for hours — it reads a gradient slice while the lower root zone (where the water and roots are) is wetter. Not a placement defect: mid-depth is correct; the reading simply lags.
+3. **The moisture scale is mis-anchored.** Observed range over 7 days of logging: driest ~2585 (thirsty/drooping), wettest ~2421 (post-fill peak). The live anchors are dry 2523 / wet 1953. So real dry sits *below* the 0% anchor (everything 2523–2585 clamps to 0%, the cause of the flat-0% confusion), and the wet anchor is far wetter than a healthy pot ever reaches — a thriving plant reads only ~11%. The 1953 wet anchor came from a 30-min post-*top-water* saturation spike (DL-020), so the scale calls a normal target "nearly dry," which historically invited over-watering — consistent with the over-watering suspicion this session raised.
+
+**Decision — deferred, deliberately.** No firmware or calibration change committed now. A provisional remap (dry ~2585 / wet ~2420, derived from this plant's observed extremes) is recorded as the *direction*, but a coarse horticultural/silica **sand topdressing** (fungus-gnat barrier) ships this week and will shift what the probe sees at the surface. Per the standing rule against calibrating a config that is about to change, the physical setup must be frozen (sand installed, probe depth final) before anchors are set. The transient-derived anchors are also not calibration-grade — the final pass should establish controlled dry/wet endpoints, not reuse drought/fill transients. Meanwhile the plant is left to dry naturally (healthy, drawing down from ~2460); a deeper dry-down before the sand arrives would usefully supply a genuine dry endpoint, and any stress it causes is to be logged as data.
+
+**Validation.** Session telemetry captured in `sensor_readings` (device `soil`, sensors `moisture`/`soil_raw`), 7-day trend reviewed: dose response, plateau, and the anchor mismatch all confirmed from the logged distribution rather than spot readings. Harness behaved to spec — doses delivered at 1.0 mL/s, caps and guards held, no overflow.
+
+**Follow-ups (Phase 5, part 2, post-sand).** Freeze the physical config with sand installed; set final dry/wet anchors from controlled endpoints; port the harness's dose→settle→evaluate loop into the integrated firmware with a multi-hour trend-based re-dose decision (not a 30-min read) and a larger supplement than 60 mL; revisit `MAX_DAILY_PUMP_ML` for the bottom-water regime.
+
+**Files.** None in-repo — session findings and deferral; the harness itself landed in `65e479c`.
 
 ---
 
