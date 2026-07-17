@@ -124,7 +124,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-102](#dl-102) | 2026-07-09 | Documentation currency audit — bring README and secondary docs back in step with the DL-101 system; applied in per-document sections | Active |
 | [DL-103](#dl-103) | 2026-07-10 | Pi-vs-repo deployment reconciliation — hash-compare the flat `/home/basilpi/plant-hub/` deploy against origin; all runtime code current, two stale non-runtime files refreshed | Active |
 | [DL-104](#dl-104) | 2026-07-15 | Bottom-watering calibration session — first supervised root/tray watering via the Phase-5 harness; hours-long dose→probe lag confirmed, moisture scale found mis-anchored; probe recalibration and FSM rework deferred until the sand topdressing is installed | Active |
-| [DL-105](#dl-105) | 2026-07-16 | Coarse-sand topdressing installed as fungus-gnat barrier — bark chips removed, probe reseated, ~0.5"+ sand laid; moisture baseline unchanged (2493→2491), confirming the surface barrier is decoupled from the probe's sensing zone | Active |
+| [DL-105](#dl-105) | 2026-07-16 | Fungus-gnat barrier + monitoring — bark removed, probe reseated, ~0.5"+ coarse sand laid (moisture baseline unchanged 2493→2491, barrier decoupled from sensing); two yellow sticky traps installed for adult monitoring; Bti held in reserve until the soil is moist enough for it to work | Active |
 
 ---
 
@@ -2888,11 +2888,11 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 ---
 
 <a id="dl-105"></a>
-### DL-105 — Coarse-sand topdressing as fungus-gnat barrier
+### DL-105 — Fungus-gnat barrier and monitoring: sand topdressing + sticky traps
 
 **Date:** 2026-07-16 · **Status:** Active.
 
-**Context.** Fungus gnats lay eggs in the moist top layer of the potting mix; larvae develop there. The integrated pest strategy (from the earlier maintenance dry-down + research) is: keep the surface dry (bottom watering, DL-104), physically block egg-laying with a coarse mineral topdressing, knock down larvae with Bti, and monitor adults with sticky traps. This entry covers the physical barrier; Bti and traps follow as separate steps. Extension guidance: a coarse sand / grit layer at least ~0.5" thick discourages adults from reaching the mix and helps the surface dry, and it is a *preventive* barrier (stops new egg-laying) rather than a cure for existing larvae.
+**Context.** Fungus gnats lay eggs in the moist top layer of the potting mix; larvae develop there. The integrated pest strategy (from the earlier maintenance dry-down + research) is: keep the surface dry (bottom watering, DL-104), physically block egg-laying with a coarse mineral topdressing, knock down larvae with Bti, and monitor adults with sticky traps. This entry covers the physical barrier and the sticky-trap monitoring; Bti is held in reserve (see below). Extension guidance: a coarse sand / grit layer at least ~0.5" thick discourages adults from reaching the mix and helps the surface dry, and it is a *preventive* barrier (stops new egg-laying) rather than a cure for existing larvae.
 
 **What was done.** Removed as much of the existing wood-bark topdressing from the surface as practical, then laid a coarse horticultural/silica sand layer (~0.5"+), edge to edge to the pot rim. During bark removal the soil probe had worked loose, so it was **reseated firmly into soil contact and confirmed at root-zone depth before sanding** — a loose probe was the prime risk to every subsequent reading, so it was fixed while the surface was still open. The sand was kept clear of the probe's shaft so it sits as a surface layer, not packed against the sensing length.
 
@@ -2900,9 +2900,13 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 
 **Bearing on DL-104.** DL-104 deferred probe recalibration and the watering-FSM rework "until the sand is installed." That precondition is now met, and the sand is confirmed not to shift the reading. Recalibration therefore still turns only on the remaining requirement from DL-104 — establishing *controlled* dry/wet endpoints (a genuine dry-down and a known-good fill) rather than reusing drought/fill transients — not on the sand. It remains open on that basis.
 
-**Validation.** Pre/post readings captured live from `plant/sensors/soil` (2493→2491); plant healthy, surface now dry sand. Effectiveness of the barrier against gnats is a forward observation (sticky-trap counts over the coming days), not yet measured.
+**Monitoring — sticky traps.** Two yellow sticky traps were installed at the pot, set low near the sand surface (adult fungus gnats are weak fliers that hover at the mix, so low placement catches far more than trap height in the foliage), kept off the leaves. They serve double duty: catching egg-laying adults (control) and, more importantly here, acting as the **feedback signal** for whether the whole strategy is working — a declining catch rate over the coming days is the evidence the dry-down + barrier are holding; a rising one is the trigger to deploy the reserved Bti. This manual catch-count is also the conceptual precursor to the longer-term camera-based gnat detection (a trap in-frame, counted by the existing greenness-blob CV).
 
-**Files / images.** `docs/images/sand-barrier-before.jpg` (bark-chip surface, pre-sand), `docs/images/sand-barrier-after.jpg` (coarse sand laid, post-reseat).
+**Bti held in reserve (decision).** Mosquito Bits (Bti) are on hand but deliberately **not** applied now. Bti is a larvicide that needs moist soil to distribute and reach larvae, which is in direct tension with the dry surface this barrier maintains; and the earlier maintenance dry-down already crushed the population, so there is no urgent knockdown needed. Rather than fight that tension, the timing is deferred: apply Bti later, once the watering regime is recalibrated and the soil carries enough moisture for it to operate — or sooner if trap counts climb. Applying on a fixed schedule into a dry surface would waste it and re-wet the exact layer we are keeping dry.
+
+**Validation.** Pre/post readings captured live from `plant/sensors/soil` (2493→2491); plant healthy, surface now dry sand, two traps up. Effectiveness against gnats is a forward observation (trap counts over the coming days), not yet measured.
+
+**Files / images.** `docs/images/sand-barrier-before.jpg` (bark-chip surface, pre-sand), `docs/images/sand-barrier-after.jpg` (coarse sand laid, post-reseat), `docs/images/sticky-traps.jpg` (two traps installed).
 
 ---
 
