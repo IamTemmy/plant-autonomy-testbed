@@ -124,6 +124,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-102](#dl-102) | 2026-07-09 | Documentation currency audit — bring README and secondary docs back in step with the DL-101 system; applied in per-document sections | Active |
 | [DL-103](#dl-103) | 2026-07-10 | Pi-vs-repo deployment reconciliation — hash-compare the flat `/home/basilpi/plant-hub/` deploy against origin; all runtime code current, two stale non-runtime files refreshed | Active |
 | [DL-104](#dl-104) | 2026-07-15 | Bottom-watering calibration session — first supervised root/tray watering via the Phase-5 harness; hours-long dose→probe lag confirmed, moisture scale found mis-anchored; probe recalibration and FSM rework deferred until the sand topdressing is installed | Active |
+| [DL-105](#dl-105) | 2026-07-16 | Coarse-sand topdressing installed as fungus-gnat barrier — bark chips removed, probe reseated, ~0.5"+ sand laid; moisture baseline unchanged (2493→2491), confirming the surface barrier is decoupled from the probe's sensing zone | Active |
 
 ---
 
@@ -2883,6 +2884,25 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Follow-ups (Phase 5, part 2, post-sand).** Freeze the physical config with sand installed; set final dry/wet anchors from controlled endpoints; port the harness's dose→settle→evaluate loop into the integrated firmware with a multi-hour trend-based re-dose decision (not a 30-min read) and a larger supplement than 60 mL; revisit `MAX_DAILY_PUMP_ML` for the bottom-water regime.
 
 **Files.** None in-repo — session findings and deferral; the harness itself landed in `65e479c`.
+
+---
+
+<a id="dl-105"></a>
+### DL-105 — Coarse-sand topdressing as fungus-gnat barrier
+
+**Date:** 2026-07-16 · **Status:** Active.
+
+**Context.** Fungus gnats lay eggs in the moist top layer of the potting mix; larvae develop there. The integrated pest strategy (from the earlier maintenance dry-down + research) is: keep the surface dry (bottom watering, DL-104), physically block egg-laying with a coarse mineral topdressing, knock down larvae with Bti, and monitor adults with sticky traps. This entry covers the physical barrier; Bti and traps follow as separate steps. Extension guidance: a coarse sand / grit layer at least ~0.5" thick discourages adults from reaching the mix and helps the surface dry, and it is a *preventive* barrier (stops new egg-laying) rather than a cure for existing larvae.
+
+**What was done.** Removed as much of the existing wood-bark topdressing from the surface as practical, then laid a coarse horticultural/silica sand layer (~0.5"+), edge to edge to the pot rim. During bark removal the soil probe had worked loose, so it was **reseated firmly into soil contact and confirmed at root-zone depth before sanding** — a loose probe was the prime risk to every subsequent reading, so it was fixed while the surface was still open. The sand was kept clear of the probe's shaft so it sits as a surface layer, not packed against the sensing length.
+
+**Finding.** The moisture baseline was essentially **unchanged across the sand addition**: before-sand raw 2493 (5.3%), immediately after raw 2491 (5.6%) — a 2-count delta, within sensor jitter. This is the desired and expected result: the probe's sensing length sits in the original soil, and dry sand laid *above* that zone (kept off the shaft) is outside the probe's field, so the barrier does not corrupt the moisture reading. Practically, the anti-gnat surface layer is **decoupled from the moisture sensing** — which also means the deferred recalibration (DL-104) is not complicated by the sand, since the anchors are unaffected by a surface layer that the probe cannot see.
+
+**Bearing on DL-104.** DL-104 deferred probe recalibration and the watering-FSM rework "until the sand is installed." That precondition is now met, and the sand is confirmed not to shift the reading. Recalibration therefore still turns only on the remaining requirement from DL-104 — establishing *controlled* dry/wet endpoints (a genuine dry-down and a known-good fill) rather than reusing drought/fill transients — not on the sand. It remains open on that basis.
+
+**Validation.** Pre/post readings captured live from `plant/sensors/soil` (2493→2491); plant healthy, surface now dry sand. Effectiveness of the barrier against gnats is a forward observation (sticky-trap counts over the coming days), not yet measured.
+
+**Files / images.** `docs/images/sand-barrier-before.jpg` (bark-chip surface, pre-sand), `docs/images/sand-barrier-after.jpg` (coarse sand laid, post-reseat).
 
 ---
 
