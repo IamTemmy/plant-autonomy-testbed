@@ -88,6 +88,7 @@ _st = {
     "ext_water_alerted": False,  # external-watering event currently alerted (debounce)
     "cam_window_since": None,    # monotonic time we entered the lit window (re-armed daily)
     "cam_alerted": False,        # silent-camera alert currently firing (for recovery)
+    "water_last_reason": None,   # last bottom-watering reason we alerted on (edge-trigger)
 }
 
 
@@ -114,6 +115,55 @@ def notify(title, message, priority="default", tags=None):
     threading.Thread(
         target=_post, args=(title, message, priority, tags or []), daemon=True
     ).start()
+
+
+# ---- bottom-watering loop alerts (event-driven, DL-109) --------------------
+# The bottom-watering harness publishes plant/state/wrover with a `reason` field
+# describing session outcomes; the integrated firmware sends no reason, so only
+# the harness can trigger these. Keyed on the exact reason strings the firmware
+# emits. Routine states (monitor/dosing/settle/grace) carry no alert-worthy
+# reason and are ignored. `abort` is user-initiated, so it is intentionally silent.
+_WATERING_ALERTS = {
+    "stalled: tray may be holding water": (
+        "Watering stalled",
+        "A dose didn't raise soil moisture — the tray may still be holding water. "
+        "A one-time grace re-check is running.", "high", ["warning"]),
+    "failed: not absorbing": (
+        "Watering failed",
+        "Soil isn't absorbing after the grace period. Watering stopped — needs a look.",
+        "high", ["rotating_light"]),
+    "capped: target not reached": (
+        "Watering capped",
+        "Hit the session volume cap before reaching target. Watering stopped.",
+        "high", ["warning"]),
+    "reservoir empty": (
+        "Reservoir empty",
+        "Watering blocked — the reservoir float reads empty. Refill to resume.",
+        "high", ["warning"]),
+    "leak": (
+        "Leak detected",
+        "Leak sensor tripped — pump cut and latched. Check for spilled water.",
+        "urgent", ["rotating_light"]),
+    "target reached": (
+        "Watering complete",
+        "Soil reached target — watering session done.", "default", ["white_check_mark"]),
+}
+
+
+def on_watering_state(state, reason):
+    """Event-driven: called by the listener on each plant/state/wrover message.
+    Fires one push per new alert-worthy reason (edge-triggered to absorb retained
+    or repeated messages). No-op if alerting is unconfigured or the reason is not
+    alert-worthy. In-memory dedup, so a listener restart may re-fire a still-latched
+    reason once — acceptable."""
+    if not NTFY_TOPIC:
+        return
+    if reason == _st["water_last_reason"]:
+        return
+    _st["water_last_reason"] = reason
+    alert = _WATERING_ALERTS.get(reason or "")
+    if alert:
+        notify(*alert)
 
 
 # ---- small read helpers ----------------------------------------------------
