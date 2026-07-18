@@ -1,137 +1,149 @@
-// Plant Autonomy Testbed — Bottom-Watering Calibration Harness (Phase 5 prototype)
+// Plant Autonomy Testbed — Bottom-Watering Control Loop (Phase 5 prototype)
 // ---------------------------------------------------------------------------
-// A STANDALONE firmware, separate from the integrated build. It drives the pump
-// in controlled DOSES (not the integrated firmware's ~5 mL top-water pulses),
-// keeps full soil telemetry on the NORMAL MQTT topics so the Pi dashboard and
-// SQLite log every reading, and keeps decisions in the operator's hands
-// (guarded-manual): the firmware dispenses and watches; you decide supplements.
+// STANDALONE firmware, separate from the integrated build. It runs the
+// AUTONOMOUS bottom-watering loop specified in DL-104..106: trigger at a low
+// moisture %, dose a measured volume, wait a long settle + plateau, evaluate the
+// trend, and decide (done / supplement / stall) — using the soil probe both as
+// the target gauge and as an indirect tray-level sensor (a dose that does not
+// raise moisture means the tray is still holding water; do not add more).
 //
-// This is NOT the production watering FSM. It is the isolated prototype whose
-// dose / uptake / evaluate logic graduates into the integrated firmware once
-// bottom-watering is validated (the work we have been calling "Phase 5").
+// Full soil telemetry stays on the NORMAL MQTT topics, so the Pi dashboard and
+// SQLite log every reading and every state transition. This prototype's loop is
+// what graduates into the integrated firmware once validated.
 //
-// WHY a new firmware: the integrated watering algorithm (5 mL pulse + 10 s
-// settle + 8-pulse no-progress watchdog, DL-049/053) is built for top-watering
-// a fast-wicking probe. Bottom/tray watering wicks over MINUTES, so that logic
-// faults at ~40 mL before the plant absorbs anything. Different regime, so a
-// clean-slate operation mode with its own boundaries.
+// WHY separate: the integrated watering algorithm (5 mL pulse + 10 s settle +
+// 8-pulse watchdog, DL-049/053) is a top-water design that faults at ~40 mL on a
+// slow bottom fill. Different regime, its own boundaries.
 //
-// *** SAFETY NOTE — deliberate departure from the integrated firmware ***
-// The integrated firmware never lets an inbound command drive the pump. THIS
-// harness intentionally does (topic plant/cmd/dose), because dashboard-triggered
-// dosing was requested for supervised calibration. Every dose is hard-bounded by
-// a per-dose cap AND a session cap, and the leak / abort / reservoir guards cut
-// or block the pump on every loop tick. RUN ONLY WHILE SUPERVISED.
+// *** SAFETY — RUN ONLY WHILE SUPERVISED (first cycles) ***
+// This firmware drives the pump autonomously. Every dose is bounded by a per-dose
+// cap and a session cap; leak / abort / reservoir guards cut or block the pump on
+// every tick. The absorption gate (supplement only after a confirmed >=7% rise)
+// is the overflow protection; the session cap is the runaway backstop.
 //
-// Reused verbatim from firmware/integrated/src/config.h so behavior matches the
-// characterized hardware: pins, soil calibration (DL-020), leak/float polarity,
-// pump flow rate (DL-048), broker, topics, payload shapes.
+// Manual overrides for testing: DOSE button / MQTT "start" force a session now;
+// ABORT cuts the pump; ACK clears a latched stop and force-advances a wait.
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <math.h>
 
 #include "secrets.h"  // WIFI_SSID/PASSWORD, MQTT_USER/PASSWORD (copy from integrated)
 
 // ======================= Reused hardware configuration =====================
-// Pins (Freenove ESP32-WROVER, Phase 1 bench wiring — identical to config.h)
-static constexpr uint8_t SOIL_PIN       = 34;  // capacitive soil moisture (ADC1)
-static constexpr uint8_t LEAK_PIN       = 39;  // leak pad (ADC1)
-static constexpr uint8_t FLOAT_PIN      = 27;  // reservoir float; INPUT_PULLUP, CLOSED = empty
-static constexpr uint8_t PUMP_GATE_PIN  = 25;  // IRLB8721 gate
+static constexpr uint8_t SOIL_PIN       = 34;
+static constexpr uint8_t LEAK_PIN       = 39;
+static constexpr uint8_t FLOAT_PIN      = 27;  // INPUT_PULLUP, CLOSED = empty
+static constexpr uint8_t PUMP_GATE_PIN  = 25;
 static constexpr uint8_t LED_GREEN      = 18;
 static constexpr uint8_t LED_YELLOW     = 19;
 static constexpr uint8_t LED_RED        = 23;
-static constexpr uint8_t BTN_DOSE       = 26;  // (BTN_MANUAL) short-press: start a dose
-static constexpr uint8_t BTN_ACK        = 33;  // clear a latched fault / advance / reset session
-static constexpr uint8_t BTN_ABORT      = 32;  // (BTN_STOP) immediate pump-off + latch
+static constexpr uint8_t BTN_DOSE       = 26;  // force-start a session (test)
+static constexpr uint8_t BTN_ACK        = 33;  // clear latched stop / force-advance a wait
+static constexpr uint8_t BTN_ABORT      = 32;  // immediate pump-off + latch
 
-static constexpr uint16_t ADC_MAX = 4095;
-
-// Soil calibration (DL-020). Capacitive: LOWER raw = WETTER.
+// Soil calibration (DL-106). Capacitive: LOWER raw = WETTER.
 static constexpr uint8_t  SOIL_SAMPLES       = 16;
 static constexpr uint16_t SOIL_RAW_VALID_MIN = 800;
 static constexpr uint16_t SOIL_RAW_VALID_MAX = 3200;
-static constexpr uint16_t SOIL_RAW_DRY       = 2585;  // 0% anchor: drought floor (DL-106)
-static constexpr uint16_t SOIL_RAW_WET       = 2250;  // 100% anchor: healthy-wet w/ headroom (DL-106)
+static constexpr uint16_t SOIL_RAW_DRY       = 2585;  // 0% anchor: drought floor
+static constexpr uint16_t SOIL_RAW_WET       = 2250;  // 100% anchor: healthy-wet w/ headroom
 
 // Leak (DL-026). Conductive pads: HIGHER raw = WETTER.
-static constexpr uint8_t  LEAK_SAMPLES   = 16;
-static constexpr uint16_t LEAK_THRESHOLD = 200;
-static constexpr uint32_t LEAK_DEBOUNCE_MS = 3000;   // must persist before latching
+static constexpr uint8_t  LEAK_SAMPLES     = 16;
+static constexpr uint16_t LEAK_THRESHOLD   = 200;
+static constexpr uint32_t LEAK_DEBOUNCE_MS = 3000;
 
-// Float polarity (DL-043): CLOSED (pin LOW) == empty.
-static constexpr bool FLOAT_EMPTY_WHEN_CLOSED = true;
+static constexpr bool  FLOAT_EMPTY_WHEN_CLOSED = true;   // DL-043
+static constexpr float PUMP_ML_PER_SEC         = 1.0f;   // DL-048
 
-// Pump flow rate (DL-048).
-static constexpr float PUMP_ML_PER_SEC = 1.0f;
-
-// Network / MQTT (non-secret; matches config.h so telemetry lands on the dashboard)
+// Network / MQTT (matches config.h so telemetry lands on the dashboard)
 static constexpr char     MQTT_BROKER_HOST[] = "10.6.19.139";
 static constexpr uint16_t MQTT_BROKER_PORT   = 1883;
-static constexpr char     MQTT_CLIENT_ID[]   = "wrover";  // same identity: dashboard continuity
+static constexpr char     MQTT_CLIENT_ID[]   = "wrover";
 static constexpr char     T_STATUS[] = "plant/status/wrover";
 static constexpr char     T_SOIL[]   = "plant/sensors/soil";
 static constexpr char     T_FLOAT[]  = "plant/sensors/float";
 static constexpr char     T_LEAK[]   = "plant/sensors/leak";
 static constexpr char     T_STATE[]  = "plant/state/wrover";
-static constexpr char     T_CMD_DOSE[] = "plant/cmd/dose";  // inbound: integer mL, or "abort"
+static constexpr char     T_CMD[]    = "plant/cmd/dose";  // inbound: "start" | "abort"
 
-// ======================= Calibration boundaries (TUNE HERE) ================
-static constexpr int      INITIAL_DOSE_ML = 150;   // first dose of a session
-static constexpr int      SUPPLEMENT_ML   = 60;    // each button/MQTT top-up after the first
-static constexpr int      MAX_DOSE_ML     = 200;   // hard cap on any single dose (bounds MQTT input)
-static constexpr int      MAX_SESSION_ML  = 300;   // hard cap on total dispensed per session
-static constexpr uint32_t UPTAKE_WAIT_MS  = 30UL * 60UL * 1000UL;  // 30 min lock between doses
+// ======================= Control-loop parameters (DL-107 spec) =============
+static constexpr float    TRIGGER_PCT      = 20.0f;   // start a session at/below this
+static constexpr float    TARGET_PCT       = 85.0f;   // stop target
+static constexpr int      DOSE1_ML         = 200;     // first dose
+static constexpr int      SUPPLEMENT_ML    = 100;     // each top-up after dose 1
+static constexpr int      MAX_DOSE_ML      = 200;     // per-dose hard cap
+static constexpr int      SESSION_CAP_ML   = 400;     // per-session hard cap (runaway backstop)
+static constexpr float    ABSORB_RISE_PCT  = 7.0f;    // rise that counts as "absorbed"
+static constexpr uint32_t SETTLE_MIN_MS    = 3UL * 60UL * 60UL * 1000UL;   // 3 h
+static constexpr uint32_t PLATEAU_WINDOW_MS= 30UL * 60UL * 1000UL;          // 30 min
+static constexpr float    PLATEAU_SLOPE_PCT= 1.0f;    // <= this over a window = plateaued
+static constexpr uint32_t GRACE_MS         = 90UL * 60UL * 1000UL;          // 1.5 h (one-time)
 
-// Cadence: publish faster than the integrated 30 s so the moisture climb is dense
-// in the dashboard/DB during a session.
-static constexpr uint32_t SENSOR_READ_MS   = 2000;
-static constexpr uint32_t PUBLISH_MS       = 5000;
-static constexpr uint32_t HEARTBEAT_MS     = 5000;
+// Cadence + smoothing
+static constexpr uint32_t SENSOR_READ_MS       = 2000;
+static constexpr uint32_t PUBLISH_MS           = 5000;
+static constexpr uint32_t HEARTBEAT_MS         = 10000;
 static constexpr uint32_t WIFI_BOOT_TIMEOUT_MS = 10000;
-static constexpr uint32_t MQTT_RETRY_MS    = 5000;
-static constexpr uint32_t BTN_DEBOUNCE_MS  = 50;
+static constexpr uint32_t MQTT_RETRY_MS        = 5000;
+static constexpr uint32_t BTN_DEBOUNCE_MS      = 50;
+static constexpr float    MOIST_EMA_ALPHA      = 0.1f;  // decision variable smoothing
 
 // ============================== State machine ==============================
 enum State {
-    ST_MONITOR,          // idle: read + publish; wait for a dose trigger
-    ST_DOSING,           // pump running for the current dose's run-time
-    ST_UPTAKE,           // pump off; wick + observe; new doses locked out
-    ST_RESERVOIR_EMPTY,  // float reads empty; dosing blocked (auto-clears on refill)
-    ST_SESSION_CAP,      // session total reached cap; dosing blocked until reset (ACK)
-    ST_STOPPED,          // ABORT pressed; latched until ACK
-    ST_LEAK_FAULT        // leak latched; clears on ACK once the pad is dry
+    ST_MONITOR,          // idle: read + publish; wait for trigger
+    ST_DOSING,           // pump running for the current dose
+    ST_SETTLE,           // pump off; 3 h min then wait for plateau
+    ST_GRACE,            // pump off; one-time 1.5 h recovery wait after a stall
+    ST_RESERVOIR_EMPTY,  // float empty; blocks triggering (auto-clears on refill)
+    ST_STOPPED,          // capped / failed / abort / reservoir; latched until ACK
+    ST_LEAK_FAULT        // leak latched; clears on ACK once dry
 };
-
 static State state = ST_MONITOR;
 
 static const char* state_name(State s) {
     switch (s) {
         case ST_MONITOR:         return "monitor";
         case ST_DOSING:          return "dosing";
-        case ST_UPTAKE:          return "uptake";
+        case ST_SETTLE:          return "settle";
+        case ST_GRACE:           return "grace";
         case ST_RESERVOIR_EMPTY: return "reservoir_empty";
-        case ST_SESSION_CAP:     return "session_cap";
         case ST_STOPPED:         return "stopped";
         case ST_LEAK_FAULT:      return "leak_fault";
     }
     return "?";
 }
 
-// Session / dose bookkeeping
-static float         session_ml       = 0.0f;
-static int           dose_count       = 0;
-static unsigned long dose_start_ms    = 0;
-static unsigned long dose_target_ms   = 0;
-static int           dose_ml_target   = 0;
-static unsigned long uptake_start_ms  = 0;
-static float         moisture_before  = NAN;   // captured at dose start
-static float         moisture_after   = NAN;   // captured at uptake end
+// ---- session / dose bookkeeping ----
+static float         session_ml      = 0.0f;
+static int           dose_count      = 0;
+static float         session_baseline= NAN;   // % at trigger (reference)
+static float         dose_before     = NAN;   // % just before the current dose
+static bool          grace_used      = false; // one grace per session
+static float         stall_reading   = NAN;   // % when a stall tripped
+static const char*   last_reason     = "";    // surfaced in state payload + serial
 
-// Inbound-command requests (set in MQTT callback, consumed in loop)
-static volatile int  pending_dose_ml  = 0;     // >0 => dose that many mL
-static volatile bool pending_abort    = false;
+static unsigned long dose_start_ms   = 0;
+static unsigned long dose_target_ms  = 0;
+static int           dose_ml_target  = 0;
+
+// settle / plateau tracking
+static unsigned long settle_start_ms = 0;
+static bool          plateau_armed   = false;
+static float         plateau_ref_pct = NAN;
+static unsigned long plateau_ref_ms  = 0;
+
+// grace tracking
+static unsigned long grace_start_ms  = 0;
+
+// decision variable (smoothed moisture)
+static float         moist_ema       = NAN;
+
+// inbound intents
+static volatile bool pending_start = false;
+static volatile bool pending_abort = false;
 
 // ============================== I/O primitives =============================
 static WiFiClient   wifi_client;
@@ -171,7 +183,6 @@ static bool reservoir_empty_read() {
     return FLOAT_EMPTY_WHEN_CLOSED ? closed : !closed;
 }
 
-// Debounced, edge-detected active-LOW button.
 struct Button { uint8_t pin; int stable; int last; unsigned long change_ms; bool edge; };
 static Button b_dose {BTN_DOSE,  HIGH, HIGH, 0, false};
 static Button b_ack  {BTN_ACK,   HIGH, HIGH, 0, false};
@@ -183,7 +194,7 @@ static void button_update(Button& b, unsigned long now) {
     if (raw != b.last) { b.last = raw; b.change_ms = now; }
     if (now - b.change_ms >= BTN_DEBOUNCE_MS && raw != b.stable) {
         b.stable = raw;
-        if (b.stable == LOW) b.edge = true;   // press edge
+        if (b.stable == LOW) b.edge = true;
     }
 }
 
@@ -196,11 +207,14 @@ static unsigned long leak_since_ms = 0;
 // ============================== MQTT =======================================
 static void publish_state() {
     if (!mqtt.connected()) return;
-    char p[128];
+    char p[192];
+    float m = isnan(moist_ema) ? -1.0f : moist_ema;
     snprintf(p, sizeof(p),
-             "{\"state\":\"%s\",\"pump\":%d,\"session_ml\":%d,\"dose_count\":%d}",
-             state_name(state), pump_is_on() ? 1 : 0, (int)session_ml, dose_count);
-    mqtt.publish(T_STATE, p, true);  // retained: dashboard always has current state
+             "{\"state\":\"%s\",\"pump\":%d,\"session_ml\":%d,\"dose_count\":%d,"
+             "\"moist_pct\":%.1f,\"reason\":\"%s\"}",
+             state_name(state), pump_is_on() ? 1 : 0, (int)session_ml, dose_count,
+             m, last_reason);
+    mqtt.publish(T_STATE, p, true);   // retained
 }
 
 static void publish_soil(const SoilReading& s) {
@@ -225,23 +239,31 @@ static void publish_status(unsigned long hb) {
     if (!mqtt.connected()) return;
     char p[96];
     snprintf(p, sizeof(p),
-             "{\"online\":true,\"uptime_s\":%lu,\"rssi\":%d,\"heartbeat\":%lu,\"fw\":\"calib\"}",
+             "{\"online\":true,\"uptime_s\":%lu,\"rssi\":%d,\"heartbeat\":%lu,\"fw\":\"water-loop\"}",
              millis() / 1000UL, WiFi.RSSI(), hb);
     mqtt.publish(T_STATUS, p, true);
 }
 
-// Inbound: plant/cmd/dose. Payload is an integer mL, or the word "abort".
-// Only records intent; the loop applies it under the full guard chain.
+// Alert = prominent serial line + reason surfaced in the retained state payload
+// (dashboard-visible). NOTE: push notification (ntfy) is not wired here; for the
+// supervised prototype, serial + dashboard state is the alert surface. A small
+// Pi-listener rule on plant/state/wrover reason can forward these to ntfy later.
+static void watering_alert(const char* reason) {
+    last_reason = reason;
+    Serial.printf("[ALERT] %s\n", reason);
+    publish_state();
+}
+
+// Inbound: plant/cmd/dose = "start" (force a session) | "abort".
 static void on_message(char* topic, byte* payload, unsigned int len) {
-    if (strcmp(topic, T_CMD_DOSE) != 0) return;
+    if (strcmp(topic, T_CMD) != 0) return;
     char buf[16];
     unsigned int n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
     memcpy(buf, payload, n);
     buf[n] = '\0';
-    if (strcmp(buf, "abort") == 0) { pending_abort = true; Serial.println("MQTT: dose/abort"); return; }
-    int ml = atoi(buf);
-    if (ml > 0) { pending_dose_ml = ml; Serial.printf("MQTT: dose request %d mL\n", ml); }
-    else        { Serial.println("MQTT: cmd/dose ignored (want integer mL or 'abort')"); }
+    if      (strcmp(buf, "abort") == 0) { pending_abort = true; Serial.println("MQTT: abort"); }
+    else if (strcmp(buf, "start") == 0) { pending_start = true; Serial.println("MQTT: start"); }
+    else Serial.println("MQTT: cmd ignored (want 'start' or 'abort')");
 }
 
 static unsigned long mqtt_next_attempt_ms = 0;
@@ -256,44 +278,107 @@ static void mqtt_tick() {
     if (mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD, T_STATUS, 0, true, will)) {
         Serial.println("connected.");
         publish_status(0);
-        mqtt.subscribe(T_CMD_DOSE);
+        mqtt.subscribe(T_CMD);
         publish_state();
-        Serial.println("MQTT: subscribed to cmd/dose");
+        Serial.println("MQTT: subscribed to cmd (start|abort)");
     } else {
         Serial.printf("failed rc=%d\n", mqtt.state());
     }
 }
 
-// ============================== Dose control ===============================
-// Guarded entry point for both the physical button and the MQTT command.
-static void start_dose(int ml) {
-    if (state != ST_MONITOR) return;                 // only from idle
-    if (last_reservoir_empty) { state = ST_RESERVOIR_EMPTY; return; }
-    int budget = MAX_SESSION_ML - (int)session_ml;
-    if (budget <= 0) { state = ST_SESSION_CAP; return; }
-    if (ml > MAX_DOSE_ML) ml = MAX_DOSE_ML;
-    if (ml > budget)      ml = budget;               // never exceed the session cap
-    if (ml <= 0) return;
-
-    moisture_before = last_soil.valid ? last_soil.pct : NAN;
-    dose_ml_target  = ml;
-    dose_target_ms  = (unsigned long)((float)ml / PUMP_ML_PER_SEC * 1000.0f);
-    dose_start_ms   = millis();
-    dose_count++;
-    pump_on();
-    state = ST_DOSING;
-    Serial.printf("[DOSE] #%d start: %d mL (%lu ms), before=%.1f%%, session->%d/%d mL\n",
-                  dose_count, ml, dose_target_ms, moisture_before,
-                  (int)session_ml + ml, MAX_SESSION_ML);
-    publish_state();
-}
-
-// Water actually delivered on this dose (mL), based on real pump-on time,
-// so a dose cut short by a guard is still accounted against the session cap.
+// ============================== Dose / session control =====================
 static float dose_delivered_ml() {
     unsigned long on_ms = millis() - dose_start_ms;
     if (on_ms > dose_target_ms) on_ms = dose_target_ms;
     return (float)on_ms / 1000.0f * PUMP_ML_PER_SEC;
+}
+
+// Begin one dose (dose 1 or a supplement). Captures the pre-dose baseline for the
+// absorption test, then pumps. Bounded by per-dose and session caps.
+static void begin_dose(int ml) {
+    if (last_reservoir_empty) { last_reason = "reservoir empty"; state = ST_STOPPED; pump_off(); return; }
+    int budget = SESSION_CAP_ML - (int)session_ml;
+    if (budget <= 0) { last_reason = "capped: target not reached"; state = ST_STOPPED; pump_off(); return; }
+    if (ml > MAX_DOSE_ML) ml = MAX_DOSE_ML;
+    if (ml > budget)      ml = budget;
+    if (ml <= 0) return;
+
+    dose_before    = moist_ema;
+    dose_ml_target = ml;
+    dose_target_ms = (unsigned long)((float)ml / PUMP_ML_PER_SEC * 1000.0f);
+    dose_start_ms  = millis();
+    dose_count++;
+    pump_on();
+    state = ST_DOSING;
+    Serial.printf("[DOSE] #%d: %d mL (%lu ms) | before %.1f%% | session -> %d/%d mL\n",
+                  dose_count, ml, dose_target_ms, dose_before,
+                  (int)session_ml + ml, SESSION_CAP_ML);
+    publish_state();
+}
+
+static void enter_settle(unsigned long now) {
+    settle_start_ms = now;
+    plateau_armed   = false;
+    plateau_ref_pct = NAN;
+    state = ST_SETTLE;
+    Serial.printf("[SETTLE] min %lus then wait for plateau\n", SETTLE_MIN_MS / 1000UL);
+    publish_state();
+}
+
+static void start_session(const char* how) {
+    session_ml       = 0.0f;
+    dose_count       = 0;
+    grace_used       = false;
+    session_baseline = moist_ema;
+    last_reason      = "";
+    Serial.printf("[SESSION] start (%s) at %.1f%%\n", how, session_baseline);
+    begin_dose(DOSE1_ML);   // -> DOSING
+}
+
+static void finish_done() {
+    pump_off();
+    last_reason = "target reached";
+    Serial.printf("[SESSION] DONE at %.1f%% | %d mL over %d dose(s)\n",
+                  moist_ema, (int)session_ml, dose_count);
+    state = ST_MONITOR;     // moisture is high now, will not re-trigger
+    publish_state();
+}
+
+static void stop_session(const char* reason) {
+    pump_off();
+    state = ST_STOPPED;     // latched until ACK
+    watering_alert(reason);
+    Serial.printf("[SESSION] STOPPED: %s | %.1f%% | %d mL\n",
+                  reason, moist_ema, (int)session_ml);
+}
+
+// Decide next action at a plateau (or after a grace recovery). Compares the
+// smoothed moisture to the reading before the last dose.
+static void evaluate(unsigned long now) {
+    float rise = moist_ema - dose_before;
+    Serial.printf("[EVAL] moist %.1f%% | before %.1f%% | rise %+.1f | session %d mL\n",
+                  moist_ema, dose_before, rise, (int)session_ml);
+
+    if (moist_ema >= TARGET_PCT) {              // reached target
+        finish_done();
+    } else if (rise >= ABSORB_RISE_PCT) {       // absorbed, still short
+        if ((int)session_ml < SESSION_CAP_ML) {
+            begin_dose(SUPPLEMENT_ML);          // -> DOSING -> SETTLE
+        } else {
+            stop_session("capped: target not reached");
+        }
+    } else {                                    // stall: soil not taking water
+        if (!grace_used) {
+            grace_used    = true;
+            stall_reading = moist_ema;
+            grace_start_ms= now;
+            state = ST_GRACE;
+            watering_alert("stalled: tray may be holding water");
+            Serial.printf("[GRACE] one-time %lus recovery wait\n", GRACE_MS / 1000UL);
+        } else {
+            stop_session("failed: not absorbing");
+        }
+    }
 }
 
 // ============================== Setup / loop ===============================
@@ -302,12 +387,13 @@ static unsigned long heartbeat = 0;
 
 void setup() {
     Serial.begin(115200);
-    delay(500);  // boot only
-    Serial.println("\n=== Bottom-Watering Calibration Harness (Phase 5 prototype) ===");
-    Serial.println("Buttons: DOSE(26) start dose | ACK(33) clear/advance/reset | ABORT(32) stop");
-    Serial.println("MQTT cmd: plant/cmd/dose  <integer mL> | 'abort'");
-    Serial.printf("Caps: dose<=%d mL, session<=%d mL, uptake lock %lus\n",
-                  MAX_DOSE_ML, MAX_SESSION_ML, UPTAKE_WAIT_MS / 1000UL);
+    delay(500);
+    Serial.println("\n=== Bottom-Watering Control Loop (Phase 5 prototype) ===");
+    Serial.println("Autonomous: triggers at <=20%, target 85%; DOSE btn / MQTT 'start' forces a session.");
+    Serial.println("Buttons: DOSE(26) start | ACK(33) clear-stop / advance-wait | ABORT(32) stop");
+    Serial.printf("Params: dose1 %d, supp %d, cap %d mL | settle %lus, grace %lus\n",
+                  DOSE1_ML, SUPPLEMENT_ML, SESSION_CAP_ML,
+                  SETTLE_MIN_MS / 1000UL, GRACE_MS / 1000UL);
 
     pinMode(PUMP_GATE_PIN, OUTPUT); digitalWrite(PUMP_GATE_PIN, LOW);
     pinMode(LED_GREEN, OUTPUT); pinMode(LED_YELLOW, OUTPUT); pinMode(LED_RED, OUTPUT);
@@ -334,97 +420,115 @@ void setup() {
 void loop() {
     const unsigned long now = millis();
     mqtt_tick();
-
     button_update(b_dose, now);
     button_update(b_ack, now);
     button_update(b_abort, now);
 
-    // ---- Sensor read cadence (cache) ----
+    // ---- sensor read + EMA (decision variable) ----
     if (now >= sensor_next_ms) {
         last_soil = soil_read();
         last_leak = leak_read();
         last_reservoir_empty = reservoir_empty_read();
+        if (last_soil.valid) {
+            moist_ema = isnan(moist_ema) ? last_soil.pct
+                                         : (MOIST_EMA_ALPHA * last_soil.pct
+                                            + (1.0f - MOIST_EMA_ALPHA) * moist_ema);
+        }
         sensor_next_ms = now + SENSOR_READ_MS;
     }
 
-    // ---- Leak debounce ----
+    // ---- leak debounce ----
     if (last_leak.detected) { if (leak_since_ms == 0) leak_since_ms = now; }
     else                    { leak_since_ms = 0; }
     const bool leak_confirmed = (leak_since_ms != 0 && now - leak_since_ms >= LEAK_DEBOUNCE_MS);
 
     const State prev = state;
+    const bool req_start = pending_start; pending_start = false;
+    const bool req_abort = pending_abort; pending_abort = false;
+    const bool active = (state == ST_DOSING || state == ST_SETTLE || state == ST_GRACE);
 
-    // ---- Consume inbound MQTT intents once per tick ----
-    const int  req_dose  = pending_dose_ml;  pending_dose_ml = 0;
-    const bool req_abort = pending_abort;    pending_abort = false;
-
-    // ---- Safety first: overrides everything, every tick ----
+    // ---- safety first: overrides everything, every tick ----
     if (leak_confirmed) {
-        pump_off();
-        state = ST_LEAK_FAULT;
+        pump_off(); last_reason = "leak"; state = ST_LEAK_FAULT;
     } else if (b_abort.edge || req_abort) {
-        pump_off();
-        state = ST_STOPPED;
+        pump_off(); last_reason = "abort"; state = ST_STOPPED;
     } else if (state == ST_LEAK_FAULT) {
-        if (b_ack.edge && !last_leak.detected) state = ST_MONITOR;
+        if (b_ack.edge && !last_leak.detected) { last_reason = ""; state = ST_MONITOR; }
     } else if (state == ST_STOPPED) {
-        if (b_ack.edge) state = ST_MONITOR;
-    } else if (state == ST_SESSION_CAP) {
-        // Sticky until the operator resets the session.
-        if (b_ack.edge) { session_ml = 0; dose_count = 0; state = ST_MONITOR;
-                          Serial.println("[SESSION] reset"); }
-    } else if (last_reservoir_empty) {
-        pump_off();
-        state = ST_RESERVOIR_EMPTY;
+        if (b_ack.edge) { session_ml = 0; dose_count = 0; grace_used = false;
+                          last_reason = ""; state = ST_MONITOR; Serial.println("[SESSION] cleared"); }
+    } else if (last_reservoir_empty && active) {
+        stop_session("reservoir empty");
     } else {
-        if (state == ST_RESERVOIR_EMPTY) state = ST_MONITOR;   // refilled
-        // ---- Normal operation ----
+        // ---- normal operation ----
         switch (state) {
+            case ST_RESERVOIR_EMPTY:
+                if (!last_reservoir_empty) state = ST_MONITOR;
+                break;
+
             case ST_MONITOR:
-                if (session_ml >= MAX_SESSION_ML) { state = ST_SESSION_CAP; break; }
-                if (b_dose.edge) {
-                    start_dose(session_ml <= 0.0f ? INITIAL_DOSE_ML : SUPPLEMENT_ML);
-                } else if (req_dose > 0) {
-                    start_dose(req_dose);
+                if (last_reservoir_empty) { state = ST_RESERVOIR_EMPTY; break; }
+                if (b_dose.edge || req_start) {
+                    start_session(req_start ? "mqtt" : "button");
+                } else if (!isnan(moist_ema) && moist_ema <= TRIGGER_PCT) {
+                    start_session("auto");
                 }
                 break;
+
             case ST_DOSING:
                 if (now - dose_start_ms >= dose_target_ms) {
                     pump_off();
-                    moisture_after = NAN;
-                    uptake_start_ms = now;
-                    state = ST_UPTAKE;
+                    enter_settle(now);
                 }
                 break;
-            case ST_UPTAKE:
-                // Doses locked out while wicking. ACK advances early; else the
-                // timer releases the lock. ABORT/leak still handled above.
-                if (b_ack.edge || now - uptake_start_ms >= UPTAKE_WAIT_MS) {
-                    moisture_after = last_soil.valid ? last_soil.pct : NAN;
-                    Serial.printf("[DOSE] #%d done: %d mL | before %.1f%% -> after %.1f%% | "
-                                  "delta %+.1f | session %d mL\n",
-                                  dose_count, dose_ml_target, moisture_before, moisture_after,
-                                  moisture_after - moisture_before, (int)session_ml);
-                    state = ST_MONITOR;
+
+            case ST_SETTLE:
+                if (b_ack.edge) {                       // force-advance (test)
+                    evaluate(now);
+                } else if (now - settle_start_ms >= SETTLE_MIN_MS) {
+                    if (!plateau_armed) {
+                        plateau_armed   = true;
+                        plateau_ref_pct = moist_ema;
+                        plateau_ref_ms  = now;
+                    } else if (now - plateau_ref_ms >= PLATEAU_WINDOW_MS) {
+                        if (fabsf(moist_ema - plateau_ref_pct) <= PLATEAU_SLOPE_PCT) {
+                            evaluate(now);               // plateaued
+                        } else {
+                            plateau_ref_pct = moist_ema; // still moving; re-arm window
+                            plateau_ref_ms  = now;
+                        }
+                    }
                 }
                 break;
+
+            case ST_GRACE:
+                if (b_ack.edge || now - grace_start_ms >= GRACE_MS) {
+                    if (moist_ema - stall_reading >= ABSORB_RISE_PCT) {
+                        Serial.println("[GRACE] recovered — resuming evaluate");
+                        evaluate(now);
+                    } else {
+                        stop_session("failed: not absorbing");
+                    }
+                }
+                break;
+
             default: break;
         }
     }
 
-    // ---- Account water delivered whenever we leave DOSING (normal or cut) ----
+    // ---- account water delivered whenever we leave DOSING ----
     if (prev == ST_DOSING && state != ST_DOSING) {
         session_ml += dose_delivered_ml();
     }
 
-    // ---- LEDs: green idle, yellow dosing, red fault ----
+    // ---- LEDs ----
     digitalWrite(LED_YELLOW, state == ST_DOSING);
     digitalWrite(LED_RED, state == ST_LEAK_FAULT || state == ST_STOPPED);
-    digitalWrite(LED_GREEN, state == ST_MONITOR || state == ST_UPTAKE);
+    digitalWrite(LED_GREEN, state == ST_MONITOR || state == ST_SETTLE || state == ST_GRACE);
 
     if (state != prev) publish_state();
 
-    // ---- Telemetry publish cadence ----
+    // ---- telemetry ----
     if (now >= publish_next_ms) {
         publish_soil(last_soil);
         publish_leak(last_leak);
@@ -432,16 +536,19 @@ void loop() {
         publish_next_ms = now + PUBLISH_MS;
     }
 
-    // ---- Heartbeat ----
+    // ---- heartbeat / progress ----
     if (now >= heartbeat_next_ms) {
         heartbeat++;
         publish_status(heartbeat);
-        if (state == ST_UPTAKE) {
-            unsigned long left = (UPTAKE_WAIT_MS - (now - uptake_start_ms)) / 1000UL;
-            Serial.printf("[UPTAKE] %lus left | soil %.1f%% (raw %u)\n",
-                          left, last_soil.pct, last_soil.raw);
+        if (state == ST_SETTLE) {
+            long since = (long)((now - settle_start_ms) / 1000UL);
+            Serial.printf("[SETTLE] %lds elapsed | soil %.1f%% (ema %.1f, raw %u)\n",
+                          since, last_soil.pct, moist_ema, last_soil.raw);
+        } else if (state == ST_GRACE) {
+            long left = (long)((GRACE_MS - (now - grace_start_ms)) / 1000UL);
+            Serial.printf("[GRACE] %lds left | soil %.1f%% vs stall %.1f%%\n",
+                          left, moist_ema, stall_reading);
         }
         heartbeat_next_ms = now + HEARTBEAT_MS;
     }
-    // No delay(): loop returns immediately.
 }
