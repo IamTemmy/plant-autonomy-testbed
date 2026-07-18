@@ -126,6 +126,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-104](#dl-104) | 2026-07-15 | Bottom-watering calibration session — first supervised root/tray watering via the Phase-5 harness; hours-long dose→probe lag confirmed, moisture scale found mis-anchored; probe recalibration and FSM rework deferred until the sand topdressing is installed | Active |
 | [DL-105](#dl-105) | 2026-07-16 | Fungus-gnat barrier + monitoring — bark removed, probe reseated, ~0.5"+ coarse sand laid (moisture baseline unchanged 2493→2491, barrier decoupled from sensing); two yellow sticky traps installed for adult monitoring; Bti held in reserve until the soil is moist enough for it to work | Active |
 | [DL-106](#dl-106) | 2026-07-18 | Soil-probe recalibration for the bottom-watering regime — new anchors dry/0%=2585, wet/100%=2250 (from observed raw extremes), replacing the top-water-era 2523/1953 that under-reported healthy soil and invited over-watering; both firmware files updated | Active |
+| [DL-107](#dl-107) | 2026-07-18 | Autonomous bottom-watering control loop — designed, implemented in the harness, and logic-validated via a fast-timings bench test (all paths + an overshoot bug found and fixed: target is now a hard stop); real-timings supervised cycle on the plant still pending soil dry-down | Active |
 
 ---
 
@@ -2927,6 +2928,29 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Validation.** _Pending flash._ Takes effect on the running board only after rebuild+upload; the calibration harness (currently flashed) reflects it on reflash, the integrated firmware on its next flash. Confirm post-flash that a known raw maps as expected (e.g. 2508 → ~23%).
 
 **Files.** `firmware/integrated/src/config.h`, `firmware/bottom-water-calibration/src/main.cpp`.
+
+---
+
+<a id="dl-107"></a>
+### DL-107 — Autonomous bottom-watering control loop (design, implementation, logic validation)
+
+**Date:** 2026-07-18 · **Status:** Active — logic validated; real-timings supervised cycle pending soil dry-down.
+
+**Context.** The bottom-watering work (informally "Phase 5") needed a real control loop to replace the top-water pulse FSM. Pump flow is characterized (1.0 mL/s, DL-048); the probe is recalibrated for the regime (2585/2250, DL-106); the sand barrier is decoupled from sensing (DL-105). The key constraint learned in DL-104: a bottom fill registers at the mid-column probe over *hours*, so the loop must wait a long settle and judge on the *trend*, never an early reading.
+
+**Design (signed off before code).** Parameters: trigger 20%, target 85%, dose 1 = 200 mL, supplement = 100 mL, absorption bar = 7% rise, settle = 3 h minimum then wait-for-plateau, grace = 1.5 h (one-time), session cap = 400 mL. Core idea: the probe doubles as an indirect tray-level sensor — a dose that does not raise moisture after a long settle means the tray is still holding water, so supplements fire *only* after a confirmed ≥7% rise. That absorption gate is the overflow protection; the session cap is the runaway backstop; leak/abort/reservoir are hard guards. Stall handling is a two-strike rule: <7% rise → alert + one 1.5 h grace re-check; recovered (≥7% vs the stall reading) → resume, else end + alert. Full spec captured out-of-repo and mirrored in the harness README.
+
+**Implementation.** `firmware/bottom-water-calibration/` rewritten from the guarded-manual harness into the autonomous loop (states monitor / dosing / settle / grace / stopped / leak / reservoir; EMA-smoothed decision variable; publishes on the normal topics so the dashboard and SQLite log everything). Committed `27ecaa7`; host syntax-checked and builds clean on the ESP32 toolchain. This remains a prototype; the validated loop ports into the integrated firmware later as the production watering FSM.
+
+**Logic validation (fast-timings bench test).** A throwaway build (settle 2 min, plateau 30 s, grace 1 min, doses 15/10 mL, uncommitted) exercised the machine in minutes with the pump directed into a bottle (not the pot) and the probe left in the soil (not disturbed, to preserve contact). Proven: monitor → dose → settle → plateau → evaluate; the stall → grace → failed path (probe flat because water went to the bottle); a hand-pour into the pot driving a real ≥7% rise; dose accounting, caps, and EMA smoothing (±15-count raw jitter smoothed to a steady decision value).
+
+**Bug found and fixed.** The hand-pour run exposed a real flaw: the target check lived only *inside* `evaluate()`, which runs only after a plateau — so a reading climbing past 85% while still rising never stopped (it drifted to ~99% before declaring done). On the real plant that is the over-water trap. Fix: make the target a **hard interrupt** at the top of both SETTLE and GRACE — the instant `moist_ema ≥ 85%`, evaluate and finish, without waiting for a plateau. Committed `26902cd`; re-verified on saturated soil (a session at 100% jumps straight to DONE on entering settle, no plateau wait).
+
+**Validation.** Logic paths validated as above (fast-timings). Also confirms DL-106: post-recalibration flash, raw ~2508 mapped to ~22% as predicted. **Still pending:** one real-timings supervised watering cycle on the plant — which additionally validates the plateau constants (`PLATEAU_WINDOW`/`SLOPE`) against real wick physics. It is gated on the soil drying back below 20%; the pot is currently ~100% from test hand-watering, so a natural multi-day gap precedes that run.
+
+**Open / follow-ups.** (1) Plateau-constant tuning — risk of a premature supplement if a slow real wick flattens briefly below target; the real cycle tests it. (2) Port the loop into the integrated firmware as the production FSM (replacing the top-water pulse logic). (3) Maintenance-mode alert suppression (the "moisture rose" false positive during recal) — separate integrated-alerter task, deferred. (4) Holding state: the harness auto-triggers at ≤20%, so between now and the supervised cycle the board should not be left free-running unsupervised.
+
+**Files.** `firmware/bottom-water-calibration/src/main.cpp`, `firmware/bottom-water-calibration/README.md` (implementation `27ecaa7`, fix `26902cd`).
 
 ---
 
