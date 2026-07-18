@@ -67,6 +67,7 @@ _BANNER_PALETTE = {
 }
 
 MAINT_CMD_TOPIC = "plant/cmd/maintenance"
+DOSE_CMD_TOPIC = "plant/cmd/dose"   # bottom-watering harness: "start" | "abort" (DL-110)
 
 _FAULT_STATES = {"leak_fault", "stopped", "watering_fault"}
 
@@ -225,6 +226,24 @@ def send_maintenance_cmd(value: str) -> bool:
     try:
         mqtt_publish.single(
             MAINT_CMD_TOPIC, value, hostname="localhost",
+            auth={"username": user, "password": password},
+        )
+        return True
+    except Exception as e:
+        st.error(f"Could not send command: {e}")
+        return False
+
+def send_dose_cmd(value: str) -> bool:
+    """Publish a bottom-watering command ('start' | 'abort') to the harness.
+    Mirrors send_maintenance_cmd. No effect unless the harness firmware is running."""
+    user = os.environ.get("MQTT_USER")
+    password = os.environ.get("MQTT_PASS")
+    if not user or not password:
+        st.error("MQTT credentials are not available to the dashboard service.")
+        return False
+    try:
+        mqtt_publish.single(
+            DOSE_CMD_TOPIC, value, hostname="localhost",
             auth={"username": user, "password": password},
         )
         return True
