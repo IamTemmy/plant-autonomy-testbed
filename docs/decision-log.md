@@ -130,6 +130,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-108](#dl-108) | 2026-07-18 | AI-use transparency disclosure — added `docs/ai-use.md` (what AI did, what the author did, the human-in-the-loop working model, traceability via the decision log) with a README pointer | Active |
 | [DL-109](#dl-109) | 2026-07-18 | ntfy push alerts for the bottom-watering loop — the listener forwards the harness's session `reason` to the alerter, which pushes once per new alert-worthy outcome (stalled / failed / capped / reservoir / leak / done); validated live | Active |
 | [DL-110](#dl-110) | 2026-07-18 | Dashboard Start/Abort watering buttons on the Controls page — a `send_dose_cmd` helper (mirroring the maintenance toggle) publishes `start`/`abort` to `plant/cmd/dose`; the UI half of the harness's dual trigger | Active |
+| [DL-111](#dl-111) | 2026-07-18 | README currency — added Phase 5 (root/bottom watering, in progress) to the status table, corrected the "watering autonomously" claim to reflect the rework, and added a bottom-watering roadmap entry | Active |
 
 ---
 
@@ -3005,6 +3006,19 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Validation.** Deployed (`dash_common.py` + `dash_pages/controls.py`, `plant-dashboard` restarted). The Controls page renders the new section and buttons; clicking **Start** returned the success confirmation ("Sent 'start'"), so the publish path (dashboard → `plant/cmd/dose`) works. No pump action, as expected — the board is on integrated firmware (which ignores the topic); full end-to-end will prove out at the first real cycle with the harness flashed.
 
 **Files.** `hub/06-dashboard/dash_common.py`, `hub/06-dashboard/dash_pages/controls.py`.
+
+---
+
+<a id="dl-111"></a>
+### DL-111 — README currency: Phase 5 and the watering rework
+
+**Date:** 2026-07-18 · **Status:** Active.
+
+**Context.** The README still framed the system as "operational and watering autonomously" and its phase table stopped at Phase 4, with the roadmap listing only vision / lighting / security — none of which reflected the bottom-watering work of DL-104–110. With the top-water FSM parked in maintenance and the bottom-water loop a validated prototype (not yet production), the front-of-repo overstated the current watering state.
+
+**Decision.** Three currency edits: (1) softened the status line to "operational" with sensing/telemetry/dashboard/camera/lighting live and autonomous watering noted as under rework (prototype validated, production port pending); (2) added a **Phase 5 — in progress** row (root/bottom watering: recalibration, the autonomous control loop, alerts, dashboard control); (3) added a bottom-watering roadmap entry stating what remains — one real supervised cycle to tune plateau timing, then porting the loop into the integrated firmware as the production FSM. No behavior change; documentation only.
+
+**Files.** `README.md`.
 
 ---
 

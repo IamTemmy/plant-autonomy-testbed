@@ -14,7 +14,7 @@ It originated from an engineering interview question — *"how would you design 
 
 ## Project status
 
-The system is **operational and watering autonomously**. Development has run in phases:
+The system is **operational** — sensing, telemetry, dashboard, camera, and lighting are live; autonomous watering is being reworked for a root/bottom-watering regime (prototype validated, production port pending). Development has run in phases:
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -22,6 +22,7 @@ The system is **operational and watering autonomously**. Development has run in 
 | **Phase 2** | Integrated ESP32-WROVER firmware — sensing, the watering state machine, dosing, fault detection | ✅ Complete |
 | **Phase 3** | Raspberry Pi telemetry hub — MQTT broker, database, live dashboard | ✅ Complete |
 | **Phase 4** | Camera vision node — XIAO ESP32-S3 Sense capture, Pi-side greenness metrics, dashboard panel | ✅ Complete |
+| **Phase 5** | Root/bottom watering — probe recalibration, an autonomous dose→settle→evaluate control loop (prototype validated), phone alerts + dashboard control | 🚧 In progress |
 | **Next** | Adaptive lighting, security hardening | 🔜 Roadmap |
 
 ## Engineering framing
@@ -112,6 +113,7 @@ This project was built with AI assistance (Anthropic's Claude), used as a design
 
 ## Roadmap
 
+- **Autonomous bottom watering** — the sense → dose → settle → evaluate loop is built and logic-validated in a standalone harness (DL-104–110), with recalibrated moisture anchors, ntfy alerts, and dashboard start/abort control. What remains: one real supervised watering cycle (to tune plateau-detection timing against real, hours-long wicking) and then porting the loop into the integrated firmware as the production watering FSM, retiring the top-water pulse logic.
 - **Vision analysis** — the Seeed XIAO ESP32-S3 Sense node (replacing the original ESP32-CAM, DL-034) and Pi-side greenness metrics are live (DL-076–090); what remains is turning the greenness trend into growth/health analysis beyond foliage-area-in-frame.
 - **Adaptive lighting** — supplement the photoperiod from the BH1750 against a daily-light-integral target, rather than a fixed schedule.
 - **Security hardening** — dashboard authentication and MQTT over TLS.
