@@ -27,7 +27,11 @@ static State state = ST_MONITORING;
 // Maintenance mode persists across reboots so an intentional watering pause
 // (e.g. a dry-down for pest control) survives a power blip (DL-089).
 static Preferences prefs;
+// Cached maintenance flag, updated ONLY here so the runtime view and the NVS
+// value can never drift (the divergence fixed in DL-113).
+static bool s_maint = false;
 static void maint_persist(bool on) {
+    s_maint = on;
     prefs.begin("plant", false);
     prefs.putBool("maint", on);
     prefs.end();
@@ -202,7 +206,8 @@ void fsm_begin() {
 
     last_tick_ms = millis();
     daily_window_start_ms = millis();
-    if (maint_load()) {
+    s_maint = maint_load();
+    if (s_maint) {
         state = ST_MAINTENANCE;
         Serial.println("[FSM] init -> maintenance (restored from NVS)");
     } else {
@@ -277,14 +282,16 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
         pump_off();
         state = ST_STOPPED;
     } else if (state == ST_LEAK_FAULT) {
-        // Latched: clears only on ACK, and only once the leak has cleared.
-        if (btn_ack.pressed_edge && !leak.detected) state = ST_MONITORING;
+        // Latched: clears only on ACK, and only once the leak has cleared. If the
+        // fault interrupted a maintenance pause, return to it (DL-113).
+        if (btn_ack.pressed_edge && !leak.detected)
+            state = s_maint ? ST_MAINTENANCE : ST_MONITORING;
     } else if (state == ST_STOPPED) {
         // Latched: clears only on ACK.
-        if (btn_ack.pressed_edge) state = ST_MONITORING;
+        if (btn_ack.pressed_edge) state = s_maint ? ST_MAINTENANCE : ST_MONITORING;
     } else if (state == ST_WATERING_FAULT) {
         // Latched: soil never responded to watering. Clear on ACK once fixed.
-        if (btn_ack.pressed_edge) state = ST_MONITORING;
+        if (btn_ack.pressed_edge) state = s_maint ? ST_MAINTENANCE : ST_MONITORING;
     } else if (state == ST_MAINTENANCE) {
         // Intentional pause (DL-089): watering disabled; a long-press of MANUAL
         // resumes. Not a fault -- safety (leak/stop) is still checked above.
