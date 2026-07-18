@@ -483,7 +483,9 @@ void loop() {
                 break;
 
             case ST_SETTLE:
-                if (b_ack.edge) {                       // force-advance (test)
+                if (moist_ema >= TARGET_PCT) {           // target is a hard stop — do not wait for plateau
+                    evaluate(now);
+                } else if (b_ack.edge) {                 // force-advance (test)
                     evaluate(now);
                 } else if (now - settle_start_ms >= SETTLE_MIN_MS) {
                     if (!plateau_armed) {
@@ -502,7 +504,9 @@ void loop() {
                 break;
 
             case ST_GRACE:
-                if (b_ack.edge || now - grace_start_ms >= GRACE_MS) {
+                if (moist_ema >= TARGET_PCT) {           // target reached during grace — done now
+                    evaluate(now);
+                } else if (b_ack.edge || now - grace_start_ms >= GRACE_MS) {
                     if (moist_ema - stall_reading >= ABSORB_RISE_PCT) {
                         Serial.println("[GRACE] recovered — resuming evaluate");
                         evaluate(now);
