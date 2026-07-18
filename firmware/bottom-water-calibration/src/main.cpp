@@ -52,8 +52,8 @@ static constexpr uint16_t ADC_MAX = 4095;
 static constexpr uint8_t  SOIL_SAMPLES       = 16;
 static constexpr uint16_t SOIL_RAW_VALID_MIN = 800;
 static constexpr uint16_t SOIL_RAW_VALID_MAX = 3200;
-static constexpr uint16_t SOIL_RAW_DRY       = 2523;  // 0% anchor (dry potting mix)
-static constexpr uint16_t SOIL_RAW_WET       = 1953;  // 100% anchor (~30 min post-water)
+static constexpr uint16_t SOIL_RAW_DRY       = 2585;  // 0% anchor: drought floor (DL-106)
+static constexpr uint16_t SOIL_RAW_WET       = 2250;  // 100% anchor: healthy-wet w/ headroom (DL-106)
 
 // Leak (DL-026). Conductive pads: HIGHER raw = WETTER.
 static constexpr uint8_t  LEAK_SAMPLES   = 16;

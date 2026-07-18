@@ -125,6 +125,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-103](#dl-103) | 2026-07-10 | Pi-vs-repo deployment reconciliation — hash-compare the flat `/home/basilpi/plant-hub/` deploy against origin; all runtime code current, two stale non-runtime files refreshed | Active |
 | [DL-104](#dl-104) | 2026-07-15 | Bottom-watering calibration session — first supervised root/tray watering via the Phase-5 harness; hours-long dose→probe lag confirmed, moisture scale found mis-anchored; probe recalibration and FSM rework deferred until the sand topdressing is installed | Active |
 | [DL-105](#dl-105) | 2026-07-16 | Fungus-gnat barrier + monitoring — bark removed, probe reseated, ~0.5"+ coarse sand laid (moisture baseline unchanged 2493→2491, barrier decoupled from sensing); two yellow sticky traps installed for adult monitoring; Bti held in reserve until the soil is moist enough for it to work | Active |
+| [DL-106](#dl-106) | 2026-07-18 | Soil-probe recalibration for the bottom-watering regime — new anchors dry/0%=2585, wet/100%=2250 (from observed raw extremes), replacing the top-water-era 2523/1953 that under-reported healthy soil and invited over-watering; both firmware files updated | Active |
 
 ---
 
@@ -2907,6 +2908,25 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Validation.** Pre/post readings captured live from `plant/sensors/soil` (2493→2491); plant healthy, surface now dry sand, two traps up. Effectiveness against gnats is a forward observation (trap counts over the coming days), not yet measured.
 
 **Files / images.** `docs/images/sand-barrier-before.jpg` (bark-chip surface, pre-sand), `docs/images/sand-barrier-after.jpg` (coarse sand laid, post-reseat), `docs/images/sticky-traps.jpg` (two traps installed).
+
+---
+
+<a id="dl-106"></a>
+### DL-106 — Soil-probe recalibration for the bottom-watering regime
+
+**Date:** 2026-07-18 · **Status:** Active.
+
+**Context.** DL-104 found the moisture scale mis-anchored: the live anchors (dry 2523 / wet 1953, DL-020) came from *top*-watering — the wet anchor being a ~30-min post-water saturation spike. On that scale a thriving, well-watered plant read only ~11%, so "healthy" looked nearly dry, which historically invited over-watering (and the resulting sogginess favored the fungus gnats). DL-104/105 deferred recalibration until the sand config was frozen (now done, DL-105, and the sand is confirmed decoupled from the probe). This entry sets new anchors from the plant's own logged behavior rather than waiting on a fresh controlled dry-down.
+
+**Data.** From ~2 weeks of `soil_raw` history (device `soil`): driest sustained reading while visibly drooping/thirsty ≈ **2585** (a lone 2624 spike on 07-11 discarded as a single sample); wettest reading ever recorded ≈ **2401** (07-17, during healthy equilibration, surface still dry — not a soggy state). The plant's healthy plateau sat ~2445–2465. So real dry is well *below* the old 2523 anchor (everything 2523–2585 had been clamping to 0%), and the soil never approached the old 1953 wet anchor.
+
+**Decision.** New anchors: **dry / 0% = 2585**, **wet / 100% = 2250**. The dry anchor is the observed drought floor. The wet anchor is a deliberated compromise (operator preferred more headroom than the observed 2401; assistant preferred anchoring nearer observation): 2250 sits ~150 counts wetter than anything recorded, giving room without a saturation-era number. Consequence to read the scale by: healthy plateau (~2450) now reads ~40%, today's 2508 ~23%, wettest-ever 2401 ~55% — so on this scale "well-watered and healthy" lives around **40–55%**, not 80–90%, and watering targets must be set in that frame (this is intentional headroom, not under-reporting). Explicitly provisional: if the plant responds differently than the numbers imply, re-anchor from new data.
+
+**Implementation.** `SOIL_RAW_DRY 2523→2585`, `SOIL_RAW_WET 1953→2250` in **both** places that compute the map: `firmware/integrated/src/config.h` (production) and `firmware/bottom-water-calibration/src/main.cpp` (the live harness). The hub does not recompute — `listener.py` stores the firmware's `moisture_pct` verbatim — so no Pi-side change. The raw-unit watering thresholds in `config.h` (trigger/stop) are *not* touched here; they belong to the top-water FSM being replaced and will be reset in the watering-logic rework.
+
+**Validation.** _Pending flash._ Takes effect on the running board only after rebuild+upload; the calibration harness (currently flashed) reflects it on reflash, the integrated firmware on its next flash. Confirm post-flash that a known raw maps as expected (e.g. 2508 → ~23%).
+
+**Files.** `firmware/integrated/src/config.h`, `firmware/bottom-water-calibration/src/main.cpp`.
 
 ---
 

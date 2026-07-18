@@ -100,7 +100,7 @@ static constexpr float BME280_PRES_MAX_HPA = 1100.0f;
 static constexpr float BH1750_LUX_MIN = 0.0f;
 static constexpr float BH1750_LUX_MAX = 100000.0f;
 // Soil: samples to average per read, and plausible raw band (DL-020). Outside
-// this band the probe is likely disconnected. Air ~2854, dry ~2523, wet ~1953.
+// this band the probe is likely disconnected. Air ~2854, dry ~2585, wet ~2250.
 static constexpr uint8_t  SOIL_SAMPLES        = 16;
 static constexpr uint16_t SOIL_RAW_VALID_MIN  = 800;
 static constexpr uint16_t SOIL_RAW_VALID_MAX  = 3200;
@@ -112,10 +112,11 @@ static constexpr bool     FLOAT_EMPTY_WHEN_CLOSED = true;
 // ---- Calibration: MEASURED references from the decision log ---------------
 // These describe what the hardware reads in known conditions. Do not invent.
 
-// Soil moisture (DL-020). Capacitive: LOWER raw count = WETTER soil.
+// Soil moisture (DL-020, recalibrated DL-106 for bottom watering + sand).
+// Capacitive: LOWER raw count = WETTER soil.
 static constexpr uint16_t SOIL_RAW_DRY_AIR = 2854;  // probe in air (reference only)
-static constexpr uint16_t SOIL_RAW_DRY     = 2523;  // dry potting mix
-static constexpr uint16_t SOIL_RAW_WET     = 1953;  // ~30 min post-watering
+static constexpr uint16_t SOIL_RAW_DRY     = 2585;  // 0%: sustained drought floor (drooping, DL-104)
+static constexpr uint16_t SOIL_RAW_WET     = 2250;  // 100%: healthy-wet ceiling w/ headroom (DL-106; wettest observed ~2401)
 
 // Leak sensor (DL-026). Conductive pads: HIGHER raw count = WETTER.
 // NOTE: opposite polarity from soil moisture — guard against inverted logic.
