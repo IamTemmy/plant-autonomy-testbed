@@ -7,8 +7,8 @@
  * event / presence is a later slice. WiFi loss is non-fatal — captures are
  * skipped while down and resume on reconnect.
  *
- * Capture cadence is a short TEST value (config.h); the deployment cadence
- * (hourly, photoperiod-gated) is a later slice.
+ * Capture cadence is the deployment value in config.h (hourly); photoperiod
+ * gating (capture only during the lit window) is enforced Pi-side (DL-082).
  */
 #include <Arduino.h>
 

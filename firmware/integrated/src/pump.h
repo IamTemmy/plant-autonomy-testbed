@@ -1,8 +1,7 @@
 #pragma once
-// Pump actuator (GPIO25 via MOSFET). STUBBED for now: pump_on/off log and
-// track state but do NOT drive the GPIO, so the watering state machine can be
-// validated with zero water risk. Real output is enabled only after the logic
-// is validated and the pump is calibrated (mL/s). See DL-046.
+// Pump actuator (GPIO25 via MOSFET). LIVE: pump_on/off drive the gate and track
+// state. (Originally stubbed for dry FSM validation, DL-046; real GPIO output was
+// enabled once the logic was validated and flow characterized at 1.0 mL/s, DL-048.)
 
 void pump_begin();
 void pump_on();

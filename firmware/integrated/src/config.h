@@ -129,8 +129,15 @@ static constexpr uint16_t LEAK_RAW_DRY = 0;  // clean dry baseline
 
 // Soil: water when raw RISES to/above TRIGGER (drying out); stop when it
 // FALLS to/below STOP (re-wetted). Hysteresis prevents toggling. (DL-020)
-static constexpr uint16_t SOIL_THRESHOLD_TRIGGER = 2352;  // start watering at/above (~30%, DL-073)
-static constexpr uint16_t SOIL_THRESHOLD_STOP    = 2200;  // stop watering at/below
+//
+// ⚠ LEGACY / STALE (DL-114): these raw thresholds were tuned for the OLD
+// 2523/1953 calibration. Under the current 2585/2250 anchors (DL-106) they now
+// map to ~70% (trigger) and >100% (stop, unreachable) — NOT valid for the new
+// scale. They belong to the top-water pulse FSM that is being retired for the
+// bottom-watering loop. Re-tune or remove BEFORE that FSM is ever re-enabled
+// (it is reachable only outside maintenance mode).
+static constexpr uint16_t SOIL_THRESHOLD_TRIGGER = 2352;  // legacy: ~30% @ old cal, ~70% @ new (DL-073)
+static constexpr uint16_t SOIL_THRESHOLD_STOP    = 2200;  // legacy: ~57% @ old cal, >100% @ new
 
 // Leak: enter CRITICAL at/above this; latched until ACK button. (DL-026)
 static constexpr uint16_t LEAK_THRESHOLD = 200;

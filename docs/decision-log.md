@@ -133,6 +133,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-111](#dl-111) | 2026-07-18 | README currency — added Phase 5 (root/bottom watering, in progress) to the status table, corrected the "watering autonomously" claim to reflect the rework, and added a bottom-watering roadmap entry | Active |
 | [DL-112](#dl-112) | 2026-07-18 | Decided **not** to suppress alerts during maintenance mode — a real leak/unexplained-rise/offline event is more likely, not less, while hands-on with the hardware; occasional predictable false positives are the acceptable price of not muting a real one | Active |
 | [DL-113](#dl-113) | 2026-07-18 | Fixed the maintenance NVS/runtime divergence — a fault preempting maintenance then ACKed used to drop runtime to monitoring while NVS kept `maint=true` (reboot silently re-entered maintenance); fault-ACK now returns to maintenance if that's where it was interrupted, cached at the single persist point so they can't drift | Active |
+| [DL-114](#dl-114) | 2026-07-18 | Repo audit — firmware comment/safety fixes: corrected `pump.h`'s false "STUBBED" header (the pump is live), flagged the legacy top-water thresholds as miscalibrated under the new 2585/2250 anchors (latent over-water risk if the old FSM is re-enabled), and refreshed the stale camera-cadence comment | Active |
 
 ---
 
@@ -3053,6 +3054,24 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Validation.** Built clean, flashed; booted `[FSM] init -> maintenance (restored from NVS)`. Behavioral test on hardware: with the board in maintenance, a leak fault was triggered, then ACKed after the pad dried — the FSM returned to **maintenance** (not monitoring), and a subsequent reboot came up still in maintenance. Runtime and NVS confirmed consistent; the divergence is resolved.
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-114"></a>
+### DL-114 — Repo audit: firmware comment and safety-annotation fixes
+
+**Date:** 2026-07-18 · **Status:** Active.
+
+**Context.** A full-repo consistency scan (decision-log parity, calibration/topic/credential consistency, artifacts, links) came back mostly clean but surfaced three stale/misleading firmware comments, one of them with a real latent hazard.
+
+**Fixes.**
+1. **`pump.h` header was false.** It described the pump as "STUBBED … do NOT drive the GPIO" (a DL-046 dry-validation leftover), but `pump.cpp` drives GPIO25 and real watering has run since flow was characterized (DL-048). Corrected the header to state the pump is live, with the stub history noted.
+2. **Legacy top-water thresholds are miscalibrated under the new anchors (the one with teeth).** `SOIL_THRESHOLD_TRIGGER = 2352` was commented "~30%," true under the old 2523/1953 calibration; under the current 2585/2250 anchors (DL-106) raw 2352 is ~70% and the stop threshold (2200) is >100% (unreachable). If the retiring top-water pulse FSM were ever re-enabled (reachable only outside maintenance) it would water at ~70% and never stop — continuous over-watering. Added a prominent warning at the thresholds flagging them legacy/stale and to re-tune or remove before that FSM is re-enabled; corrected the percentage annotations. No values changed (the FSM is being replaced, and the board sits in maintenance).
+3. **Camera-node header comment stale.** It called the capture cadence "a short TEST value" and hourly/photoperiod gating "a later slice," but `config.h` is hourly (`CAPTURE_INTERVAL_MS = 3600000`) and photoperiod gating is live (DL-082, confirmed in the camera data). Refreshed to reflect reality.
+
+**Scan result (clean, for the record).** Decision-log parity 114/114 with no ID gaps and all cross-refs valid; soil anchors identical across both firmwares; MQTT topics consistent firmware↔hub; `MQTT_USER`/`MQTT_PASS` consistent across services; README links resolve; no stray build artifacts; fast-timings test edits never committed.
+
+**Files.** `firmware/integrated/src/pump.h`, `firmware/integrated/src/config.h`, `firmware/camera-node/src/main.cpp`.
 
 ---
 
