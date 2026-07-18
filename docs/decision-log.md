@@ -134,6 +134,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-112](#dl-112) | 2026-07-18 | Decided **not** to suppress alerts during maintenance mode — a real leak/unexplained-rise/offline event is more likely, not less, while hands-on with the hardware; occasional predictable false positives are the acceptable price of not muting a real one | Active |
 | [DL-113](#dl-113) | 2026-07-18 | Fixed the maintenance NVS/runtime divergence — a fault preempting maintenance then ACKed used to drop runtime to monitoring while NVS kept `maint=true` (reboot silently re-entered maintenance); fault-ACK now returns to maintenance if that's where it was interrupted, cached at the single persist point so they can't drift | Active |
 | [DL-114](#dl-114) | 2026-07-18 | Repo audit — firmware comment/safety fixes: corrected `pump.h`'s false "STUBBED" header (the pump is live), flagged the legacy top-water thresholds as miscalibrated under the new 2585/2250 anchors (latent over-water risk if the old FSM is re-enabled), and refreshed the stale camera-cadence comment | Active |
+| [DL-115](#dl-115) | 2026-07-18 | CHANGELOG currency — brought the `[Unreleased]` section current from DL-101 through DL-114 (bottom-watering firmware, recalibration, ntfy alerts, dashboard buttons, ai-use disclosure, maintenance fix, audit fixes) | Active |
 
 ---
 
@@ -3072,6 +3073,24 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Scan result (clean, for the record).** Decision-log parity 114/114 with no ID gaps and all cross-refs valid; soil anchors identical across both firmwares; MQTT topics consistent firmware↔hub; `MQTT_USER`/`MQTT_PASS` consistent across services; README links resolve; no stray build artifacts; fast-timings test edits never committed.
 
 **Files.** `firmware/integrated/src/pump.h`, `firmware/integrated/src/config.h`, `firmware/camera-node/src/main.cpp`.
+
+---
+
+<a id="dl-115"></a>
+### DL-115 — CHANGELOG currency (DL-101 → DL-114)
+
+**Date:** 2026-07-18 · **Status:** Active.
+
+**Context.** The audit (DL-114) found the root `CHANGELOG.md` `[Unreleased]` section stopped at DL-101 — 13 decision-log entries behind. The changelog's stated purpose is tracking repository-level (file / structure / tooling) changes, and much of the recent work added or changed tracked files, so the gap was a real currency lapse.
+
+**Decision.** Brought `[Unreleased]` current, adding entries in the existing grouped Keep-a-Changelog format (newest first), each citing its `DL-NNN`:
+- **Added** — the bottom-watering harness / autonomous loop firmware (DL-104/107), `docs/ai-use.md` (DL-108), ntfy watering alerts (DL-109), dashboard Start/Abort buttons (DL-110), and the gnat-control images (DL-105).
+- **Changed** — the soil recalibration to 2585/2250 (DL-106) and the README Phase-5 currency (DL-111).
+- **Fixed** — the maintenance NVS/runtime divergence (DL-113), the audit comment/safety fixes (DL-114), and the earlier documentation audit (DL-102).
+
+Decision-only or deployment-only entries with no repo file change (DL-103, DL-112) were intentionally omitted, consistent with the changelog's file-level scope.
+
+**Files.** `CHANGELOG.md`.
 
 ---
 

@@ -10,6 +10,16 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Added
 
+- Dashboard **Start/Abort watering** buttons on the Controls page, with a `send_dose_cmd` helper publishing `start`/`abort` to `plant/cmd/dose` — the UI half of the bottom-watering harness's dual trigger (DL-110).
+
+- **ntfy push alerts for the bottom-watering loop** (DL-109): the listener forwards the harness's session `reason` to `alerter.on_watering_state`, which pushes once per new alert-worthy outcome (stalled / failed / capped / reservoir / leak / done).
+
+- **`docs/ai-use.md`** — AI-use transparency disclosure (what AI did, what the author did, the human-in-the-loop working model, traceability via the decision log), linked from the README (DL-108).
+
+- **Bottom-watering firmware** `firmware/bottom-water-calibration/` — a standalone PlatformIO project: first a guarded-manual calibration harness (DL-104), then rewritten into the autonomous dose→settle→evaluate control loop with leak/abort/reservoir guards, dose/session caps, and a target-as-hard-stop (DL-107).
+
+- Fungus-gnat control documentation images — `docs/images/sand-barrier-before.jpg`, `sand-barrier-after.jpg`, `sticky-traps.jpg` (DL-105).
+
 - Dashboard maintenance toggle button (DL-094, slice 2): a state-aware control that publishes the same `plant/cmd/maintenance` command — the dashboard's first action control, scoped to maintenance only, with DB access still read-only.
 
 - Remote maintenance command (DL-093, slice 1): the WROVER now subscribes to `plant/cmd/maintenance` and toggles the intentional pause on `on`/`off` — its first inbound MQTT command, scoped to that one topic so it can never drive the pump.
@@ -64,6 +74,10 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Changed
 
+- **Soil-moisture recalibration for bottom watering** (DL-106): `SOIL_RAW_DRY`/`SOIL_RAW_WET` changed 2523/1953 → 2585/2250 in both `firmware/integrated/src/config.h` and the calibration harness, replacing the top-water-era anchors that under-reported healthy soil and invited over-watering.
+
+- README currency (DL-111): added **Phase 5** (root/bottom watering, in progress) to the status table and a bottom-watering roadmap entry, and corrected the "watering autonomously" status line to reflect the rework.
+
 - Dashboard per-page refresh cadence (DL-100): replaced the single global `st_autorefresh` with a per-page rate — Overview/Controls 30 s, Watering/Grow light 60 s, Camera 5 min — each keyed and tuned to that page's data rate, cutting redraws on the slow pages.
 
 - Top-level and dashboard-service README corrections (DL-099): trued-up the root README's dashboard summary (read-only over data, one scoped MQTT-publishing control) and repointed its images; noted in the service README that the dashboard loads MQTT credentials via its `EnvironmentFile` (DL-094) and that Tailscale remote access (DL-038) is already in place, leaving only HTTPS / dashboard-auth outstanding.
@@ -90,6 +104,12 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 - Button C reassigned GPIO35 → GPIO26 (GPIO35 has no internal pull-up; GPIO26 was freed by the DL-010 grow-light architecture).
 
 ### Fixed
+
+- **Maintenance NVS/runtime divergence** (DL-113): in `fsm.cpp`, a fault preempting maintenance and then ACKed used to leave runtime in monitoring while NVS kept `maint=true`, so a reboot silently re-entered maintenance. Fault-ACK now returns to maintenance if that is where it was interrupted, cached at the single persist point so the two cannot drift.
+
+- Stale firmware comments (DL-114): corrected `pump.h`'s false "STUBBED" header (the pump is live), flagged the legacy top-water thresholds in `config.h` as miscalibrated under the new anchors (a latent over-water risk if that FSM is re-enabled), and refreshed the camera-node cadence comment.
+
+- Documentation-consistency audit (DL-102): corrected README component counts and camera / grow-light / layout references, backfilled this changelog (DL-095–101), and refreshed the explainer index and several module READMEs.
 
 - Dashboard deprecation warnings (DL-101): replaced all 11 `use_container_width=True` calls with Streamlit's recommended `width="stretch"` across the dashboard pages, clearing the per-refresh deprecation warnings from the service journal; removed the now-obsolete log-noise note from the dashboard-service README.
 
