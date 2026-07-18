@@ -132,6 +132,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-110](#dl-110) | 2026-07-18 | Dashboard Start/Abort watering buttons on the Controls page — a `send_dose_cmd` helper (mirroring the maintenance toggle) publishes `start`/`abort` to `plant/cmd/dose`; the UI half of the harness's dual trigger | Active |
 | [DL-111](#dl-111) | 2026-07-18 | README currency — added Phase 5 (root/bottom watering, in progress) to the status table, corrected the "watering autonomously" claim to reflect the rework, and added a bottom-watering roadmap entry | Active |
 | [DL-112](#dl-112) | 2026-07-18 | Decided **not** to suppress alerts during maintenance mode — a real leak/unexplained-rise/offline event is more likely, not less, while hands-on with the hardware; occasional predictable false positives are the acceptable price of not muting a real one | Active |
+| [DL-113](#dl-113) | 2026-07-18 | Fixed the maintenance NVS/runtime divergence — a fault preempting maintenance then ACKed used to drop runtime to monitoring while NVS kept `maint=true` (reboot silently re-entered maintenance); fault-ACK now returns to maintenance if that's where it was interrupted, cached at the single persist point so they can't drift | Active |
 
 ---
 
@@ -3035,6 +3036,23 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Scope.** No code change. Leak/fault/offline/external-watering/grow-light alerts all remain active during maintenance. The recal-induced false positive is accepted as expected, self-explanatory noise.
 
 **Files.** None — decision recorded only.
+
+---
+
+<a id="dl-113"></a>
+### DL-113 — Fix: maintenance-mode NVS/runtime state divergence
+
+**Date:** 2026-07-18 · **Status:** Active.
+
+**Context.** Maintenance is persisted to NVS (`maint_persist(true/false)`) and restored at boot (`maint_load`). But the safety-first block lets a leak/stop fault preempt *any* state — including maintenance — flipping the runtime `state` to a fault without touching NVS. The fault-ACK handlers then cleared to `ST_MONITORING`, also without touching NVS. Net result after a fault that interrupted maintenance: runtime = monitoring, NVS = `maint=true`. The two disagreed, and a reboot silently restored maintenance — surprising the operator, who believed they were back in monitoring.
+
+**Decision (Fix B — preserve the pause).** On fault-ACK, return to `ST_MAINTENANCE` if that is where the fault interrupted, otherwise `ST_MONITORING`. Rationale over the alternative ("a fault ends the maintenance session, resume monitoring"): maintenance is a *deliberate* pause, often with hands on the hardware, so a transient fault should not silently un-pause watering — after clearing the fault the operator stays paused and resumes explicitly. This also makes the reboot behavior correct rather than surprising: the board was still intentionally in maintenance.
+
+**Implementation.** Added a cached `s_maint` bool updated *only* inside `maint_persist()` (and seeded from `maint_load()` at init), so the runtime view and NVS cannot drift. All three fault-ACK sites (`ST_LEAK_FAULT`, `ST_STOPPED`, `ST_WATERING_FAULT`) now resolve to `s_maint ? ST_MAINTENANCE : ST_MONITORING`. Non-maintenance faults behave exactly as before (s_maint false → monitoring).
+
+**Validation.** Built clean, flashed; booted `[FSM] init -> maintenance (restored from NVS)`. Behavioral test on hardware: with the board in maintenance, a leak fault was triggered, then ACKed after the pad dried — the FSM returned to **maintenance** (not monitoring), and a subsequent reboot came up still in maintenance. Runtime and NVS confirmed consistent; the divergence is resolved.
+
+**Files.** `firmware/integrated/src/fsm.cpp`.
 
 ---
 
