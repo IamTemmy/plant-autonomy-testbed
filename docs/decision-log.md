@@ -128,6 +128,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-106](#dl-106) | 2026-07-18 | Soil-probe recalibration for the bottom-watering regime — new anchors dry/0%=2585, wet/100%=2250 (from observed raw extremes), replacing the top-water-era 2523/1953 that under-reported healthy soil and invited over-watering; both firmware files updated | Active |
 | [DL-107](#dl-107) | 2026-07-18 | Autonomous bottom-watering control loop — designed, implemented in the harness, and logic-validated via a fast-timings bench test (all paths + an overshoot bug found and fixed: target is now a hard stop); real-timings supervised cycle on the plant still pending soil dry-down | Active |
 | [DL-108](#dl-108) | 2026-07-18 | AI-use transparency disclosure — added `docs/ai-use.md` (what AI did, what the author did, the human-in-the-loop working model, traceability via the decision log) with a README pointer | Active |
+| [DL-109](#dl-109) | 2026-07-18 | ntfy push alerts for the bottom-watering loop — the listener forwards the harness's session `reason` to the alerter, which pushes once per new alert-worthy outcome (stalled / failed / capped / reservoir / leak / done); validated live | Active |
 
 ---
 
@@ -2969,6 +2970,25 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Validation.** `docs/ai-use.md` present and linked from the README; content reviewed and corrected by the author (the same human-in-the-loop review the document describes).
 
 **Files.** `docs/ai-use.md`, `README.md`.
+
+---
+
+<a id="dl-109"></a>
+### DL-109 — ntfy push alerts for the bottom-watering loop
+
+**Date:** 2026-07-18 · **Status:** Active.
+
+**Context.** The bottom-watering harness (DL-107) surfaced session outcomes only on serial and the dashboard state — no phone push. For the eventual multi-hour supervised (and later unattended) cycles, the operator wants a notification when a session needs attention or completes.
+
+**Decision.** Event-driven, reusing the existing ntfy plumbing (`alerter.notify`, safe no-op when `NTFY_TOPIC` is unset, DL-061). The harness publishes `plant/state/wrover` with a `reason` field; the listener already handles that topic, so it now hands `(state, reason)` to a new `alerter.on_watering_state()`. That fires one push per *new* alert-worthy reason (edge-triggered via `_st["water_last_reason"]`, to absorb retained/repeated messages), keyed on the exact reason strings the firmware emits. Alert-worthy: `stalled`, `failed: not absorbing`, `capped: target not reached`, `reservoir empty`, `leak` (urgent), and `target reached` (the done milestone). Routine states carry no reason and are ignored; user-initiated `abort` is intentionally silent. The integrated firmware sends no `reason`, so it can never trigger these — clean separation, no risk of double-alerting.
+
+**Why event-driven, not polling.** The other alerter checks poll the DB on a timer, but watering outcomes are discrete transitions; keying off the live message is lower-latency and needs no schema change (reason is not persisted, only alerted on).
+
+**Validation.** Deployed to the Pi (listener + alerter, `plant-listener` restarted clean). A synthetic `plant/state/wrover` publish with `reason:"target reached"` produced a "Watering complete" push on the operator's phone — full path (listener parse → alerter → ntfy) confirmed live.
+
+**Observed / deferred.** Heavy firmware flashing during development trips the existing reboot-flap alert ("rebooted N times in 24h"), because it can't distinguish a developer flash-reset from a genuine brownout. Benign and self-inflicted during flash-heavy sessions; noted alongside the maintenance-mode alert-suppression item as a known false-positive to address later, not now.
+
+**Files.** `hub/04-listener/alerter.py`, `hub/04-listener/listener.py`.
 
 ---
 
