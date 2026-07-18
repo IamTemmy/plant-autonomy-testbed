@@ -106,6 +106,10 @@ Built with the **Arduino framework on ESP32, managed by PlatformIO** for reprodu
 
 Every meaningful choice — part substitutions, pin assignments, calibration, the state-machine design, fault-handling philosophy — is recorded in [`docs/decision-log.md`](docs/decision-log.md), with rationale and alternatives considered. It is the best place to understand *why* the system is built the way it is.
 
+## Use of AI
+
+This project was built with AI assistance (Anthropic's Claude), used as a design and implementation partner under human direction and review — I made the decisions, did all the hardware and testing, and reviewed every change before it landed. See [`docs/ai-use.md`](docs/ai-use.md) for a full account of what the AI did, what I did, and how we worked.
+
 ## Roadmap
 
 - **Vision analysis** — the Seeed XIAO ESP32-S3 Sense node (replacing the original ESP32-CAM, DL-034) and Pi-side greenness metrics are live (DL-076–090); what remains is turning the greenness trend into growth/health analysis beyond foliage-area-in-frame.

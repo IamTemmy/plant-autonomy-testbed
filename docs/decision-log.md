@@ -127,6 +127,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-105](#dl-105) | 2026-07-16 | Fungus-gnat barrier + monitoring — bark removed, probe reseated, ~0.5"+ coarse sand laid (moisture baseline unchanged 2493→2491, barrier decoupled from sensing); two yellow sticky traps installed for adult monitoring; Bti held in reserve until the soil is moist enough for it to work | Active |
 | [DL-106](#dl-106) | 2026-07-18 | Soil-probe recalibration for the bottom-watering regime — new anchors dry/0%=2585, wet/100%=2250 (from observed raw extremes), replacing the top-water-era 2523/1953 that under-reported healthy soil and invited over-watering; both firmware files updated | Active |
 | [DL-107](#dl-107) | 2026-07-18 | Autonomous bottom-watering control loop — designed, implemented in the harness, and logic-validated via a fast-timings bench test (all paths + an overshoot bug found and fixed: target is now a hard stop); real-timings supervised cycle on the plant still pending soil dry-down | Active |
+| [DL-108](#dl-108) | 2026-07-18 | AI-use transparency disclosure — added `docs/ai-use.md` (what AI did, what the author did, the human-in-the-loop working model, traceability via the decision log) with a README pointer | Active |
 
 ---
 
@@ -2951,6 +2952,23 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Open / follow-ups.** (1) Plateau-constant tuning — risk of a premature supplement if a slow real wick flattens briefly below target; the real cycle tests it. (2) Port the loop into the integrated firmware as the production FSM (replacing the top-water pulse logic). (3) Maintenance-mode alert suppression (the "moisture rose" false positive during recal) — separate integrated-alerter task, deferred. (4) Holding state: the harness auto-triggers at ≤20%, so between now and the supervised cycle the board should not be left free-running unsupervised.
 
 **Files.** `firmware/bottom-water-calibration/src/main.cpp`, `firmware/bottom-water-calibration/README.md` (implementation `27ecaa7`, fix `26902cd`).
+
+---
+
+<a id="dl-108"></a>
+### DL-108 — AI-use transparency disclosure
+
+**Date:** 2026-07-18 · **Status:** Active.
+
+**Context.** This project is developed with AI assistance (Anthropic's Claude). Prompted by the "diligence / transparency" idea from Anthropic's AI-fluency course, the project should state that assistance openly so the repository gives an honest picture of how it was made — appropriate for a portfolio piece, where being upfront about AI's role builds credibility rather than undermining it.
+
+**Decision.** Added a dedicated `docs/ai-use.md`, written in the author's first-person voice (a disclosure should read as the author's own statement), plus a short pointer section in the README. Kept it focused and honest rather than mapping every dimension of the course framework onto a solo student project (no organizational policy or industry code of conduct applies here). It records: what the AI was used for (watering-architecture pair-design, firmware drafting, the doc audit, decision-log authoring, debugging support); what the author did (all hardware and physical work, every real-world decision, and the judgment — approving designs, reviewing every patch, catching AI errors, and deciding the disagreements); the working model (consult-before-implement, human decides / AI executes, patches reviewed before applying, honest pushback expected); and traceability — the decision log from DL-102 onward is timestamped and attributable, so the assistance is auditable in the repo's own history rather than merely asserted.
+
+**Rationale.** Transparency about AI involvement is itself a diligence practice. Tying the disclosure to the decision log makes it concrete and verifiable instead of a vague statement. Scoping it to what genuinely applies keeps it credible.
+
+**Validation.** `docs/ai-use.md` present and linked from the README; content reviewed and corrected by the author (the same human-in-the-loop review the document describes).
+
+**Files.** `docs/ai-use.md`, `README.md`.
 
 ---
 
