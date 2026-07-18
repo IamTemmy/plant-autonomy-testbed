@@ -129,6 +129,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-107](#dl-107) | 2026-07-18 | Autonomous bottom-watering control loop — designed, implemented in the harness, and logic-validated via a fast-timings bench test (all paths + an overshoot bug found and fixed: target is now a hard stop); real-timings supervised cycle on the plant still pending soil dry-down | Active |
 | [DL-108](#dl-108) | 2026-07-18 | AI-use transparency disclosure — added `docs/ai-use.md` (what AI did, what the author did, the human-in-the-loop working model, traceability via the decision log) with a README pointer | Active |
 | [DL-109](#dl-109) | 2026-07-18 | ntfy push alerts for the bottom-watering loop — the listener forwards the harness's session `reason` to the alerter, which pushes once per new alert-worthy outcome (stalled / failed / capped / reservoir / leak / done); validated live | Active |
+| [DL-110](#dl-110) | 2026-07-18 | Dashboard Start/Abort watering buttons on the Controls page — a `send_dose_cmd` helper (mirroring the maintenance toggle) publishes `start`/`abort` to `plant/cmd/dose`; the UI half of the harness's dual trigger | Active |
 
 ---
 
@@ -2989,6 +2990,21 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Observed / deferred.** Heavy firmware flashing during development trips the existing reboot-flap alert ("rebooted N times in 24h"), because it can't distinguish a developer flash-reset from a genuine brownout. Benign and self-inflicted during flash-heavy sessions; noted alongside the maintenance-mode alert-suppression item as a known false-positive to address later, not now.
 
 **Files.** `hub/04-listener/alerter.py`, `hub/04-listener/listener.py`.
+
+---
+
+<a id="dl-110"></a>
+### DL-110 — Dashboard Start/Abort watering buttons
+
+**Date:** 2026-07-18 · **Status:** Active.
+
+**Context.** The bottom-watering harness (DL-107) accepts a dual trigger — a physical button and an MQTT `start`/`abort` on `plant/cmd/dose` — but the MQTT half previously had to be driven from a terminal (`mosquitto_pub`). This adds the UI half so a session can be started or aborted from the dashboard (e.g. from a phone during a supervised run).
+
+**Decision.** Added a `send_dose_cmd(value)` helper in `dash_common.py` that mirrors `send_maintenance_cmd` exactly — publishes to `DOSE_CMD_TOPIC` (`plant/cmd/dose`) via `paho ... single` to localhost with the dashboard's MQTT credentials, with the same error handling. The Controls page gains a "Bottom-watering session" section with **Start session** and **Abort watering** buttons. The caption is deliberately honest: it commands the harness, has no effect unless the harness firmware is running, and **Start** forces a full session immediately (a real dose), so it is for supervised use. No new command surface on the firmware side — the harness already subscribes to this topic; the integrated firmware does not, so the buttons are inert (safe) while production firmware runs.
+
+**Validation.** Deployed (`dash_common.py` + `dash_pages/controls.py`, `plant-dashboard` restarted). The Controls page renders the new section and buttons; clicking **Start** returned the success confirmation ("Sent 'start'"), so the publish path (dashboard → `plant/cmd/dose`) works. No pump action, as expected — the board is on integrated firmware (which ignores the topic); full end-to-end will prove out at the first real cycle with the harness flashed.
+
+**Files.** `hub/06-dashboard/dash_common.py`, `hub/06-dashboard/dash_pages/controls.py`.
 
 ---
 
