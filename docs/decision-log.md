@@ -131,6 +131,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-109](#dl-109) | 2026-07-18 | ntfy push alerts for the bottom-watering loop — the listener forwards the harness's session `reason` to the alerter, which pushes once per new alert-worthy outcome (stalled / failed / capped / reservoir / leak / done); validated live | Active |
 | [DL-110](#dl-110) | 2026-07-18 | Dashboard Start/Abort watering buttons on the Controls page — a `send_dose_cmd` helper (mirroring the maintenance toggle) publishes `start`/`abort` to `plant/cmd/dose`; the UI half of the harness's dual trigger | Active |
 | [DL-111](#dl-111) | 2026-07-18 | README currency — added Phase 5 (root/bottom watering, in progress) to the status table, corrected the "watering autonomously" claim to reflect the rework, and added a bottom-watering roadmap entry | Active |
+| [DL-112](#dl-112) | 2026-07-18 | Decided **not** to suppress alerts during maintenance mode — a real leak/unexplained-rise/offline event is more likely, not less, while hands-on with the hardware; occasional predictable false positives are the acceptable price of not muting a real one | Active |
 
 ---
 
@@ -3019,6 +3020,21 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 **Decision.** Three currency edits: (1) softened the status line to "operational" with sensing/telemetry/dashboard/camera/lighting live and autonomous watering noted as under rework (prototype validated, production port pending); (2) added a **Phase 5 — in progress** row (root/bottom watering: recalibration, the autonomous control loop, alerts, dashboard control); (3) added a bottom-watering roadmap entry stating what remains — one real supervised cycle to tune plateau timing, then porting the loop into the integrated firmware as the production FSM. No behavior change; documentation only.
 
 **Files.** `README.md`.
+
+---
+
+<a id="dl-112"></a>
+### DL-112 — Considered and rejected: suppressing alerts during maintenance mode
+
+**Date:** 2026-07-18 · **Status:** Active (decision to *not* implement).
+
+**Context.** The DL-106 recalibration caused a one-off false "Unexplained watering" alert (`_check_external_watering`, DL-064): changing the soil anchors made the reported moisture jump ~2.6% → 22% with no pump, which reads as an unexplained rise. That prompted the idea of suppressing such value-drift alerts while the FSM is in maintenance mode (the alerter can see `maintenance` via `_latest_fsm`).
+
+**Decision — do not suppress.** The value of these alerts is catching the *unexpected*. Maintenance mode does not make the plant immune to a genuine leak, a real unexplained moisture change, or the device dropping offline — and because maintenance usually means someone is physically handling the setup, those events are *more* likely then, not less. Muting the alert channel precisely when hands are on the hardware is backwards: a handful of predictable, explainable false positives during a calibration session is a cheap price, whereas a missed real leak because the channel was silenced is not. Safety/presence alerts (leak, fault, offline) must never be conditionally muted.
+
+**Scope.** No code change. Leak/fault/offline/external-watering/grow-light alerts all remain active during maintenance. The recal-induced false positive is accepted as expected, self-explanatory noise.
+
+**Files.** None — decision recorded only.
 
 ---
 
