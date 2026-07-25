@@ -135,6 +135,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-113](#dl-113) | 2026-07-18 | Fixed the maintenance NVS/runtime divergence — a fault preempting maintenance then ACKed used to drop runtime to monitoring while NVS kept `maint=true` (reboot silently re-entered maintenance); fault-ACK now returns to maintenance if that's where it was interrupted, cached at the single persist point so they can't drift | Active |
 | [DL-114](#dl-114) | 2026-07-18 | Repo audit — firmware comment/safety fixes: corrected `pump.h`'s false "STUBBED" header (the pump is live), flagged the legacy top-water thresholds as miscalibrated under the new 2585/2250 anchors (latent over-water risk if the old FSM is re-enabled), and refreshed the stale camera-cadence comment | Active |
 | [DL-115](#dl-115) | 2026-07-18 | CHANGELOG currency — brought the `[Unreleased]` section current from DL-101 through DL-114 (bottom-watering firmware, recalibration, ntfy alerts, dashboard buttons, ai-use disclosure, maintenance fix, audit fixes) | Active |
+| [DL-116](#dl-116) | 2026-07-24 | Soil-probe integrity incident — a "moisture rose, no watering" alert traced (via data ruling out pump/leak/reservoir/reboot/grow-light, then an air test) to loose probe seating in the sand layer, not a bad probe; reseated deeper into packed mix, 18 h stable + wet-response check confirmed the fix and that the 2585/2250 anchors still hold | Active |
 
 ---
 
@@ -3091,6 +3092,27 @@ All five sections are on origin and re-clone-verified; the deep component docs (
 Decision-only or deployment-only entries with no repo file change (DL-103, DL-112) were intentionally omitted, consistent with the changelog's file-level scope.
 
 **Files.** `CHANGELOG.md`.
+
+---
+
+<a id="dl-116"></a>
+### DL-116 — Soil-probe integrity incident: loose seating in the sand layer
+
+**Date:** 2026-07-24 · **Status:** Resolved.
+
+**Trigger.** An "Unexplained watering" push (DL-064: moisture rose with no pump activity) brought the operator to the lab. Soil moisture was swinging wildly — ~60% → ~46% within 20 minutes, later 48% → 18% → 0% — swings that are physically impossible for real soil water at the probe's depth (a bottom fill takes *hours* to register, DL-104), so the reading itself was suspect from the outset.
+
+**Elimination (all from logged data + physical checks).** The system was cleanly exonerated: pump logged `off` on every 30 s sample for 24 h; leak flat 0.0; reservoir not empty; the pump outlet tube was routed into a bottle (no physical path to the soil); no WROVER reboot (steady 12 heartbeats/min through the event); grow-light power/current 0.0 (no switching transient); and the leak channel — shared ADC1 with soil — stayed flat, so the disturbance was isolated to the soil channel. Physically: dry leaves and surroundings, dry top soil (checked against a deliberately wetted reference patch), unchanged bottle — no sign anyone watered it. The minute-level data showed a sharp ~140-count step at 04:07 UTC (local midnight), not a ramp, plus intermittent excursions after — the signature of a contact change, not soil.
+
+**Diagnosis.** Air test: probe held in open air read a steady ~2848 against the 2854 air reference (config.h) — electronics sound. Wiggling the cable *in air* produced no change (wiring/connector sound), but disturbing the probe *in the soil* swung the reading across the whole scale. Conclusion: **loose mechanical seating**, not a failed probe or wiring. Contributing cause: the coarse sand topdressing (DL-105) does not grip like potting mix, so a probe whose sensing length sat partly in sand was free to shift; at local midnight it settled into a different contact state, stepping the reading.
+
+**Fix.** Reseated the probe a few cm from the old hole (which had widened and back-filled with loose sand), pushed **through** the sand so the sensing length sits in packed potting mix at the original depth, and firmed the mix around it. Immediately post-reseat it read ~2695 (poor contact / air gaps), then equilibrated over minutes toward the mid-2500s.
+
+**Validation.** 18 h of readings held smooth and flat — hourly range 7–24 counts (normal band) at a steady ~2547–2550, with none of the fault's stepping. A wet-response check (a small top-water pour right at the probe) drove raw 2545 → 2420 (11.9% → 49.3%) promptly and cleanly, confirming proper moisture response in the new position and that the provisional **2585/2250** anchors (DL-106) still hold — so no recalibration was needed (verified rather than assumed; the eventual real watering run will still supply a proper settled wet anchor to refine against).
+
+**Takeaways.** (1) A capacitive probe's sensing length must sit in packed mix, **not** in the loose sand barrier, or it will drift between contact states — seat it through the sand. (2) The monitoring worked exactly as designed end-to-end: the alert fired on a real anomaly, maintenance mode kept the pump off throughout, and the logged data let every system cause be ruled out before touching hardware — a sensor-integrity failure caught with zero false actuation.
+
+**Files.** None — operational incident; recorded for the log.
 
 ---
 
