@@ -136,6 +136,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-114](#dl-114) | 2026-07-18 | Repo audit — firmware comment/safety fixes: corrected `pump.h`'s false "STUBBED" header (the pump is live), flagged the legacy top-water thresholds as miscalibrated under the new 2585/2250 anchors (latent over-water risk if the old FSM is re-enabled), and refreshed the stale camera-cadence comment | Active |
 | [DL-115](#dl-115) | 2026-07-18 | CHANGELOG currency — brought the `[Unreleased]` section current from DL-101 through DL-114 (bottom-watering firmware, recalibration, ntfy alerts, dashboard buttons, ai-use disclosure, maintenance fix, audit fixes) | Active |
 | [DL-116](#dl-116) | 2026-07-24 | Soil-probe integrity incident — a "moisture rose, no watering" alert traced (via data ruling out pump/leak/reservoir/reboot/grow-light, then an air test) to loose probe seating in the sand layer, not a bad probe; reseated deeper into packed mix, 18 h stable + wet-response check confirmed the fix and that the 2585/2250 anchors still hold | Active |
+| [DL-117](#dl-117) | 2026-07-26 | First real bottom-watering cycle — the loop physically worked end-to-end (auto-trigger → dose → settle → supplement, guards/alerts all fired), but exposed a ~10 h sensor-vs-actuator lag that makes the iterate-and-re-dose design structurally over-dose: 300 mL took a 12% pot past the 100% ceiling. Decision: move to a single metered dose by volume. Manually aborted at ~79%; stays in maintenance pending redesign | Active |
 
 ---
 
@@ -3113,6 +3114,40 @@ Decision-only or deployment-only entries with no repo file change (DL-103, DL-11
 **Takeaways.** (1) A capacitive probe's sensing length must sit in packed mix, **not** in the loose sand barrier, or it will drift between contact states — seat it through the sand. (2) The monitoring worked exactly as designed end-to-end: the alert fired on a real anomaly, maintenance mode kept the pump off throughout, and the logged data let every system cause be ruled out before touching hardware — a sensor-integrity failure caught with zero false actuation.
 
 **Files.** None — operational incident; recorded for the log.
+
+---
+
+<a id="dl-117"></a>
+### DL-117 — First real bottom-watering cycle: the loop works, but the sensor lag makes it over-dose
+
+**Date:** 2026-07-26 · **Status:** Active — loop validated as functional; redesign pending.
+
+**Setup.** With the probe reseated and verified (DL-116) and the soil dried past the 20% trigger, the harness (real timings: dose1 200 mL, supplement 100 mL, target 85%, settle 3 h, grace 1.5 h, cap 400 mL) was flashed for the first genuine supervised cycle. Pump outlet into the tray, reservoir filled. Auto-triggered on boot at ~12–14%.
+
+**What happened (timeline, Pi/UTC).** Two pump events, both accounted for, nothing after the abort:
+- **21:33** — dose #1, 200 mL (auto), soil ~12%.
+- Soil sat ~flat ~2.5 h (tray→probe transit + dry-soil resistance), then climbed slowly. The settle ran **~7 h**, not the 3 h minimum, because the slow continuous wick never satisfied the plateau detector (≤1% / 30 min), which kept re-arming.
+- **04:37** — supplement, +100 mL (session 300, dose_count 2), fired when the probe read ~36%.
+- ~03:22 local the operator **manually aborted** at ~79% (raw ~2325), judging another supplement would overshoot. Abort latched the session to emergency-stop / pump-off cleanly.
+- **Pump off from 04:37 onward, yet the soil kept wicking upward for ~10 more hours** — ~39% (04:00) → ~81% (08:00) → 100%-ceiling (12:00) → past it (raw 2219, 15:00).
+
+**Findings.**
+1. **The loop physically works end-to-end.** Auto-trigger, dose, settle, plateau-gated evaluate, supplement, guards, abort, and the ntfy alerts all functioned as designed. This is the core milestone: the autonomous bottom-watering loop runs on real hardware.
+2. **Priming / hydrophobia asymmetry is real and measured.** Dose #1 into dried soil climbed at ~2.2 raw-counts/h (including a long flat transit/wetting dead-time); the supplement onto already-damp, primed soil climbed at ~9.5 counts/h — **~4×** faster. The first dose pays a large latency penalty breaking the dry/hydrophobic barrier; every dose after moves faster on the open wicking path.
+3. **The sensor-vs-actuator lag is ~10 h — far longer than the ~3 h the loop assumes — and it is the core design flaw.** The mid-column probe kept rising for ~10 h *after the pump stopped*. So the loop evaluates and supplements on a badly lagging reading: at 04:37 the probe showed ~36%, but the first 200 mL was already destined for ~80%+ on its own. The supplement was therefore an overshoot the system could not have seen coming. **An iterate-and-re-dose loop structurally over-doses when the sensor lags the actuator by hours.**
+4. **300 mL over-shot the target band.** It took a 12% pot up past the 100% calibration ceiling (raw ≤2250). Note the wet anchor (2250) was set with deliberate headroom below physical saturation (DL-106; wettest previously observed ~2401), so "past 100%" means past our intended healthy-wet ceiling — not physically waterlogged — but still wetter than we want to target.
+5. **Earlier "~55% ceiling" was wrong.** That came from old under-watered, hydrophobic-soil data; on primed soil the target is easily reachable. 85% is not the problem — over-dosing past it is.
+6. **Published `moist_pct` is stale during settle** (frozen at settle-entry), a display lag only; the firmware's internal decision value is live.
+
+**Decision — redesign toward a single metered dose by volume.** The dose→settle→re-dose architecture cannot work against a ~10 h lag; it will always over-water. Replace it with one volume-calibrated dose followed by a long passive equilibration, using the transfer function this run anchors:
+- 200 mL → ~80% eventual (on primed soil)
+- 300 mL → past the 100% ceiling
+- ⇒ a healthy ~65–70% target for this pot needs roughly **~150–180 mL, dosed once, no iteration**, then ~10 h to equilibrate.
+Timing should also account for the priming asymmetry (a first dose from dry is slower than a top-up) and, ideally, time-since-last-watering.
+
+**Status / guardrails.** Loop proved *functional* but not yet *safely self-terminating* (it was manually aborted, not observed to stop on its own). Therefore it stays in **maintenance mode** — not autonomous. Leaving maintenance would also reactivate the integrated firmware's legacy top-water FSM (miscalibrated under the new anchors, DL-114), which is not the tested logic. Soil is now at the wet ceiling and will take several days to dry back, so there is no time pressure. Next: implement the volume-based dose, then one more supervised run that is allowed to **terminate on its own** before any unattended operation.
+
+**Files.** None — operational/experimental cycle; findings recorded for the redesign.
 
 ---
 
