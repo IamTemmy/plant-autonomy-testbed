@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-ESP32--WROVER-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
-[![Status](https://img.shields.io/badge/Status-Operational%20%C2%B7%20autonomous%20watering%20live-brightgreen.svg)](#project-status)
+[![Status](https://img.shields.io/badge/Status-Operational%20%C2%B7%20watering%20rework%20in%20progress-brightgreen.svg)](#project-status)
 
 ## Overview
 
@@ -34,7 +34,7 @@ The system is built on the **sense → plan → act** autonomy loop common to ro
 - **Closed-loop verification** — every action is checked against its expected effect. If the pump runs but the soil never gets wetter, the system concludes something is wrong (empty reservoir, failed pump, dead float), stops, and raises a fault rather than pumping into the void.
 - **Graceful degradation** — sensor or actuator failure does not produce unsafe behavior. Invalid sensor data halts watering; loss of WiFi/MQTT is non-fatal and the controller keeps running locally.
 - **Defined fallback states** — leaks, emergency stop, and ineffective watering each latch into a known safe state (pump off) and wait for an explicit acknowledgement.
-- **Explicit, inspectable behavior** — a state machine governs watering, and a 101-entry decision log makes every design choice auditable after the fact.
+- **Explicit, inspectable behavior** — a state machine governs watering, and a detailed decision log makes every design choice auditable after the fact.
 
 ## System architecture
 
@@ -49,7 +49,7 @@ Four functional layers:
 
 ## What it does now
 
-- **Autonomous watering** — waters when soil crosses the dry threshold, in calibrated pulse/settle doses, stopping when re-wetted; a daily volume cap bounds total water.
+- **Autonomous watering** — the ESP32 waters from a `millis()`-based state machine: dosing when soil crosses the dry threshold, verifying the effect, and bounding total water with a daily cap. This original top-water logic is currently **paused (maintenance mode) pending a rework** to a root/bottom-watering regime — a bottom-watering control loop that has been prototyped and validated on real hardware, though its first live cycle showed a large sensor-vs-actuator lag that is driving a move to volume-metered dosing (Phase 5; DL-104–117).
 - **Closed-loop watering watchdog** — detects watering that isn't moving soil moisture and latches a `watering_fault` instead of running dry (catches an empty reservoir, dead pump, clog, or disconnected float).
 - **Safety states** — leak detection, emergency stop, reservoir-empty, and daily-limit handling, surfaced on status LEDs, an OLED, and a buzzer.
 - **Scheduled grow light** — a fixed daily photoperiod (07:00–19:00) enforced from the always-on Pi every ~2 min over local RPC, self-healing a plug reboot within one tick; the smart plug's onboard schedule is kept as a fallback so the light still cycles if the Pi is down (DL-074).
@@ -91,10 +91,11 @@ firmware/
   test-sketches/   Phase 1 — one standalone PlatformIO sketch per component (01–14), each with a README
   integrated/      Phase 2 — the integrated WROVER firmware (state machine, sensors, MQTT)
   camera-node/     Phase 4 — vision node (XIAO ESP32-S3 Sense): capture + HTTP POST to the Pi receiver
+  bottom-water-calibration/   Phase 5 — standalone harness: soil recalibration + the autonomous bottom-watering control loop
 hub/
   01-pi-setup … 11-shelly-monitor   Phases 3–4 — Pi hub: broker, listener, dashboard, camera receiver, grow-light, retention, monitors
 docs/
-  decision-log.md  the authoritative engineering record (101 entries)
+  decision-log.md  the authoritative engineering record
   explainers/      narrative walkthroughs
   images/          validation and build evidence
 ```

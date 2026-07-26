@@ -137,6 +137,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-115](#dl-115) | 2026-07-18 | CHANGELOG currency — brought the `[Unreleased]` section current from DL-101 through DL-114 (bottom-watering firmware, recalibration, ntfy alerts, dashboard buttons, ai-use disclosure, maintenance fix, audit fixes) | Active |
 | [DL-116](#dl-116) | 2026-07-24 | Soil-probe integrity incident — a "moisture rose, no watering" alert traced (via data ruling out pump/leak/reservoir/reboot/grow-light, then an air test) to loose probe seating in the sand layer, not a bad probe; reseated deeper into packed mix, 18 h stable + wet-response check confirmed the fix and that the 2585/2250 anchors still hold | Active |
 | [DL-117](#dl-117) | 2026-07-26 | First real bottom-watering cycle — the loop physically worked end-to-end (auto-trigger → dose → settle → supplement, guards/alerts all fired), but exposed a ~10 h sensor-vs-actuator lag that makes the iterate-and-re-dose design structurally over-dose: 300 mL took a 12% pot past the 100% ceiling. Decision: move to a single metered dose by volume. Manually aborted at ~79%; stays in maintenance pending redesign | Active |
+| [DL-118](#dl-118) | 2026-07-26 | README currency pass — corrected the status badge ("watering rework in progress"), reframed the "What it does now" watering bullet to reflect the maintenance/rework reality, de-brittled the hardcoded decision-log count (removed twice), and added `firmware/bottom-water-calibration/` to the repository layout | Active |
 
 ---
 
@@ -3148,6 +3149,22 @@ Timing should also account for the priming asymmetry (a first dose from dry is s
 **Status / guardrails.** Loop proved *functional* but not yet *safely self-terminating* (it was manually aborted, not observed to stop on its own). Therefore it stays in **maintenance mode** — not autonomous. Leaving maintenance would also reactivate the integrated firmware's legacy top-water FSM (miscalibrated under the new anchors, DL-114), which is not the tested logic. Soil is now at the wet ceiling and will take several days to dry back, so there is no time pressure. Next: implement the volume-based dose, then one more supervised run that is allowed to **terminate on its own** before any unattended operation.
 
 **Files.** None — operational/experimental cycle; findings recorded for the redesign.
+
+---
+
+<a id="dl-118"></a>
+### DL-118 — README currency pass
+
+**Date:** 2026-07-26 · **Status:** Active.
+
+**Context.** DL-111 refreshed the README's status table and roadmap for Phase 5 but left several other spots stale, surfaced in a content (not just link) review of the README. Four fixes, documentation only:
+
+1. **Status badge** still read "Operational · autonomous watering live," contradicting the corrected status section (watering is in rework, board in maintenance). Changed to "Operational · watering rework in progress."
+2. **"What it does now"** led with the old top-water autonomous watering as if current. Reframed the watering bullet to state the top-water logic is paused (maintenance) pending the bottom-water rework, noting the loop has been prototyped and validated on hardware but its first live cycle exposed the sensor lag now driving a move to volume-metered dosing (DL-104–117).
+3. **Hardcoded decision-log count** ("101-entry" / "(101 entries)") appeared twice and had gone stale repeatedly. De-brittled to non-numeric phrasing so it no longer needs chasing each time the log grows.
+4. **Repository layout** omitted `firmware/bottom-water-calibration/` (the Phase 5 harness, DL-104/107); added it to the tree.
+
+**Files.** `README.md`.
 
 ---
 
