@@ -74,6 +74,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Changed
 
+- README currency (DL-118): corrected the status badge to "watering rework in progress," reframed the "What it does now" watering bullet to the maintenance/rework reality, de-brittled the hardcoded decision-log count, and added `firmware/bottom-water-calibration/` to the repository layout.
+
 - **Soil-moisture recalibration for bottom watering** (DL-106): `SOIL_RAW_DRY`/`SOIL_RAW_WET` changed 2523/1953 → 2585/2250 in both `firmware/integrated/src/config.h` and the calibration harness, replacing the top-water-era anchors that under-reported healthy soil and invited over-watering.
 
 - README currency (DL-111): added **Phase 5** (root/bottom watering, in progress) to the status table and a bottom-watering roadmap entry, and corrected the "watering autonomously" status line to reflect the rework.
