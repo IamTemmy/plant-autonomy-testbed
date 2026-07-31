@@ -138,6 +138,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-116](#dl-116) | 2026-07-24 | Soil-probe integrity incident — a "moisture rose, no watering" alert traced (via data ruling out pump/leak/reservoir/reboot/grow-light, then an air test) to loose probe seating in the sand layer, not a bad probe; reseated deeper into packed mix, 18 h stable + wet-response check confirmed the fix and that the 2585/2250 anchors still hold | Active |
 | [DL-117](#dl-117) | 2026-07-26 | First real bottom-watering cycle — the loop physically worked end-to-end (auto-trigger → dose → settle → supplement, guards/alerts all fired), but exposed a ~10 h sensor-vs-actuator lag that makes the iterate-and-re-dose design structurally over-dose: 300 mL took a 12% pot past the 100% ceiling. Decision: move to a single metered dose by volume. Manually aborted at ~79%; stays in maintenance pending redesign | Active |
 | [DL-118](#dl-118) | 2026-07-26 | README currency pass — corrected the status badge ("watering rework in progress"), reframed the "What it does now" watering bullet to reflect the maintenance/rework reality, de-brittled the hardcoded decision-log count (removed twice), and added `firmware/bottom-water-calibration/` to the repository layout | Active |
+| [DL-119](#dl-119) | 2026-07-30 | Campus network/power episode — grow light found off (Pi couldn't reach the Shelly), Pi dropped off both LAN and Tailscale (recovered by power-cycle, DB integrity verified `ok`), WROVER unheard then cleared by an EN/RST reset. Key findings: "X offline" always means "the Pi can't reach X"; a reset brings the harness back **armed** in monitor (not the latched safe state) — reinforcing the need to park in integrated+maintenance (reboot-safe via NVS). Motivates a device-unreachable alert | Active |
 
 ---
 
@@ -3165,6 +3166,35 @@ Timing should also account for the priming asymmetry (a first dose from dry is s
 4. **Repository layout** omitted `firmware/bottom-water-calibration/` (the Phase 5 harness, DL-104/107); added it to the tree.
 
 **Files.** `README.md`.
+
+---
+
+<a id="dl-119"></a>
+### DL-119 — Campus network/power episode: cascade, recovery, and the "unreachable ≠ dead" lesson
+
+**Date:** 2026-07-30 · **Status:** Resolved (with follow-ups).
+
+**Trigger.** Arrived to find the grow light **off** during lit hours (window 07:00–19:00 Central); pressing the Shelly's physical button restored it. Investigation turned into a whole-hub incident.
+
+**What happened (one cascading infrastructure event, not three faults).**
+- **Grow light off:** the `plant-photoperiod` enforcer (oneshot + 2-min timer; `inactive` between runs is *normal*, not a crash) can only assert the plug's state when it can *reach* the plug. During the network disruption it couldn't, so the light sat in whatever state it was left in. It logs only on correction/error, so the journal was silent — an observability gap.
+- **Pi offline:** mid-session, SSH dropped and the Pi became unreachable on **both** the campus LAN (`10.6.19.139`, `No route to host`) **and** Tailscale (`100.79.225.18`, timed out), though its power LED was on. With no monitor or USB-serial adapter on hand (HDMI into a laptop/desktop is output-only and cannot display the Pi), recovery was a **power-cycle**. WAL-mode SQLite plus an idle (maintenance) system made that low-risk; **`PRAGMA integrity_check` returned `ok`** afterward — no corruption.
+- **WROVER unheard:** after the Pi returned, the dashboard showed "WROVER offline" (MQTT Last-Will `online:false`) with only stale retained `state`/`status` messages and no live heartbeats for 20+ min, despite the WROVER's power LED being on the whole time (it was never unplugged; the reboot banner still read July 25). Its WiFi/MQTT had wedged during the network event. An **EN/RST reset** cleared it — it reconnected immediately, sensors live, "All systems nominal."
+
+**Findings.**
+1. **"X offline" always means "the Pi couldn't reach X," never necessarily that X is dead.** This same ambiguity appeared three ways tonight — grow light, the "WROVER offline > 5 min" push (fired because the *Pi* lost power, not the WROVER), and the WROVER dashboard state. Alerts and UI should be read as *reachability from the hub*, not device health.
+2. **A reset brings the harness back armed, not parked.** The WROVER had been intentionally left in latched **emergency-stop** after the watering run (DL-117). The reset returned it to a fresh `monitor` (session cleared) — i.e. **re-armed to auto-water at ≤20%**. Safe only because the soil is at ~100% (days from the trigger). This is the concrete argument for parking in the **integrated firmware + maintenance mode**, which is reboot-safe via NVS (DL-113); the harness has no persistent safe state and re-arms on every reboot/brownout.
+3. **The campus network/power is the dominant reliability risk** (consistent with DL-028 flaky WiFi, DL-070 reboots) — tonight it hit every networked device at once. The WROVER firmware is independent and kept the plant safe (pump off) throughout, which is the right property.
+
+**Context (not a fault).** The system is intentionally monitoring the post-watering dry-down from ~100% (DL-117), which feeds the calibration / dose→moisture transfer-function work. Tonight's episode is separate from that; it just happened to leave the WROVER in `monitor` rather than the parked state.
+
+**Follow-ups.**
+- **Re-park properly:** reflash integrated firmware + maintenance mode (reboot-safe) next bench session — no urgency at ~100% soil.
+- **Device-unreachable alert:** page when the Pi can't reach the Shelly (and/or when heartbeats stop) for N ticks, so the next occurrence is a notification rather than an in-person discovery.
+- **Photoperiod observability:** consider logging each enforcement decision (or at least periodic "reachable/ok") so a silent journal is distinguishable from a healthy one.
+- **Out-of-band access:** keep a USB-serial adapter (3.3 V) or a small HDMI monitor with the rig for headless recovery without a blind power-cycle.
+
+**Files.** None — operational incident; recorded for the log.
 
 ---
 
