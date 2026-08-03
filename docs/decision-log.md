@@ -139,6 +139,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-117](#dl-117) | 2026-07-26 | First real bottom-watering cycle — the loop physically worked end-to-end (auto-trigger → dose → settle → supplement, guards/alerts all fired), but exposed a ~10 h sensor-vs-actuator lag that makes the iterate-and-re-dose design structurally over-dose: 300 mL took a 12% pot past the 100% ceiling. Decision: move to a single metered dose by volume. Manually aborted at ~79%; stays in maintenance pending redesign | Active |
 | [DL-118](#dl-118) | 2026-07-26 | README currency pass — corrected the status badge ("watering rework in progress"), reframed the "What it does now" watering bullet to reflect the maintenance/rework reality, de-brittled the hardcoded decision-log count (removed twice), and added `firmware/bottom-water-calibration/` to the repository layout | Active |
 | [DL-119](#dl-119) | 2026-07-30 | Campus network/power episode — grow light found off (Pi couldn't reach the Shelly), Pi dropped off both LAN and Tailscale (recovered by power-cycle, DB integrity verified `ok`), WROVER unheard then cleared by an EN/RST reset. Key findings: "X offline" always means "the Pi can't reach X"; a reset brings the harness back **armed** in monitor (not the latched safe state) — reinforcing the need to park in integrated+maintenance (reboot-safe via NVS). Motivates a device-unreachable alert | Active |
+| [DL-120](#dl-120) | 2026-08-03 | Post-watering dry-down data — 10-day raw trace confirms the probe is healthy (smooth, monotonic, normal daily range) and that the "stuck at 100% for 7 days" was mapping, not a fault: the soil over-saturated to raw ~1700 (far below the 2250 wet anchor), so the whole sub-2250 region clips to 100%. Two moves: the wet anchor (2250) is set too dry and hides the top of the range → re-base to real saturation (~1700–1780); and the DL-117 over-dose was larger than thought → single-dose volume must be well under 300 mL | Active |
 
 ---
 
@@ -3195,6 +3196,28 @@ Timing should also account for the priming asymmetry (a first dose from dry is s
 - **Out-of-band access:** keep a USB-serial adapter (3.3 V) or a small HDMI monitor with the rig for headless recovery without a blind power-cycle.
 
 **Files.** None — operational incident; recorded for the log.
+
+---
+
+<a id="dl-120"></a>
+### DL-120 — Post-watering dry-down: probe healthy, wet anchor is too dry (clips the top of the range)
+
+**Date:** 2026-08-03 · **Status:** Active — findings for recalibration + volume-dose redesign.
+
+**Context.** The dashboard had shown soil at a flat 100% for ~7 days after the DL-117 watering cycle. To rule out a stuck sensor (cf. the DL-116 probe fault) versus a genuine-but-clipped reading, pulled the 10-day **raw** ADC trace.
+
+**Findings.**
+1. **The probe is healthy — not stuck.** Every recent day shows a smooth, monotonic trend with a normal ~40–50-count hourly/daily range. A frozen sensor would show ~0 range; this is a live probe tracking real moisture. So the flat 100% was *display clipping*, not a fault.
+2. **The soil over-saturated far past the wet anchor.** After the 300 mL cycle the reading kept wicking down (wetter) well below the 2250 wet anchor, bottoming around **raw ~1620–1780 on 2026-07-27**. Everything below 2250 maps to 100%, so the pot sat "at 100%" while actually ranging hundreds of counts wetter than our defined ceiling.
+3. **It is drying back cleanly.** From the ~1700 low it has risen (dried) monotonically at ~25 counts/day: ~1988 (Jul 28) → 2159 (Aug 3). It still reads 100% because 2159 is still below the 2250 anchor; it will leave 100% on the display only once raw climbs back above 2250 (a few more days).
+
+**Two moves this sets up.**
+- **Re-base the wet anchor.** 2250 (set with conservative headroom, DL-106) is too dry: it puts true saturation ~500 counts past "100%," making the entire top of the moisture range invisible — exactly where over-watering shows. Recalibrate the wet anchor to the observed saturation (~1700–1780) so the scale spans the real range. (Dry anchor 2585 still looks valid; confirm against a real dry-down.)
+- **Shrink the dose further.** DL-117 read the over-dose as "past the 100% ceiling"; the raw shows it actually drove the soil to ~1700 — a much larger overshoot. This strengthens the single-metered-dose plan: the one-shot volume must be well under 300 mL (revised target ~120–150 mL, to be confirmed against the re-based scale and the transfer function).
+
+**Status.** No fault, no action needed on the hardware; plant is drying normally. These feed the recalibration and the volume-based watering redesign (successor to the DL-117 iterate-and-re-dose loop). Board remains as left after DL-119 (harness, `monitor`); the re-park to integrated+maintenance is still an open follow-up.
+
+**Files.** None — analysis/finding recorded for the log.
 
 ---
 
