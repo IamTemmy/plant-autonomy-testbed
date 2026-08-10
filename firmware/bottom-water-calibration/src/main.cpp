@@ -48,7 +48,7 @@ static constexpr uint8_t  SOIL_SAMPLES       = 16;
 static constexpr uint16_t SOIL_RAW_VALID_MIN = 800;
 static constexpr uint16_t SOIL_RAW_VALID_MAX = 3200;
 static constexpr uint16_t SOIL_RAW_DRY       = 2585;  // 0% anchor: drought floor
-static constexpr uint16_t SOIL_RAW_WET       = 2250;  // 100% anchor: healthy-wet w/ headroom
+static constexpr uint16_t SOIL_RAW_WET       = 1700;  // 100% anchor: true saturation (DL-121; was 2250, clipped the wet end)
 
 // Leak (DL-026). Conductive pads: HIGHER raw = WETTER.
 static constexpr uint8_t  LEAK_SAMPLES     = 16;

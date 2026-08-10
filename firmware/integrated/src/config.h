@@ -116,7 +116,7 @@ static constexpr bool     FLOAT_EMPTY_WHEN_CLOSED = true;
 // Capacitive: LOWER raw count = WETTER soil.
 static constexpr uint16_t SOIL_RAW_DRY_AIR = 2854;  // probe in air (reference only)
 static constexpr uint16_t SOIL_RAW_DRY     = 2585;  // 0%: sustained drought floor (drooping, DL-104)
-static constexpr uint16_t SOIL_RAW_WET     = 2250;  // 100%: healthy-wet ceiling w/ headroom (DL-106; wettest observed ~2401)
+static constexpr uint16_t SOIL_RAW_WET     = 1700;  // 100%: true saturation (DL-121; soil bottomed ~1620-1700 after real watering, DL-120). Old 2250 clipped the wet end. Dry anchor 2585 is INTERIM -- re-confirm on the next full dry-down plateau.
 
 // Leak sensor (DL-026). Conductive pads: HIGHER raw count = WETTER.
 // NOTE: opposite polarity from soil moisture — guard against inverted logic.

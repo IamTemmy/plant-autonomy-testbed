@@ -140,6 +140,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-118](#dl-118) | 2026-07-26 | README currency pass — corrected the status badge ("watering rework in progress"), reframed the "What it does now" watering bullet to reflect the maintenance/rework reality, de-brittled the hardcoded decision-log count (removed twice), and added `firmware/bottom-water-calibration/` to the repository layout | Active |
 | [DL-119](#dl-119) | 2026-07-30 | Campus network/power episode — grow light found off (Pi couldn't reach the Shelly), Pi dropped off both LAN and Tailscale (recovered by power-cycle, DB integrity verified `ok`), WROVER unheard then cleared by an EN/RST reset. Key findings: "X offline" always means "the Pi can't reach X"; a reset brings the harness back **armed** in monitor (not the latched safe state) — reinforcing the need to park in integrated+maintenance (reboot-safe via NVS). Motivates a device-unreachable alert | Active |
 | [DL-120](#dl-120) | 2026-08-03 | Post-watering dry-down data — 10-day raw trace confirms the probe is healthy (smooth, monotonic, normal daily range) and that the "stuck at 100% for 7 days" was mapping, not a fault: the soil over-saturated to raw ~1700 (far below the 2250 wet anchor), so the whole sub-2250 region clips to 100%. Two moves: the wet anchor (2250) is set too dry and hides the top of the range → re-base to real saturation (~1700–1780); and the DL-117 over-dose was larger than thought → single-dose volume must be well under 300 mL | Active |
+| [DL-121](#dl-121) | 2026-08-10 | Wet-anchor recalibration (pass 1 of 2) — `SOIL_RAW_WET` 2250 → **1700** in both firmwares to reflect true saturation (DL-120), un-clipping the top of the scale that hid ~2 weeks of real drying. Dry anchor (2585) kept as interim and thresholds (trigger/target) deferred to a pass-2 recalibration once the current dry-down plateaus. Board to be parked in integrated+maintenance so the shifted scale can't trigger the pump mid-chase | Active |
 
 ---
 
@@ -3218,6 +3219,27 @@ Timing should also account for the priming asymmetry (a first dose from dry is s
 **Status.** No fault, no action needed on the hardware; plant is drying normally. These feed the recalibration and the volume-based watering redesign (successor to the DL-117 iterate-and-re-dose loop). Board remains as left after DL-119 (harness, `monitor`); the re-park to integrated+maintenance is still an open follow-up.
 
 **Files.** None — analysis/finding recorded for the log.
+
+---
+
+<a id="dl-121"></a>
+### DL-121 — Wet-anchor recalibration (pass 1 of 2)
+
+**Date:** 2026-08-10 · **Status:** Active — pass 1 (wet anchor); pass 2 (dry anchor + thresholds) deferred.
+
+**Context.** DL-120 established that the soil over-saturated to raw ~1620–1700 after the DL-117 watering, far below the 2250 wet anchor, so the entire sub-2250 region collapsed to a flat "100%." The consequence was operational, not cosmetic: for ~2 weeks the readings showed 100% while the raw ADC clearly recorded the soil steadily drying (1700 → 2335). A moisture scale that is blind across the top of its range cannot drive watering intelligently — it cannot tell "just watered" from "drying for a week." Recalibration is the fix, and there is now enough data to do the wet end precisely.
+
+**Data.** The 16-day raw trace shows the saturation floor at raw **~1620 (min) / ~1976 (daily avg) on 2026-07-27**, and a clean subsequent dry-down at **~+25 counts/day** that, as of 2026-08-10 (raw ~2336), is **still climbing — not yet plateaued**. So the wet endpoint is confirmed, but a fresh dry endpoint is not yet available.
+
+**Decision — split the recalibration into two passes.**
+- **Pass 1 (now):** set `SOIL_RAW_WET` **2250 → 1700** in both `firmware/integrated/src/config.h` and the harness. This reflects observed saturation and un-clips the scale immediately — today's raw 2336 now reads ~28% (dry 2585 / wet 1700, span 885) instead of a clipped ~74%, and the 2-week dry-down becomes visible (~69% → ~28%). The dry anchor **2585 is kept as an explicit interim** (a real historical drought value, DL-104), flagged in-code for re-confirmation.
+- **Pass 2 (deferred, ~1–2 weeks):** once `delta_per_day` flattens toward zero, read the true dry floor, finalize `SOIL_RAW_DRY`, and only then set the watering **trigger** and **target** thresholds — because those percentages depend on both anchors being correct. Provisional intent (to confirm in pass 2): trigger ~30% (raw ~2320), target ~70% (raw ~2000, avoiding the DL-117 waterlogging).
+
+**Pump safety during the chase.** Re-basing the wet anchor shifts every percentage, leaving today's soil (~28%) just above the old 20% trigger — i.e. close to triggering as it dries. To keep pass 1 a pure "make the readings honest" change with no watering-behavior side effects, the board is **parked in the integrated firmware under maintenance mode** (which disables watering entirely and is reboot-safe via NVS, DL-113). This simultaneously discharges the still-open DL-119 re-park follow-up: flash integrated (with the corrected wet anchor) + set maintenance in one bench session. The harness is deliberately **not** run during the dry-down chase (it would auto-trigger at the shifted threshold).
+
+**Validation (to fill on deploy).** After flashing integrated + maintenance: confirm a known raw maps as expected on the new scale (raw ~2336 → ~28%), and confirm the dashboard shows maintenance with the pump disabled.
+
+**Files.** `firmware/integrated/src/config.h`, `firmware/bottom-water-calibration/src/main.cpp`.
 
 ---
 
