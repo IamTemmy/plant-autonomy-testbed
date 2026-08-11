@@ -141,6 +141,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-119](#dl-119) | 2026-07-30 | Campus network/power episode — grow light found off (Pi couldn't reach the Shelly), Pi dropped off both LAN and Tailscale (recovered by power-cycle, DB integrity verified `ok`), WROVER unheard then cleared by an EN/RST reset. Key findings: "X offline" always means "the Pi can't reach X"; a reset brings the harness back **armed** in monitor (not the latched safe state) — reinforcing the need to park in integrated+maintenance (reboot-safe via NVS). Motivates a device-unreachable alert | Active |
 | [DL-120](#dl-120) | 2026-08-03 | Post-watering dry-down data — 10-day raw trace confirms the probe is healthy (smooth, monotonic, normal daily range) and that the "stuck at 100% for 7 days" was mapping, not a fault: the soil over-saturated to raw ~1700 (far below the 2250 wet anchor), so the whole sub-2250 region clips to 100%. Two moves: the wet anchor (2250) is set too dry and hides the top of the range → re-base to real saturation (~1700–1780); and the DL-117 over-dose was larger than thought → single-dose volume must be well under 300 mL | Active |
 | [DL-121](#dl-121) | 2026-08-10 | Wet-anchor recalibration (pass 1 of 2) — `SOIL_RAW_WET` 2250 → **1700** in both firmwares to reflect true saturation (DL-120), un-clipping the top of the scale that hid ~2 weeks of real drying. Dry anchor (2585) kept as interim and thresholds (trigger/target) deferred to a pass-2 recalibration once the current dry-down plateaus. Board to be parked in integrated+maintenance so the shifted scale can't trigger the pump mid-chase | Active |
+| [DL-122](#dl-122) | 2026-08-10 | Grow-light "can't verify" alert — closes the DL-119 blind spot where the lux-based light check (`_check_grow_light`) silently stood down whenever its lux input was stale (WROVER offline), so a light-off outage during the day went unalerted. Sustained stale lux (>30 min) *during lit hours* now fires a push, with a recovery notice; brief blips and nighttime staleness stay silent. Also: buzzer fixed (re-seated a loose connection) | Active |
 
 ---
 
@@ -3240,6 +3241,30 @@ Timing should also account for the priming asymmetry (a first dose from dry is s
 **Validation (to fill on deploy).** After flashing integrated + maintenance: confirm a known raw maps as expected on the new scale (raw ~2336 → ~28%), and confirm the dashboard shows maintenance with the pump disabled.
 
 **Files.** `firmware/integrated/src/config.h`, `firmware/bottom-water-calibration/src/main.cpp`.
+
+---
+
+<a id="dl-122"></a>
+### DL-122 — Grow-light "can't verify" alert (closes the DL-119 lux blind spot)
+
+**Date:** 2026-08-10 · **Status:** Active.
+
+**Context.** The grow-light verification alert (`_check_grow_light`, DL-063) works by comparing measured **lux** (BH1750, read via the WROVER) against the photoperiod window — a good design, because it checks the light's physical *effect* rather than trusting the Shelly. But its stale-input branch read:
+```
+# No fresh lux (e.g. controller offline) -> can't verify; stand down quietly.
+if lux is None or age is None or age > GROW_LUX_STALE_S: return
+```
+So whenever lux went stale — exactly what happens when the WROVER goes offline — the check **silently returned**. During the DL-119 episode the WROVER was down, the light was off during lit hours, and this check said nothing: its own eyes (the lux sensor) were gone, and "can't verify" was treated as "nothing to report." A verification that blinds itself precisely when the monitored thing is most likely wrong.
+
+**Decision.** Make sustained self-blindness alert-worthy. In the stale-lux branch, if we are in the lit photoperiod window and lux has been stale for longer than a new `GROW_LUX_UNVERIFIABLE_S` (default **1800 s / 30 min**, well above the 5-min `GROW_LUX_STALE_S` blip cutoff), fire a one-shot push: *"Can't verify grow light — no light-sensor data for 30+ min during the daytime photoperiod; the WROVER may be offline."* When fresh lux returns, send a recovery notice. Outside lit hours, missing lux is not actionable (light is meant to be off), so the timer resets and nothing fires. Edge-triggered via new `_st["gl_stale_since"]` / `_st["gl_unverifiable_alerted"]`.
+
+**Why this over a Shelly-unreachable alert.** `shelly_monitor.py` already records plug reboots/dropouts but *deliberately* does not alert (the plug's WiFi is known-flaky, DL-028; alerting on every blip would spam). The real gap from DL-119 was not "the plug dropped" but "we lost the ability to confirm the plant was lit and never said so." This fix targets that directly, reuses the existing lux check, and the 30-min lit-hours-only gate preserves the anti-spam intent. Scope kept tight: no broad device-offline alerting added (WROVER-offline already pushes; Shelly-unreachable intentionally stays quiet).
+
+**Validation (to fill on deploy).** Deploy `alerter.py`, restart `plant-listener`; verify the listener starts clean. Functional check: during lit hours, simulate stale lux (WROVER off / no recent BH1750 rows) for >30 min → expect one "Can't verify grow light" push; restore lux → expect the recovery notice.
+
+**Also this session.** Buzzer that failed to sound on the leak test was a **loose seating/connection**, not firmware or a dead part — re-seated on the board, now works (LEDs + ntfy + buzzer all fire on the leak path).
+
+**Files.** `hub/04-listener/alerter.py`.
 
 ---
 

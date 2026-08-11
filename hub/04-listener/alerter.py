@@ -43,6 +43,10 @@ GROW_OFF_HOUR = int(os.environ.get("GROW_OFF_HOUR", "19"))
 GROW_LUX_THRESHOLD = float(os.environ.get("GROW_LUX_THRESHOLD", "30"))
 GROW_MISMATCH_GRACE_S = int(os.environ.get("GROW_MISMATCH_GRACE_S", "900"))  # 15 min
 GROW_LUX_STALE_S = int(os.environ.get("GROW_LUX_STALE_S", "300"))  # can't verify if older
+# Sustained stale lux during lit hours = we've lost the ability to verify the light
+# at all (e.g. WROVER offline), which is itself alert-worthy (DL-122). Well above the
+# short STALE cutoff so routine WiFi blips stay silent.
+GROW_LUX_UNVERIFIABLE_S = int(os.environ.get("GROW_LUX_UNVERIFIABLE_S", "1800"))  # 30 min
 
 # External (manual) watering detection (DL-064): flag a soil-moisture rise the
 # system didn't cause. A rise >= SOIL_RISE_THRESHOLD over SOIL_LOOKBACK_MIN, with
@@ -85,6 +89,8 @@ _st = {
     "gl_mismatch_since": None,   # monotonic time the current grow-light mismatch began
     "gl_mismatch_kind": None,    # "dark_during_on" | "lit_during_off"
     "gl_alerted": None,          # mismatch kind we've alerted on (for recovery)
+    "gl_stale_since": None,      # monotonic time lux went stale during lit hours (DL-122)
+    "gl_unverifiable_alerted": False,  # sustained-stale-lux alert currently firing (recovery)
     "ext_water_alerted": False,  # external-watering event currently alerted (debounce)
     "cam_window_since": None,    # monotonic time we entered the lit window (re-armed daily)
     "cam_alerted": False,        # silent-camera alert currently firing (for recovery)
@@ -244,11 +250,37 @@ def _check_grow_light(conn, now_mono):
         expected_on = hour >= GROW_ON_HOUR or hour < GROW_OFF_HOUR
     lux, age = _latest_lux(conn)
 
-    # No fresh lux (e.g. controller offline) -> can't verify; stand down quietly.
+    # No fresh lux -> the lux-based verification is blind (e.g. WROVER offline). A brief
+    # gap is a routine WiFi blip: stay quiet. But if we stay blind through the lit hours
+    # for a sustained stretch, that itself is the alert -- otherwise a real outage during
+    # the day goes unnoticed exactly when the light being wrong matters most (DL-122).
     if lux is None or age is None or age > GROW_LUX_STALE_S:
+        if expected_on:
+            if _st["gl_stale_since"] is None:
+                _st["gl_stale_since"] = now_mono
+            if (now_mono - _st["gl_stale_since"] >= GROW_LUX_UNVERIFIABLE_S
+                    and not _st["gl_unverifiable_alerted"]):
+                notify("Can't verify grow light",
+                       "No light-sensor reading for 30+ min during the daytime "
+                       "photoperiod. The plant controller (WROVER) may be offline, so "
+                       "the grow light's state can't be confirmed -- please check.",
+                       "default", ["mag"])
+                _st["gl_unverifiable_alerted"] = True
+        else:
+            # Outside lit hours, missing lux isn't actionable; reset the timer.
+            _st["gl_stale_since"] = None
+        # Can't evaluate a mismatch without lux; clear those trackers.
         _st["gl_mismatch_since"] = None
         _st["gl_mismatch_kind"] = None
         return
+
+    # Fresh lux is back: if we'd alerted that verification was lost, say it's restored.
+    if _st["gl_unverifiable_alerted"]:
+        notify("Grow light verification restored",
+               "Light-sensor data is flowing again; the grow light can be verified.",
+               "default", ["white_check_mark"])
+        _st["gl_unverifiable_alerted"] = False
+    _st["gl_stale_since"] = None
 
     lit = lux > GROW_LUX_THRESHOLD
     if expected_on and not lit:
