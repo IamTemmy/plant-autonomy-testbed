@@ -142,6 +142,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-120](#dl-120) | 2026-08-03 | Post-watering dry-down data — 10-day raw trace confirms the probe is healthy (smooth, monotonic, normal daily range) and that the "stuck at 100% for 7 days" was mapping, not a fault: the soil over-saturated to raw ~1700 (far below the 2250 wet anchor), so the whole sub-2250 region clips to 100%. Two moves: the wet anchor (2250) is set too dry and hides the top of the range → re-base to real saturation (~1700–1780); and the DL-117 over-dose was larger than thought → single-dose volume must be well under 300 mL | Active |
 | [DL-121](#dl-121) | 2026-08-10 | Wet-anchor recalibration (pass 1 of 2) — `SOIL_RAW_WET` 2250 → **1700** in both firmwares to reflect true saturation (DL-120), un-clipping the top of the scale that hid ~2 weeks of real drying. Dry anchor (2585) kept as interim and thresholds (trigger/target) deferred to a pass-2 recalibration once the current dry-down plateaus. Board to be parked in integrated+maintenance so the shifted scale can't trigger the pump mid-chase | Active |
 | [DL-122](#dl-122) | 2026-08-10 | Grow-light "can't verify" alert — closes the DL-119 blind spot where the lux-based light check (`_check_grow_light`) silently stood down whenever its lux input was stale (WROVER offline), so a light-off outage during the day went unalerted. Sustained stale lux (>30 min) *during lit hours* now fires a push, with a recovery notice; brief blips and nighttime staleness stay silent. Also: buzzer fixed (re-seated a loose connection) | Active |
+| [DL-123](#dl-123) | 2026-08-11 | `plantctl` diagnostics CLI (v1) — a read-only tool encoding the operational runbook so a check is one command instead of pasted SQL. First command `health` (services, WROVER heartbeat + FSM, soil raw+% on current anchors, light vs schedule, pump mode, DB freshness). Bakes in the UTC-age discipline and firmware-matched anchors. `soil`/`light`/`watering`/`incident` to follow incrementally; shared-config source of truth deferred to pass-2 recal. Also: DL-121 validated (dashboard 25%, maintenance) | Active |
 
 ---
 
@@ -3265,6 +3266,27 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Also this session.** Buzzer that failed to sound on the leak test was a **loose seating/connection**, not firmware or a dead part — re-seated on the board, now works (LEDs + ntfy + buzzer all fire on the leak path).
 
 **Files.** `hub/04-listener/alerter.py`.
+
+---
+
+<a id="dl-123"></a>
+### DL-123 — `plantctl` diagnostics CLI (v1: `health`)
+
+**Date:** 2026-08-11 · **Status:** Active — v1 (`health`); more commands incremental.
+
+**Context.** Recurring incidents (probe faults DL-116, network cascade DL-119, watering behaviour DL-117, light schedule) were each diagnosed by hand-typing the same battery of SQL and applying the same reasoning — including the corrections that repeatedly bit us (DB stores UTC; soil % needs the firmware anchors). That runbook is automatable. Chosen approach (over an autonomous LLM/shell agent): a **read-only CLI** that encodes the checks. It is the safe, high-value 90%, and the right foundation if an LLM layer is ever wrapped around it later — an agent is only as good as the vetted tools it can call.
+
+**Decision / scope.** New module `hub/12-plantctl/` with `plantctl.py`. Strictly read-only: queries the DB over a `mode=ro` connection with `PRAGMA query_only`, inspects `systemctl is-active`, and (only where noted, in future commands) a single HTTP GET to the Shelly. It never writes, never actuates the pump, never touches firmware/services. Built **incrementally**, not one giant patch: v1 ships `health`; `soil`, `light`, `watering`, `incident` follow.
+
+**`health` checks.** Services active (listener/dashboard/photoperiod.timer/shelly-monitor.timer); WROVER heartbeat freshness (>5 min stale ⇒ offline/unheard) + latest FSM state; soil `soil_raw` → raw + % on the current anchors with trigger-proximity warning; grow light: latest lux vs the photoperiod window (stale lux ⇒ "can't verify", mirroring DL-122); pump mode (maintenance ⇒ watering disabled) + last pump-on; DB row count + newest-reading age. Output is per-line ✓ / ⚠ / ✗.
+
+**Design principles baked in.** (1) **UTC discipline** — all age math is done against UTC (`...Z`) timestamps; only *display* converts to `LOCAL_TZ`. This is the guardrail against the timezone errors that recurred this project (incl. the grow-light "on 21h" false alarm, which was a UTC-vs-local misread). (2) **Anchor parity** — soil % uses `SOIL_RAW_DRY`/`SOIL_RAW_WET` matching firmware config; env-overridable, with an in-file constant block that MUST be updated on each recalibration. A shared-config single-source-of-truth (so recalibration updates one place) is **deferred to the pass-2 recalibration** (DL-121), where anchors/thresholds are being finalized anyway.
+
+**Validation.** Compiles; smoke-tested against a synthetic DB — computed raw 2336 → 28% on the new anchors (consistent with the live dashboard ~25% today), read maintenance mode, aged heartbeats correctly in UTC, and rendered the report. Live run on the Pi to confirm against real data is the deploy step.
+
+**Also.** **DL-121 validated** on deploy: dashboard soil now reads ~25% (honest, was clipped 100%) and shows maintenance / pump disabled.
+
+**Files.** `hub/12-plantctl/plantctl.py`, `hub/12-plantctl/README.md`.
 
 ---
 
