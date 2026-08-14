@@ -143,6 +143,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-121](#dl-121) | 2026-08-10 | Wet-anchor recalibration (pass 1 of 2) — `SOIL_RAW_WET` 2250 → **1700** in both firmwares to reflect true saturation (DL-120), un-clipping the top of the scale that hid ~2 weeks of real drying. Dry anchor (2585) kept as interim and thresholds (trigger/target) deferred to a pass-2 recalibration once the current dry-down plateaus. Board to be parked in integrated+maintenance so the shifted scale can't trigger the pump mid-chase | Active |
 | [DL-122](#dl-122) | 2026-08-10 | Grow-light "can't verify" alert — closes the DL-119 blind spot where the lux-based light check (`_check_grow_light`) silently stood down whenever its lux input was stale (WROVER offline), so a light-off outage during the day went unalerted. Sustained stale lux (>30 min) *during lit hours* now fires a push, with a recovery notice; brief blips and nighttime staleness stay silent. Also: buzzer fixed (re-seated a loose connection) | Active |
 | [DL-123](#dl-123) | 2026-08-11 | `plantctl` diagnostics CLI (v1) — a read-only tool encoding the operational runbook so a check is one command instead of pasted SQL. First command `health` (services, WROVER heartbeat + FSM, soil raw+% on current anchors, light vs schedule, pump mode, DB freshness). Bakes in the UTC-age discipline and firmware-matched anchors. `soil`/`light`/`watering`/`incident` to follow incrementally; shared-config source of truth deferred to pass-2 recal. Also: DL-121 validated (dashboard 25%, maintenance) | Active |
+| [DL-124](#dl-124) | 2026-08-14 | Pass-2 calibration + single metered dose — with the plant wilting at raw ~2530 (~6%), finalized watering on the corrected scale: trigger 20%→**30%** (safely above the observed wilt zone), target 85%→**70%** (no re-saturation), single dose **150 mL** via `SESSION_CAP == DOSE1` (supplement structurally impossible), implementing the DL-117 volume-dose redesign with proven harness code. Also documents the accelerating-draw observation honestly against the transpiration/stomatal-closure literature. For a supervised bottom-water rescue run | Active |
 
 ---
 
@@ -3287,6 +3288,30 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Also.** **DL-121 validated** on deploy: dashboard soil now reads ~25% (honest, was clipped 100%) and shows maintenance / pump disabled.
 
 **Files.** `hub/12-plantctl/plantctl.py`, `hub/12-plantctl/README.md`.
+
+---
+
+<a id="dl-124"></a>
+### DL-124 — Pass-2 calibration + single metered dose (the DL-117 volume-dose redesign)
+
+**Date:** 2026-08-14 · **Status:** Active — for a supervised bottom-water rescue run.
+
+**Context.** The dry-down never reached a flat plateau — the daily raw delta *accelerated* (≈21→56 counts/day over the week) — but the plant reached genuine drought stress: photos show clear wilting/loss of turgor with an otherwise healthy green canopy, at raw ~2527–2540 (~5–6% on the DL-121 scale). Rather than keep drying toward a plateau while the plant suffers, we finalize calibration from the **observed suffering point** (a more operationally meaningful reference than an arbitrary dry floor) and water the plant *through the system*.
+
+**Calibration decisions.**
+- **Dry anchor: keep 2585 (0%).** The plant wilts at raw ~2530 ≈ 6%, so 2585 as "bone-dry" is well-placed — suffering begins just above it. No change.
+- **Trigger: 20% → 30% (raw ~2320).** Water *before* the stress zone. Keeps a comfortable margin above the ~6% wilt point.
+- **Target: 85% → 70% (raw ~1965).** DL-117/120 showed 300 mL saturated the pot and even 200 mL headed to ~80%; 70% is healthily moist without the waterlogging that stressed roots and favored gnats.
+
+**Single metered dose (implements the DL-117 redesign).** The iterate-and-re-dose loop structurally over-doses against the ~10 h sensor lag. Replaced with one volume-metered dose, achieved *without* an FSM rewrite by making a supplement structurally impossible: `DOSE1_ML = 150`, `SESSION_CAP_ML = 150` (equal), plus `SUPPLEMENT_ML = 0` and `MAX_DOSE_ML = 150`. After the single 150 mL dose, `session_ml == cap`, so the evaluate path takes `stop_session("capped")` instead of supplementing (triple-guarded: cap check, zero supplement, and zero begin-dose budget). Uses the proven harness code (DL-117 validated the mechanics), minimizing risk on a rescue run.
+
+**Dose sizing / caveat.** 150 mL is deliberately conservative. The plant is starting very dry (~5%) and the soil is hydrophobic after ~3 weeks, so the priming penalty (DL-117's ~4× first-dose latency) may leave it **short of 70%** on this cycle. That is the safe failure direction: undershoot is recoverable with a measured top-up; overshoot re-creates the saturation problem. The run doubles as the **dry-start transfer-function point** (150 mL from ~5% → settles at what %?).
+
+**Science note — accelerating draw vs. the "thirsty rush" hypothesis.** Working hypothesis was that water draw becomes *aggressive* as the plant gets thirsty (like a deprived human rushing to drink). The plant-physiology literature contradicts the mechanism: under water stress plants **close stomata to conserve**, and transpiration typically *drops*; stomatal closure tracks soil moisture and is driven by root chemical signals (ABA) as the soil dries. Transpiration under progressive drying stays ~constant until a threshold fraction of transpirable soil water, then declines — partly because soil–plant hydraulic conductance falls as the rhizosphere dries. So our observed accelerating raw-change is better explained by canopy/bench demand + the sensor's non-linear dry-end response + a shrinking reserve (constant draw = larger *fraction* per day), not the plant pulling harder. Usefully, this *reinforces* the calibration: there is a critical-dryness threshold past which the plant shuts down, and the trigger belongs safely above it — exactly the 30% choice.
+
+**Validation (to fill on deploy).** Flash harness; supervised bottom-water run. Expect: auto-trigger (soil <30%), one 150 mL dose, no supplement, then settle/stop; plant regains turgor within hours; record where raw settles over ~10 h (the transfer-function point). True unattended autonomy still wants a self-terminating run observed end-to-end; this supervised run is evidence toward it, not a blank-cheque "walk away."
+
+**Files.** `firmware/bottom-water-calibration/src/main.cpp`.
 
 ---
 

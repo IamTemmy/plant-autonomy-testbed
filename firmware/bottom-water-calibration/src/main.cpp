@@ -69,13 +69,17 @@ static constexpr char     T_LEAK[]   = "plant/sensors/leak";
 static constexpr char     T_STATE[]  = "plant/state/wrover";
 static constexpr char     T_CMD[]    = "plant/cmd/dose";  // inbound: "start" | "abort"
 
-// ======================= Control-loop parameters (DL-107 spec) =============
-static constexpr float    TRIGGER_PCT      = 20.0f;   // start a session at/below this
-static constexpr float    TARGET_PCT       = 85.0f;   // stop target
-static constexpr int      DOSE1_ML         = 200;     // first dose
-static constexpr int      SUPPLEMENT_ML    = 100;     // each top-up after dose 1
-static constexpr int      MAX_DOSE_ML      = 200;     // per-dose hard cap
-static constexpr int      SESSION_CAP_ML   = 400;     // per-session hard cap (runaway backstop)
+// ======================= Control-loop parameters (DL-107 spec; DL-124 pass-2) =============
+// Pass-2 (DL-124): single metered dose by volume, replacing iterate-and-re-dose.
+// SESSION_CAP == DOSE1 makes a supplement structurally impossible (budget hits 0 after
+// the first dose), so the loop dispenses exactly one dose then settles/stops -- the
+// DL-117 redesign, achieved with the proven harness code rather than an FSM rewrite.
+static constexpr float    TRIGGER_PCT      = 30.0f;   // water at/below this (kept safely above the ~6% wilt zone, DL-124)
+static constexpr float    TARGET_PCT       = 70.0f;   // healthy-moist, not saturated (DL-117/120 over-dose lesson)
+static constexpr int      DOSE1_ML         = 150;     // the single metered dose
+static constexpr int      SUPPLEMENT_ML    = 0;       // no supplements in single-dose mode
+static constexpr int      MAX_DOSE_ML      = 150;     // per-dose hard cap
+static constexpr int      SESSION_CAP_ML   = 150;     // == DOSE1 -> no supplement possible (single dose)
 static constexpr float    ABSORB_RISE_PCT  = 7.0f;    // rise that counts as "absorbed"
 static constexpr uint32_t SETTLE_MIN_MS    = 3UL * 60UL * 60UL * 1000UL;   // 3 h
 static constexpr uint32_t PLATEAU_WINDOW_MS= 30UL * 60UL * 1000UL;          // 30 min
