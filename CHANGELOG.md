@@ -10,6 +10,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Added
 
+- **`plantctl` diagnostics CLI** `hub/12-plantctl/` — a read-only tool encoding the operational runbook; v1 ships the `health` command (services, WROVER heartbeat + FSM, soil raw+% on current anchors, grow light vs schedule, pump mode, DB freshness), with UTC-age discipline and firmware-matched anchors baked in (DL-123).
+
 - Dashboard **Start/Abort watering** buttons on the Controls page, with a `send_dose_cmd` helper publishing `start`/`abort` to `plant/cmd/dose` — the UI half of the bottom-watering harness's dual trigger (DL-110).
 
 - **ntfy push alerts for the bottom-watering loop** (DL-109): the listener forwards the harness's session `reason` to `alerter.on_watering_state`, which pushes once per new alert-worthy outcome (stalled / failed / capped / reservoir / leak / done).
@@ -74,6 +76,10 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 
 ### Changed
 
+- **Wet-anchor recalibration** (DL-121): `SOIL_RAW_WET` 2250 → **1700** in both firmwares to reflect true saturation, un-clipping the top of the moisture scale that had hidden ~2 weeks of real drying as a flat 100%.
+
+- **Pass-2 calibration + single metered dose** (DL-124): the bottom-watering harness now dispenses one 150 mL dose by volume instead of iterate-and-re-dose (`SESSION_CAP == DOSE1`, no supplement), with the trigger 20%→30% and target 85%→70% — implementing the DL-117 volume-dose redesign to stop over-dosing against the ~10 h sensor lag.
+
 - README currency (DL-118): corrected the status badge to "watering rework in progress," reframed the "What it does now" watering bullet to the maintenance/rework reality, de-brittled the hardcoded decision-log count, and added `firmware/bottom-water-calibration/` to the repository layout.
 
 - **Soil-moisture recalibration for bottom watering** (DL-106): `SOIL_RAW_DRY`/`SOIL_RAW_WET` changed 2523/1953 → 2585/2250 in both `firmware/integrated/src/config.h` and the calibration harness, replacing the top-water-era anchors that under-reported healthy soil and invited over-watering.
@@ -106,6 +112,8 @@ This file tracks **repository-level changes** — files, structure, and tooling.
 - Button C reassigned GPIO35 → GPIO26 (GPIO35 has no internal pull-up; GPIO26 was freed by the DL-010 grow-light architecture).
 
 ### Fixed
+
+- **Grow-light "can't verify" blind spot** (DL-122): the lux-based light check in `alerter.py` used to stand down silently whenever its lux input was stale (WROVER offline), so a light-off outage during the day went unalerted. Sustained stale lux (>30 min) during lit hours now fires a push with a recovery notice; brief blips and nighttime staleness stay silent.
 
 - **Maintenance NVS/runtime divergence** (DL-113): in `fsm.cpp`, a fault preempting maintenance and then ACKed used to leave runtime in monitoring while NVS kept `maint=true`, so a reboot silently re-entered maintenance. Fault-ACK now returns to maintenance if that is where it was interrupted, cached at the single persist point so the two cannot drift.
 
