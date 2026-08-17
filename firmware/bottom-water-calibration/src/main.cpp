@@ -69,6 +69,7 @@ static constexpr char     T_FLOAT[]  = "plant/sensors/float";
 static constexpr char     T_LEAK[]   = "plant/sensors/leak";
 static constexpr char     T_STATE[]  = "plant/state/wrover";
 static constexpr char     T_CMD[]    = "plant/cmd/dose";  // inbound: "start" | "abort"
+static constexpr char     T_MAINT[]  = "plant/cmd/maintenance";  // inbound: "on" | "off" (DL-128)
 
 // ======================= Control-loop parameters (DL-107 spec; DL-124 pass-2) =============
 // Pass-2 (DL-124): single metered dose by volume, replacing iterate-and-re-dose.
@@ -173,6 +174,15 @@ static float         moist_ema       = NAN;
 // inbound intents
 static volatile bool pending_start = false;
 static volatile bool pending_abort = false;
+static volatile int  pending_maint = 0;   // 0 = none, +1 = enter maintenance, -1 = arm (DL-128)
+
+// ---- maintenance (safe resting state, DL-128) ----
+// When true, the board monitors/publishes normally but NEVER auto-triggers a dose.
+// Manual doses (DOSE button / MQTT 'start') are still allowed for controlled tests.
+// Defaults ON at every boot (see setup) so a flash/reboot never fires the pump; the
+// operator explicitly arms watering via MQTT when ready. Persisted so a reboot mid-armed
+// is faithful only after an explicit arm — but boot always re-asserts maintenance first.
+static bool maintenance = true;
 
 // ============================== I/O primitives =============================
 static WiFiClient   wifi_client;
@@ -240,9 +250,9 @@ static void publish_state() {
     float m = isnan(moist_ema) ? -1.0f : moist_ema;
     snprintf(p, sizeof(p),
              "{\"state\":\"%s\",\"pump\":%d,\"session_ml\":%d,\"dose_count\":%d,"
-             "\"moist_pct\":%.1f,\"reason\":\"%s\"}",
+             "\"moist_pct\":%.1f,\"maintenance\":%d,\"reason\":\"%s\"}",
              state_name(state), pump_is_on() ? 1 : 0, (int)session_ml, dose_count,
-             m, last_reason);
+             m, maintenance ? 1 : 0, last_reason);
     mqtt.publish(T_STATE, p, true);   // retained
 }
 
@@ -285,11 +295,17 @@ static void watering_alert(const char* reason) {
 
 // Inbound: plant/cmd/dose = "start" (force a session) | "abort".
 static void on_message(char* topic, byte* payload, unsigned int len) {
-    if (strcmp(topic, T_CMD) != 0) return;
     char buf[16];
     unsigned int n = len < sizeof(buf) - 1 ? len : sizeof(buf) - 1;
     memcpy(buf, payload, n);
     buf[n] = '\0';
+    if (strcmp(topic, T_MAINT) == 0) {
+        if      (strcmp(buf, "on")  == 0) { pending_maint = +1; Serial.println("MQTT: maintenance on"); }
+        else if (strcmp(buf, "off") == 0) { pending_maint = -1; Serial.println("MQTT: maintenance off (arm)"); }
+        else Serial.println("MQTT: maint cmd ignored (want 'on' or 'off')");
+        return;
+    }
+    if (strcmp(topic, T_CMD) != 0) return;
     if      (strcmp(buf, "abort") == 0) { pending_abort = true; Serial.println("MQTT: abort"); }
     else if (strcmp(buf, "start") == 0) { pending_start = true; Serial.println("MQTT: start"); }
     else Serial.println("MQTT: cmd ignored (want 'start' or 'abort')");
@@ -308,6 +324,7 @@ static void mqtt_tick() {
         Serial.println("connected.");
         publish_status(0);
         mqtt.subscribe(T_CMD);
+        mqtt.subscribe(T_MAINT);
         publish_state();
         Serial.println("MQTT: subscribed to cmd (start|abort)");
     } else {
@@ -446,6 +463,13 @@ void setup() {
     mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
     mqtt.setCallback(on_message);
 
+    // ---- always boot into maintenance (DL-128, Q1-a) ----
+    // A flash/reboot must never fire the pump. The board comes up monitoring-only;
+    // auto-watering is enabled explicitly via `plant/cmd/maintenance off`. This is
+    // re-asserted every boot regardless of any prior armed state.
+    maintenance = true;
+    Serial.println("[MAINT] boot default: maintenance ON (auto-watering disabled; arm via MQTT)");
+
     // ---- reboot-safe recovery (audit P0-1) ----
     // If NVS shows a session was interrupted mid-flight (a dose was in progress, or we
     // were in dosing/settle/grace), do NOT resume autonomy. Boot pump-off into
@@ -503,7 +527,20 @@ void loop() {
     const State prev = state;
     const bool req_start = pending_start; pending_start = false;
     const bool req_abort = pending_abort; pending_abort = false;
+    const int  req_maint = pending_maint; pending_maint = 0;
     const bool active = (state == ST_DOSING || state == ST_SETTLE || state == ST_GRACE);
+
+    // ---- maintenance toggle (DL-128): entering maintenance is always safe; if a
+    // session is active, entering maintenance aborts it to STOPPED first. Arming never
+    // itself starts a dose — the auto-trigger fires on a later tick only if warranted.
+    if (req_maint == +1 && !maintenance) {
+        maintenance = true;
+        if (active) { pump_off(); last_reason = "maintenance"; state = ST_STOPPED; }
+        Serial.println("[MAINT] entering maintenance (auto-watering disabled)");
+    } else if (req_maint == -1 && maintenance) {
+        maintenance = false;
+        Serial.println("[MAINT] armed (auto-watering enabled)");
+    }
 
     // ---- safety first: overrides everything, every tick ----
     if (leak_confirmed) {
@@ -537,9 +574,9 @@ void loop() {
             case ST_MONITOR:
                 if (last_reservoir_empty) { state = ST_RESERVOIR_EMPTY; break; }
                 if (b_dose.edge || req_start) {
-                    start_session(req_start ? "mqtt" : "button");
-                } else if (!isnan(moist_ema) && moist_ema <= TRIGGER_PCT) {
-                    start_session("auto");
+                    start_session(req_start ? "mqtt" : "button");   // manual: allowed even in maintenance
+                } else if (!maintenance && !isnan(moist_ema) && moist_ema <= TRIGGER_PCT) {
+                    start_session("auto");                          // auto: blocked while in maintenance (DL-128)
                 }
                 break;
 

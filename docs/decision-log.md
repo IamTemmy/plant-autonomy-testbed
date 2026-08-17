@@ -146,7 +146,8 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-124](#dl-124) | 2026-08-14 | Pass-2 calibration + single metered dose — with the plant wilting at raw ~2530 (~6%), finalized watering on the corrected scale: trigger 20%→**30%** (safely above the observed wilt zone), target 85%→**70%** (no re-saturation), single dose **150 mL** via `SESSION_CAP == DOSE1` (supplement structurally impossible), implementing the DL-117 volume-dose redesign with proven harness code. Also documents the accelerating-draw observation honestly against the transpiration/stomatal-closure literature. For a supervised bottom-water rescue run | Active |
 | [DL-125](#dl-125) | 2026-08-16 | Probe is blind to bottom-watering — the DL-124 150 mL was fully absorbed (tray drained ~3 h, new canopy growth) yet the probe never rose above ~6%, so the mid/upper-column probe doesn't register a tray-fed dose that reaches the roots. Consequences: keep the wide 2585/1700 mapping but define the *healthy band empirically* (what the probe reads when the plant is verifiably thriving), not by assumed %; the probe alone can't tell "just watered" from "dry", so autonomy needs a second signal (watering-event memory and/or the camera). Action: supervised **100 mL** study dose (2nd tray-safe increment) to measure the 100 mL → Δmoisture-over-time response | Active |
 | [DL-126](#dl-126) | 2026-08-17 | External technical safety audit (ChatGPT, under Temmy's direction) triaged — 15 findings reviewed against HEAD e012704. Agreed on all five **P0** gates (reboot amnesia, network-before-safety, stale-EMA trigger, millis-rollover, fail-unsafe float/leak) as blockers before any unattended autonomy; none resolved by DL-125. Records per-finding verdicts and a greenlight order (reliability sprint). Key operational rule: the board is safe only while parked/latched — every P0 hazard activates on re-arm | Active |
-| [DL-127](#dl-127) | 2026-08-17 | Audit P0-1 fix — reboot-safe watering transaction. Harness now mirrors the session (state, delivered mL, dose-in-flight) to NVS on every transition (and before any water flows), and on boot refuses to resume autonomy if a session was interrupted: it enters a new pump-off **`ST_RECOVERY_HOLD`** and waits for a deliberate operator ACK (→ latched STOPPED, a 2nd ACK re-arms). Closes the "reboot → MONITOR zeroed → blind re-dose" hazard. Verified: RECOVERY_HOLD is caught in the safety-first chain and can never reach a dose path | Active |
+| [DL-127](#dl-127) | 2026-08-17 | Audit P0-1 fix — reboot-safe watering transaction. Harness now mirrors the session (state, delivered mL, dose-in-flight) to NVS on every transition (and before any water flows), and on boot refuses to resume autonomy if a session was interrupted: it enters a new pump-off **`ST_RECOVERY_HOLD`** and waits for a deliberate operator ACK (→ latched STOPPED, a 2nd ACK re-arms). Closes the "reboot → MONITOR zeroed → blind re-dose" hazard. Verified on hardware: reset mid-settle booted into recovery_hold, no re-dose; two-ACK clear works | Active |
+| [DL-128](#dl-128) | 2026-08-17 | Maintenance / safe-resting-state in the harness — a persisted `maintenance` flag that blocks **auto**-triggering while still allowing **manual** doses (button / MQTT `start`), toggled via `plant/cmd/maintenance` on\|off, surfaced in the state payload. **Boots into maintenance every time** (Q1-a), so a flash/reboot never fires the pump; watering is armed explicitly. Mirrors the integrated firmware's maintenance concept, protects data cleanliness during sprint testing, and (with DL-127) means a post-recovery return to monitor no longer surprise-doses | Active |
 
 ---
 
@@ -3390,6 +3391,30 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Test plan (to validate on deploy).** (1) Start a session, **reset mid-dose** → expect boot into `recovery_hold`, pump off, no re-dose. (2) Reset **mid-settle** → same. (3) ACK once → `stopped`; ACK again → `monitor`. (4) Normal completed session then reset → boots to `monitor` (no false hold). (5) Confirm `plantctl`/dashboard show the `recovery_hold` state.
 
 **Deferred (noted, not in this commit).** The audit's "persist a rolling daily water allowance" needs a wall-clock reset window; deferred to its own change to avoid a no-reset lockout. This entry covers the interrupted-transaction core only.
+
+**Files.** `firmware/bottom-water-calibration/src/main.cpp`.
+
+---
+
+<a id="dl-128"></a>
+### DL-128 — Maintenance / safe-resting-state for the harness
+
+**Date:** 2026-08-17 · **Status:** Active.
+
+**Context.** The bottom-watering harness had no safe resting state: on any boot or any return to `MONITOR`, if soil was below the trigger it *immediately* auto-dosed. This bit us repeatedly during P0-1 testing — flashes and reboots fired the pump (redirected to a bottle), and the two-ACK recovery clear landed in `MONITOR` and surprise-dosed. It also meant sprint testing writes real dose events into the production DB, against the goal of clean data. The integrated firmware already has a maintenance mode (DL-093/113); the harness (a separate firmware, audit P1-8) did not.
+
+**Decision (Q1-a / Q2-manual / Q3-MQTT / Q4-harness).** Add a `maintenance` flag to the harness:
+- **Blocks auto-triggering** (`!maintenance` guards the `moist_ema <= TRIGGER_PCT` path) but **allows manual doses** (DOSE button / MQTT `start`) so controlled test doses are still possible.
+- **Toggled over MQTT** via a new `plant/cmd/maintenance` topic (`on` = maintenance, `off` = arm), mirroring the integrated firmware's mechanism so it can be driven from the Pi.
+- **Boots into maintenance every time** — re-asserted in `setup()` regardless of prior state, so a flash/reboot can never fire the pump. Watering is armed by an explicit `off` command when the operator is ready.
+- **Surfaced** as `"maintenance":0|1` in the retained state payload (for the dashboard / `plantctl`).
+- Entering maintenance while a session is active aborts it to `STOPPED` (pump off) first.
+
+**Safety.** The change only *adds* a gate; it removes nothing (leak/abort/reservoir/recovery still preempt). Two useful emergent properties: (1) with boot-default maintenance, the DL-127 post-recovery return to `MONITOR` no longer auto-doses — the board rests safely; (2) all further sprint testing can run without firing the pump into production data (arm only for deliberate real-watering tests). Brace/paren balanced; not compile-tested in-authoring (no toolchain) — `pio run` + flash on the Mac is the deploy step.
+
+**Test plan.** Flash → banner shows `[MAINT] boot default: maintenance ON`; at low soil it should **not** auto-dose. `plant/cmd/maintenance off` → `[MAINT] armed`; now at low soil it auto-doses. `plant/cmd/maintenance on` mid-session → aborts to STOPPED. Confirm `"maintenance"` appears in the state payload.
+
+**Note.** Persisted-flag faithfulness across reboots is intentionally overridden by the always-boot-into-maintenance rule (safety over convenience); a future production port (audit P1-8) can unify this with the integrated firmware's NVS-persisted maintenance if desired.
 
 **Files.** `firmware/bottom-water-calibration/src/main.cpp`.
 
