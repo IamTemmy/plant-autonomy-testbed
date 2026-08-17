@@ -149,6 +149,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-127](#dl-127) | 2026-08-17 | Audit P0-1 fix — reboot-safe watering transaction. Harness now mirrors the session (state, delivered mL, dose-in-flight) to NVS on every transition (and before any water flows), and on boot refuses to resume autonomy if a session was interrupted: it enters a new pump-off **`ST_RECOVERY_HOLD`** and waits for a deliberate operator ACK (→ latched STOPPED, a 2nd ACK re-arms). Closes the "reboot → MONITOR zeroed → blind re-dose" hazard. Verified on hardware: reset mid-settle booted into recovery_hold, no re-dose; two-ACK clear works | Active |
 | [DL-128](#dl-128) | 2026-08-17 | Maintenance / safe-resting-state in the harness — a persisted `maintenance` flag that blocks **auto**-triggering while still allowing **manual** doses (button / MQTT `start`), toggled via `plant/cmd/maintenance` on\|off, surfaced in the state payload. **Boots into maintenance every time** (Q1-a), so a flash/reboot never fires the pump; watering is armed explicitly. Mirrors the integrated firmware's maintenance concept, protects data cleanliness during sprint testing, and (with DL-127) means a post-recovery return to monitor no longer surprise-doses | Active |
 | [DL-129](#dl-129) | 2026-08-17 | Audit P0-2 fix — physical safety independent of the network. An independent hard pump-on ceiling (`MAX_PUMP_ON_MS` = 165 s, above the largest legit dose) is enforced at the **very top of `loop()` before any MQTT work**, latching to STOPPED if tripped; `mqtt_tick()` moved to the **end** of the loop so all safety/FSM/telemetry run first; MQTT socket timeout cut to 2 s to bound any blocked reconnect. The pump can no longer overrun because a broker failure delayed the cutoff | Active |
+| [DL-130](#dl-130) | 2026-08-17 | Audit P0-3 fix — sensor freshness + `ST_SENSOR_FAULT`. Soil readings get a freshness timestamp; if no valid reading arrives within `SOIL_STALE_MS` (30 s), soil is "stale" and **auto- and manual starts are both blocked** (no more triggering off a frozen EMA from a dead probe). Stale *during* a session cuts the pump and latches the new `ST_SENSOR_FAULT` (clears on ACK once fresh). A fresh boot is "stale" until the first valid read, so the board can't act before it has real data | Active |
 
 ---
 
@@ -3438,6 +3439,29 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Deferred (noted).** The audit also suggested moving MQTT to a separate FreeRTOS task/core for true non-blocking operation. That is a larger restructuring; deferred — the top-of-loop backstop + short timeout bound the hazard adequately for now.
 
 **Test plan.** Arm (`maintenance off`), trigger a dose to a bottle, confirm normal cutoff at the dose target (well under 165 s). Separately, to exercise the backstop, temporarily lower `MAX_PUMP_ON_MS` and confirm `[SAFETY] pump max-runtime exceeded` fires and latches STOPPED. Optionally kill the broker mid-dose and confirm the pump still cuts off on time (bounded overrun).
+
+**Files.** `firmware/bottom-water-calibration/src/main.cpp`.
+
+---
+
+<a id="dl-130"></a>
+### DL-130 — Audit P0-3: sensor freshness + `ST_SENSOR_FAULT`
+
+**Date:** 2026-08-17 · **Status:** Active — third P0 of the DL-126 sprint.
+
+**Problem (audit P0-3).** `soil_read()` already flags out-of-range readings as invalid, but the EMA update was simply *skipped* on an invalid read — so `moist_ema` kept its last good value indefinitely, with no freshness timestamp. A probe that disconnected while reading, say, 28% would freeze the EMA at 28%, and the auto-trigger (`moist_ema <= TRIGGER_PCT`) would evaluate that stale value forever — potentially starting a dose off a dead sensor.
+
+**Fix.**
+- **Freshness timestamp.** `last_valid_soil_ms` is set on every valid reading. `soil_stale` = no valid reading within `SOIL_STALE_MS` (30 s, generous vs the 2 s cadence) *or* the EMA is still NaN (fresh boot, no reading yet).
+- **Block all starts when stale.** Both the auto-trigger *and* manual (button/MQTT) starts are gated on `!soil_stale` — a dose can't begin without fresh soil data. (Manual doses remain allowed in maintenance when the probe is healthy, per DL-128; only a genuinely stale probe blocks them.)
+- **Fault on stale-during-session.** If soil goes stale while `active` (dosing/settle/grace), the pump is cut and the board latches the new **`ST_SENSOR_FAULT`**. It clears on ACK, but only once fresh valid data has returned (mirrors the leak-fault "clear once dry" pattern). RED LED + `sensor_fault` in telemetry.
+- **Fresh-boot safety.** Because `isnan(moist_ema)` counts as stale, the board cannot act until it has taken at least one real reading — reinforcing DL-128's "don't act on an unconfirmed boot."
+
+**Safety analysis (can the fix cause unsafe watering? — no).** `soil_stale` is only ever a *negative* guard: it blocks starts and cuts the pump; it can never initiate a dose. SENSOR_FAULT re-arm requires ACK *and* fresh data, so a flickering probe can't silently resume autonomy. Leak/abort still preempt. Brace/paren balanced; not compile-tested in-authoring — `pio run` + flash is the deploy step.
+
+**Note / deferred.** A stale probe while *idle* in MONITOR blocks watering but does not (in this change) latch a fault — it fails safe (won't dose) but isn't loudly surfaced. Hub-side alerting on soil staleness (analogous to the DL-122 lux "can't verify" alert) is the natural place to surface a dead probe during idle; noted as a follow-up, not P0-3 firmware scope.
+
+**Test plan.** Arm; unplug the soil probe (or force out-of-range) and confirm: (1) idle → auto/manual starts rejected with `[SENSOR] ... rejected — soil stale`; (2) unplug mid-dose → `[SENSOR] soil stale during session` , pump off, `sensor_fault`; (3) reconnect + ACK → clears to monitor. Confirm normal operation with a healthy probe is unchanged.
 
 **Files.** `firmware/bottom-water-calibration/src/main.cpp`.
 

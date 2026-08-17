@@ -102,6 +102,10 @@ static constexpr uint32_t WIFI_BOOT_TIMEOUT_MS = 10000;
 static constexpr uint32_t MQTT_RETRY_MS        = 5000;
 static constexpr uint32_t BTN_DEBOUNCE_MS      = 50;
 static constexpr float    MOIST_EMA_ALPHA      = 0.1f;  // decision variable smoothing
+// Soil freshness (audit P0-3). If no VALID soil reading arrives within this window, the
+// probe is treated as faulted: auto-watering is blocked and (if dosing) the pump is cut.
+// Generous vs the 2 s read cadence so a couple of missed reads don't trip it.
+static constexpr uint32_t SOIL_STALE_MS        = 30000;  // 30 s
 
 // ============================== State machine ==============================
 enum State {
@@ -112,7 +116,8 @@ enum State {
     ST_RESERVOIR_EMPTY,  // float empty; blocks triggering (auto-clears on refill)
     ST_STOPPED,          // capped / failed / abort / reservoir; latched until ACK
     ST_LEAK_FAULT,       // leak latched; clears on ACK once dry
-    ST_RECOVERY_HOLD     // booted into an interrupted session (P0-1): pump off, autonomy blocked, wait for ACK
+    ST_RECOVERY_HOLD,    // booted into an interrupted session (P0-1): pump off, autonomy blocked, wait for ACK
+    ST_SENSOR_FAULT      // soil data stale/invalid (P0-3): pump off, autonomy blocked, clears on ACK once fresh
 };
 static State state = ST_MONITOR;
 
@@ -126,6 +131,7 @@ static const char* state_name(State s) {
         case ST_STOPPED:         return "stopped";
         case ST_LEAK_FAULT:      return "leak_fault";
         case ST_RECOVERY_HOLD:   return "recovery_hold";
+        case ST_SENSOR_FAULT:    return "sensor_fault";
     }
     return "?";
 }
@@ -195,7 +201,8 @@ static WiFiClient   wifi_client;
 static PubSubClient mqtt(wifi_client);
 
 static bool pump_state = false;
-static unsigned long pump_on_ms = 0;   // when the pump physically turned on (P0-2 hard deadline)
+static unsigned long pump_on_ms = 0;         // when the pump physically turned on (P0-2 hard deadline)
+static unsigned long last_valid_soil_ms = 0; // when the last VALID soil reading arrived (P0-3 freshness)
 static void pump_on()  { if (!pump_state) { pump_state = true;  pump_on_ms = millis(); digitalWrite(PUMP_GATE_PIN, HIGH); Serial.println("[PUMP] ON"); } }
 static void pump_off() { if (pump_state)  { pump_state = false; digitalWrite(PUMP_GATE_PIN, LOW);  Serial.println("[PUMP] OFF"); } }
 static bool pump_is_on() { return pump_state; }
@@ -530,12 +537,18 @@ void loop() {
         last_leak = leak_read();
         last_reservoir_empty = reservoir_empty_read();
         if (last_soil.valid) {
+            last_valid_soil_ms = now;   // P0-3: freshness timestamp
             moist_ema = isnan(moist_ema) ? last_soil.pct
                                          : (MOIST_EMA_ALPHA * last_soil.pct
                                             + (1.0f - MOIST_EMA_ALPHA) * moist_ema);
         }
         sensor_next_ms = now + SENSOR_READ_MS;
     }
+
+    // P0-3: soil is "stale" if no valid reading has arrived within SOIL_STALE_MS, or we
+    // have never had one (EMA still NaN). A stale probe must not drive watering.
+    const bool soil_stale = isnan(moist_ema) ||
+                            (uint32_t)(now - last_valid_soil_ms) > SOIL_STALE_MS;
 
     // ---- leak debounce ----
     if (last_leak.detected) { if (leak_since_ms == 0) leak_since_ms = now; }
@@ -565,8 +578,18 @@ void loop() {
         pump_off(); last_reason = "leak"; state = ST_LEAK_FAULT;
     } else if (b_abort.edge || req_abort) {
         pump_off(); last_reason = "abort"; state = ST_STOPPED;
+    } else if (soil_stale && active) {
+        // P0-3: soil data went stale/invalid during an active session. Cut the pump and
+        // latch a sensor fault — never keep operating the pump on a dead/frozen probe.
+        pump_off(); last_reason = "soil sensor stale"; state = ST_SENSOR_FAULT;
+        Serial.println("[SENSOR] soil stale during session — pump OFF, latched SENSOR_FAULT");
     } else if (state == ST_LEAK_FAULT) {
         if (b_ack.edge && !last_leak.detected) { last_reason = ""; state = ST_MONITOR; }
+    } else if (state == ST_SENSOR_FAULT) {
+        // Clears on ACK, but only once fresh valid data has returned (like leak needs dry).
+        pump_off();
+        if (b_ack.edge && !soil_stale) { last_reason = ""; state = ST_MONITOR;
+                                         Serial.println("[SENSOR] ACK — soil fresh again, cleared"); }
     } else if (state == ST_STOPPED) {
         if (b_ack.edge) { session_ml = 0; dose_count = 0; grace_used = false;
                           last_reason = ""; state = ST_MONITOR; Serial.println("[SESSION] cleared"); }
@@ -592,9 +615,12 @@ void loop() {
             case ST_MONITOR:
                 if (last_reservoir_empty) { state = ST_RESERVOIR_EMPTY; break; }
                 if (b_dose.edge || req_start) {
-                    start_session(req_start ? "mqtt" : "button");   // manual: allowed even in maintenance
-                } else if (!maintenance && !isnan(moist_ema) && moist_ema <= TRIGGER_PCT) {
-                    start_session("auto");                          // auto: blocked while in maintenance (DL-128)
+                    // Manual doses are allowed even in maintenance, but NOT on a stale probe
+                    // (P0-3): a dose with no valid soil data can't be verified or guarded.
+                    if (soil_stale) Serial.println("[SENSOR] manual dose rejected — soil stale");
+                    else start_session(req_start ? "mqtt" : "button");
+                } else if (!maintenance && !soil_stale && moist_ema <= TRIGGER_PCT) {
+                    start_session("auto");                          // auto: blocked in maintenance (DL-128) or when soil stale (P0-3)
                 }
                 break;
 
@@ -650,7 +676,7 @@ void loop() {
 
     // ---- LEDs ----
     digitalWrite(LED_YELLOW, state == ST_DOSING);
-    digitalWrite(LED_RED, state == ST_LEAK_FAULT || state == ST_STOPPED || state == ST_RECOVERY_HOLD);
+    digitalWrite(LED_RED, state == ST_LEAK_FAULT || state == ST_STOPPED || state == ST_RECOVERY_HOLD || state == ST_SENSOR_FAULT);
     digitalWrite(LED_GREEN, state == ST_MONITOR || state == ST_SETTLE || state == ST_GRACE);
 
     // ---- persist the watering transaction on every state change (P0-1) ----
