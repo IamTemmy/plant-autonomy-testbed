@@ -76,10 +76,10 @@ static constexpr char     T_CMD[]    = "plant/cmd/dose";  // inbound: "start" | 
 // DL-117 redesign, achieved with the proven harness code rather than an FSM rewrite.
 static constexpr float    TRIGGER_PCT      = 30.0f;   // water at/below this (kept safely above the ~6% wilt zone, DL-124)
 static constexpr float    TARGET_PCT       = 70.0f;   // healthy-moist, not saturated (DL-117/120 over-dose lesson)
-static constexpr int      DOSE1_ML         = 150;     // the single metered dose
-static constexpr int      SUPPLEMENT_ML    = 0;       // no supplements in single-dose mode
-static constexpr int      MAX_DOSE_ML      = 150;     // per-dose hard cap
-static constexpr int      SESSION_CAP_ML   = 150;     // == DOSE1 -> no supplement possible (single dose)
+static constexpr int      DOSE1_ML         = 100;     // DL-125 study dose (2nd increment after the DL-124 150 mL); tray-safe fill
+static constexpr int      SUPPLEMENT_ML    = 0;       // no supplements (single metered dose)
+static constexpr int      MAX_DOSE_ML      = 100;     // per-dose hard cap
+static constexpr int      SESSION_CAP_ML   = 100;     // == DOSE1 -> single dose, no supplement possible
 static constexpr float    ABSORB_RISE_PCT  = 7.0f;    // rise that counts as "absorbed"
 static constexpr uint32_t SETTLE_MIN_MS    = 3UL * 60UL * 60UL * 1000UL;   // 3 h
 static constexpr uint32_t PLATEAU_WINDOW_MS= 30UL * 60UL * 1000UL;          // 30 min
