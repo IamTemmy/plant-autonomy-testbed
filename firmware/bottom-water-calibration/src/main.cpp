@@ -27,6 +27,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <Preferences.h>   // NVS: persist the watering transaction across reboots (DL-127 / audit P0-1)
 #include <math.h>
 
 #include "secrets.h"  // WIFI_SSID/PASSWORD, MQTT_USER/PASSWORD (copy from integrated)
@@ -103,7 +104,8 @@ enum State {
     ST_GRACE,            // pump off; one-time 1.5 h recovery wait after a stall
     ST_RESERVOIR_EMPTY,  // float empty; blocks triggering (auto-clears on refill)
     ST_STOPPED,          // capped / failed / abort / reservoir; latched until ACK
-    ST_LEAK_FAULT        // leak latched; clears on ACK once dry
+    ST_LEAK_FAULT,       // leak latched; clears on ACK once dry
+    ST_RECOVERY_HOLD     // booted into an interrupted session (P0-1): pump off, autonomy blocked, wait for ACK
 };
 static State state = ST_MONITOR;
 
@@ -116,6 +118,7 @@ static const char* state_name(State s) {
         case ST_RESERVOIR_EMPTY: return "reservoir_empty";
         case ST_STOPPED:         return "stopped";
         case ST_LEAK_FAULT:      return "leak_fault";
+        case ST_RECOVERY_HOLD:   return "recovery_hold";
     }
     return "?";
 }
@@ -132,6 +135,28 @@ static const char*   last_reason     = "";    // surfaced in state payload + ser
 static unsigned long dose_start_ms   = 0;
 static unsigned long dose_target_ms  = 0;
 static int           dose_ml_target  = 0;
+
+// ---- reboot-safe watering transaction (audit P0-1 / DL-127) ----
+// The session (state, delivered volume, whether a dose is mid-flight) lives in RAM,
+// so a reset during dosing/settle/grace would otherwise return to ST_MONITOR zeroed
+// and — with the probe reading low for hours after a bottom-dose (DL-125) — start a
+// fresh dose, delivering water with no memory of what was already given. We mirror a
+// tiny transaction to NVS on every state transition (not every tick, to spare flash),
+// and on boot refuse to resume autonomy if a session was interrupted mid-flight.
+// (A persisted rolling daily water allowance is a separate follow-up: it needs a
+// wall-clock reset window, deferred to keep this change focused.)
+static Preferences   nvs;
+static const char*   NVS_NS = "water";
+
+// Persist the current transaction. `dosing_now` = a pump dose is physically in flight.
+static void nvs_save_txn(bool dosing_now) {
+    nvs.begin(NVS_NS, false);
+    nvs.putUChar("state",   (uint8_t)state);
+    nvs.putFloat("sess_ml", session_ml);
+    nvs.putInt("dose_cnt",  dose_count);
+    nvs.putBool("dosing",   dosing_now);
+    nvs.end();
+}
 
 // settle / plateau tracking
 static unsigned long settle_start_ms = 0;
@@ -312,8 +337,9 @@ static void begin_dose(int ml) {
     dose_target_ms = (unsigned long)((float)ml / PUMP_ML_PER_SEC * 1000.0f);
     dose_start_ms  = millis();
     dose_count++;
-    pump_on();
     state = ST_DOSING;
+    nvs_save_txn(true);     // P0-1: record "dosing" in NVS BEFORE any water flows
+    pump_on();
     Serial.printf("[DOSE] #%d: %d mL (%lu ms) | before %.1f%% | session -> %d/%d mL\n",
                   dose_count, ml, dose_target_ms, dose_before,
                   (int)session_ml + ml, SESSION_CAP_ML);
@@ -419,6 +445,34 @@ void setup() {
 
     mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
     mqtt.setCallback(on_message);
+
+    // ---- reboot-safe recovery (audit P0-1) ----
+    // If NVS shows a session was interrupted mid-flight (a dose was in progress, or we
+    // were in dosing/settle/grace), do NOT resume autonomy. Boot pump-off into
+    // RECOVERY_HOLD and wait for an operator ACK — because the probe reads low for hours
+    // after a bottom-dose (DL-125), a naive return to MONITOR would re-dose blindly.
+    {
+        nvs.begin(NVS_NS, true);   // read-only
+        uint8_t saved   = nvs.getUChar("state", (uint8_t)ST_MONITOR);
+        bool    dosing  = nvs.getBool("dosing", false);
+        float   sess    = nvs.getFloat("sess_ml", 0.0f);
+        int     dcount  = nvs.getInt("dose_cnt", 0);
+        nvs.end();
+        bool interrupted = dosing ||
+                           saved == ST_DOSING || saved == ST_SETTLE || saved == ST_GRACE;
+        if (interrupted) {
+            // Conservative: assume the in-flight/last dose was fully delivered — never
+            // double-dose. Carry the delivered volume forward so it's visible.
+            session_ml = sess;
+            dose_count = dcount;
+            state      = ST_RECOVERY_HOLD;
+            pump_off();
+            nvs_save_txn(false);   // clear the dosing flag; hold state persists
+            Serial.printf("[RECOVERY] interrupted session found (was %s, %d mL, %d dose). "
+                          "Pump OFF, holding for ACK.\n",
+                          state_name((State)saved), (int)session_ml, dose_count);
+        }
+    }
 }
 
 void loop() {
@@ -461,6 +515,16 @@ void loop() {
     } else if (state == ST_STOPPED) {
         if (b_ack.edge) { session_ml = 0; dose_count = 0; grace_used = false;
                           last_reason = ""; state = ST_MONITOR; Serial.println("[SESSION] cleared"); }
+    } else if (state == ST_RECOVERY_HOLD) {
+        // P0-1: booted into an interrupted session. Keep the pump off and block all
+        // autonomy. An operator ACK clears the hold to the latched STOPPED state (a
+        // second ACK then re-arms to MONITOR) — two deliberate actions to resume.
+        pump_off();
+        if (b_ack.edge) {
+            last_reason = "recovery cleared";
+            state = ST_STOPPED;
+            Serial.println("[RECOVERY] ACK — cleared to STOPPED (ACK again to re-arm)");
+        }
     } else if (last_reservoir_empty && active) {
         stop_session("reservoir empty");
     } else {
@@ -531,10 +595,16 @@ void loop() {
 
     // ---- LEDs ----
     digitalWrite(LED_YELLOW, state == ST_DOSING);
-    digitalWrite(LED_RED, state == ST_LEAK_FAULT || state == ST_STOPPED);
+    digitalWrite(LED_RED, state == ST_LEAK_FAULT || state == ST_STOPPED || state == ST_RECOVERY_HOLD);
     digitalWrite(LED_GREEN, state == ST_MONITOR || state == ST_SETTLE || state == ST_GRACE);
 
-    if (state != prev) publish_state();
+    // ---- persist the watering transaction on every state change (P0-1) ----
+    // One central point catches all transitions (dose start/end, settle, grace, stop,
+    // done). If power is lost mid-session, boot reads this back and refuses to resume.
+    if (state != prev) {
+        nvs_save_txn(state == ST_DOSING);
+        publish_state();
+    }
 
     // ---- telemetry ----
     if (now >= publish_next_ms) {

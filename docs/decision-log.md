@@ -146,6 +146,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-124](#dl-124) | 2026-08-14 | Pass-2 calibration + single metered dose — with the plant wilting at raw ~2530 (~6%), finalized watering on the corrected scale: trigger 20%→**30%** (safely above the observed wilt zone), target 85%→**70%** (no re-saturation), single dose **150 mL** via `SESSION_CAP == DOSE1` (supplement structurally impossible), implementing the DL-117 volume-dose redesign with proven harness code. Also documents the accelerating-draw observation honestly against the transpiration/stomatal-closure literature. For a supervised bottom-water rescue run | Active |
 | [DL-125](#dl-125) | 2026-08-16 | Probe is blind to bottom-watering — the DL-124 150 mL was fully absorbed (tray drained ~3 h, new canopy growth) yet the probe never rose above ~6%, so the mid/upper-column probe doesn't register a tray-fed dose that reaches the roots. Consequences: keep the wide 2585/1700 mapping but define the *healthy band empirically* (what the probe reads when the plant is verifiably thriving), not by assumed %; the probe alone can't tell "just watered" from "dry", so autonomy needs a second signal (watering-event memory and/or the camera). Action: supervised **100 mL** study dose (2nd tray-safe increment) to measure the 100 mL → Δmoisture-over-time response | Active |
 | [DL-126](#dl-126) | 2026-08-17 | External technical safety audit (ChatGPT, under Temmy's direction) triaged — 15 findings reviewed against HEAD e012704. Agreed on all five **P0** gates (reboot amnesia, network-before-safety, stale-EMA trigger, millis-rollover, fail-unsafe float/leak) as blockers before any unattended autonomy; none resolved by DL-125. Records per-finding verdicts and a greenlight order (reliability sprint). Key operational rule: the board is safe only while parked/latched — every P0 hazard activates on re-arm | Active |
+| [DL-127](#dl-127) | 2026-08-17 | Audit P0-1 fix — reboot-safe watering transaction. Harness now mirrors the session (state, delivered mL, dose-in-flight) to NVS on every transition (and before any water flows), and on boot refuses to resume autonomy if a session was interrupted: it enters a new pump-off **`ST_RECOVERY_HOLD`** and waits for a deliberate operator ACK (→ latched STOPPED, a 2nd ACK re-arms). Closes the "reboot → MONITOR zeroed → blind re-dose" hazard. Verified: RECOVERY_HOLD is caught in the safety-first chain and can never reach a dose path | Active |
 
 ---
 
@@ -3370,6 +3371,27 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Operational rule (effective now).** The board is safe **only while parked/latched** (currently `stopped` at 14% soil, below trigger). Every P0 hazard activates on re-arm, so keep it in integrated+maintenance (reboot-safe, DL-113) or latched between supervised runs until at least P0-1/P0-3 land. The open I²C fault (BME280+BH1750 dead) is a live example of the P0-3/P0-5 question — resolve within the same sprint.
 
 **Files.** None — audit record and plan. Each fix is a separate future DL + commit.
+
+---
+
+<a id="dl-127"></a>
+### DL-127 — Audit P0-1: reboot-safe watering transaction (`RECOVERY_HOLD`)
+
+**Date:** 2026-08-17 · **Status:** Active — first fix of the DL-126 reliability sprint.
+
+**Problem (audit P0-1).** The harness kept `state`, `session_ml`, `dose_count`, and phase timing in RAM only. A reset during `dosing`/`settle`/`grace` returned the controller to `ST_MONITOR` zeroed; with the probe reading low for hours after a bottom-dose (DL-125), the auto-trigger (`moist_ema <= TRIGGER_PCT`) would then start a *fresh* dose with no memory of the water already delivered. `DOSE1_ML == SESSION_CAP_ML` only bounds one dose *per in-memory session* — it does not survive a reset. This was a *live* risk (board latched at 14% soil, below trigger).
+
+**Fix.** Persist a tiny transaction to NVS (`Preferences`, namespace `water`): `state`, `session_ml`, `dose_count`, and a `dosing` in-flight flag. Written on **every state transition** (one central point) and — critically — **inside `begin_dose` before `pump_on()`**, so NVS records "dosing" before a single drop flows (closes the mid-dose reset race). On boot, if NVS shows an interrupted session (`dosing` true, or saved state ∈ {dosing, settle, grace}), the controller does **not** resume: it boots pump-off into a new **`ST_RECOVERY_HOLD`** state, carries the delivered volume forward for visibility, and waits. Conservative assumption: treat the in-flight/last dose as fully delivered — never double-dose.
+
+**Clearing.** `RECOVERY_HOLD` holds the pump off and blocks all autonomy; an operator **ACK** clears it to the latched `STOPPED` state, and a **second ACK** re-arms to `MONITOR`. Two deliberate actions to resume — appropriate for a safety recovery.
+
+**Safety verification (does the fix itself risk unsafe watering? — no).** `RECOVERY_HOLD` is handled inside the loop's safety-first if/else chain, *before* the `switch` that contains every `start_session`/`begin_dose` path, and is not a `switch` case — so a recovered board **physically cannot auto-dose**. `pump_off()` runs at boot and every tick while held. The change only *adds* gates; it removes no existing safety (leak/abort/reservoir still preempt). Brace/paren balanced; logic traced. Not compile-tested in the authoring environment (no Arduino toolchain) — compiled + flashed + reboot-tested on the Mac/board as the deploy step.
+
+**Test plan (to validate on deploy).** (1) Start a session, **reset mid-dose** → expect boot into `recovery_hold`, pump off, no re-dose. (2) Reset **mid-settle** → same. (3) ACK once → `stopped`; ACK again → `monitor`. (4) Normal completed session then reset → boots to `monitor` (no false hold). (5) Confirm `plantctl`/dashboard show the `recovery_hold` state.
+
+**Deferred (noted, not in this commit).** The audit's "persist a rolling daily water allowance" needs a wall-clock reset window; deferred to its own change to avoid a no-reset lockout. This entry covers the interrupted-transaction core only.
+
+**Files.** `firmware/bottom-water-calibration/src/main.cpp`.
 
 ---
 
