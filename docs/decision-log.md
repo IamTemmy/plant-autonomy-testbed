@@ -148,6 +148,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-126](#dl-126) | 2026-08-17 | External technical safety audit (ChatGPT, under Temmy's direction) triaged — 15 findings reviewed against HEAD e012704. Agreed on all five **P0** gates (reboot amnesia, network-before-safety, stale-EMA trigger, millis-rollover, fail-unsafe float/leak) as blockers before any unattended autonomy; none resolved by DL-125. Records per-finding verdicts and a greenlight order (reliability sprint). Key operational rule: the board is safe only while parked/latched — every P0 hazard activates on re-arm | Active |
 | [DL-127](#dl-127) | 2026-08-17 | Audit P0-1 fix — reboot-safe watering transaction. Harness now mirrors the session (state, delivered mL, dose-in-flight) to NVS on every transition (and before any water flows), and on boot refuses to resume autonomy if a session was interrupted: it enters a new pump-off **`ST_RECOVERY_HOLD`** and waits for a deliberate operator ACK (→ latched STOPPED, a 2nd ACK re-arms). Closes the "reboot → MONITOR zeroed → blind re-dose" hazard. Verified on hardware: reset mid-settle booted into recovery_hold, no re-dose; two-ACK clear works | Active |
 | [DL-128](#dl-128) | 2026-08-17 | Maintenance / safe-resting-state in the harness — a persisted `maintenance` flag that blocks **auto**-triggering while still allowing **manual** doses (button / MQTT `start`), toggled via `plant/cmd/maintenance` on\|off, surfaced in the state payload. **Boots into maintenance every time** (Q1-a), so a flash/reboot never fires the pump; watering is armed explicitly. Mirrors the integrated firmware's maintenance concept, protects data cleanliness during sprint testing, and (with DL-127) means a post-recovery return to monitor no longer surprise-doses | Active |
+| [DL-129](#dl-129) | 2026-08-17 | Audit P0-2 fix — physical safety independent of the network. An independent hard pump-on ceiling (`MAX_PUMP_ON_MS` = 165 s, above the largest legit dose) is enforced at the **very top of `loop()` before any MQTT work**, latching to STOPPED if tripped; `mqtt_tick()` moved to the **end** of the loop so all safety/FSM/telemetry run first; MQTT socket timeout cut to 2 s to bound any blocked reconnect. The pump can no longer overrun because a broker failure delayed the cutoff | Active |
 
 ---
 
@@ -3415,6 +3416,28 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Test plan.** Flash → banner shows `[MAINT] boot default: maintenance ON`; at low soil it should **not** auto-dose. `plant/cmd/maintenance off` → `[MAINT] armed`; now at low soil it auto-doses. `plant/cmd/maintenance on` mid-session → aborts to STOPPED. Confirm `"maintenance"` appears in the state payload.
 
 **Note.** Persisted-flag faithfulness across reboots is intentionally overridden by the always-boot-into-maintenance rule (safety over convenience); a future production port (audit P1-8) can unify this with the integrated firmware's NVS-persisted maintenance if desired.
+
+**Files.** `firmware/bottom-water-calibration/src/main.cpp`.
+
+---
+
+<a id="dl-129"></a>
+### DL-129 — Audit P0-2: physical safety independent of the network
+
+**Date:** 2026-08-17 · **Status:** Active — second P0 of the DL-126 sprint.
+
+**Problem (audit P0-2).** `loop()` called `mqtt_tick()` first, and `PubSubClient`'s reconnect is synchronous — a down broker could block for the socket timeout (default ~15 s) before the pump dose-cutoff (buried in the FSM `switch`, after the network call) was evaluated, extending physical pump runtime. Physical safety must not depend on network timing.
+
+**Fix.** Three changes:
+1. **Independent hard pump ceiling.** New `MAX_PUMP_ON_MS` (165 s — above the largest legit dose of ~150 s). A `pump_on_ms` timestamp is set in `pump_on()` itself (tied to the *physical* pump, not the FSM). At the **very top of `loop()`, before any network work**, if the pump has been on ≥ ceiling → `pump_off()` and latch `STOPPED` with reason "pump max-runtime exceeded". Rollover-safe comparison `(uint32_t)(now - pump_on_ms)`.
+2. **Network last.** `mqtt_tick()` moved from the top of `loop()` to the **end** — all safety, FSM, and telemetry run every loop before any (potentially blocking) reconnect. Incoming commands (abort/start/maintenance) set flags consumed at the next loop top (≤ one loop latency).
+3. **Bounded block.** `mqtt.setSocketTimeout(2)` caps a blocked reconnect at ~2 s instead of ~15 s.
+
+**Safety analysis (can the fix itself cause unsafe watering? — no).** The new deadline block can *only ever turn the pump off* — it never starts a dose. It is a pure physical backstop, independent of the FSM, so it holds even if the normal dose-cutoff logic fails. Worst-case overrun is now bounded: the top-of-loop check runs before the network, so a block can extend the pump by at most one blocked reconnect (~2 s ≈ a few mL) before the next loop-top catch — versus an unbounded default-timeout block before. No existing safety removed. Brace/paren balanced; not compile-tested in-authoring (no toolchain) — `pio run` + flash on the Mac.
+
+**Deferred (noted).** The audit also suggested moving MQTT to a separate FreeRTOS task/core for true non-blocking operation. That is a larger restructuring; deferred — the top-of-loop backstop + short timeout bound the hazard adequately for now.
+
+**Test plan.** Arm (`maintenance off`), trigger a dose to a bottle, confirm normal cutoff at the dose target (well under 165 s). Separately, to exercise the backstop, temporarily lower `MAX_PUMP_ON_MS` and confirm `[SAFETY] pump max-runtime exceeded` fires and latches STOPPED. Optionally kill the broker mid-dose and confirm the pump still cuts off on time (bounded overrun).
 
 **Files.** `firmware/bottom-water-calibration/src/main.cpp`.
 

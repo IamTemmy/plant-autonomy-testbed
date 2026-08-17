@@ -90,6 +90,12 @@ static constexpr uint32_t GRACE_MS         = 90UL * 60UL * 1000UL;          // 1
 
 // Cadence + smoothing
 static constexpr uint32_t SENSOR_READ_MS       = 2000;
+// Independent hard pump-on ceiling (audit P0-2). A physical backstop enforced at the
+// very top of loop() BEFORE any network work: the pump can never run longer than this,
+// regardless of FSM state, a stuck dose-cutoff, or a blocked MQTT reconnect. Set safely
+// above the largest legitimate dose (150 mL ~= 150 s at the pump rate) so it never trips
+// in normal operation but bounds any runaway.
+static constexpr uint32_t MAX_PUMP_ON_MS       = 165000;   // 165 s
 static constexpr uint32_t PUBLISH_MS           = 5000;
 static constexpr uint32_t HEARTBEAT_MS         = 10000;
 static constexpr uint32_t WIFI_BOOT_TIMEOUT_MS = 10000;
@@ -189,7 +195,8 @@ static WiFiClient   wifi_client;
 static PubSubClient mqtt(wifi_client);
 
 static bool pump_state = false;
-static void pump_on()  { if (!pump_state) { pump_state = true;  digitalWrite(PUMP_GATE_PIN, HIGH); Serial.println("[PUMP] ON"); } }
+static unsigned long pump_on_ms = 0;   // when the pump physically turned on (P0-2 hard deadline)
+static void pump_on()  { if (!pump_state) { pump_state = true;  pump_on_ms = millis(); digitalWrite(PUMP_GATE_PIN, HIGH); Serial.println("[PUMP] ON"); } }
 static void pump_off() { if (pump_state)  { pump_state = false; digitalWrite(PUMP_GATE_PIN, LOW);  Serial.println("[PUMP] OFF"); } }
 static bool pump_is_on() { return pump_state; }
 
@@ -462,6 +469,7 @@ void setup() {
 
     mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
     mqtt.setCallback(on_message);
+    mqtt.setSocketTimeout(2);   // P0-2: bound a blocked reconnect to ~2 s, not the default 15 s
 
     // ---- always boot into maintenance (DL-128, Q1-a) ----
     // A flash/reboot must never fire the pump. The board comes up monitoring-only;
@@ -501,7 +509,17 @@ void setup() {
 
 void loop() {
     const unsigned long now = millis();
-    mqtt_tick();
+
+    // ---- P0-2: independent physical pump safety, BEFORE any network work ----
+    // The pump can never run past MAX_PUMP_ON_MS, whatever the FSM or a blocked MQTT
+    // reconnect is doing. This is a pure backstop: it can only ever turn the pump OFF.
+    if (pump_is_on() && (uint32_t)(now - pump_on_ms) >= MAX_PUMP_ON_MS) {
+        pump_off();
+        last_reason = "pump max-runtime exceeded";
+        state = ST_STOPPED;
+        Serial.println("[SAFETY] pump max-runtime exceeded — pump OFF, latched STOPPED");
+    }
+
     button_update(b_dose, now);
     button_update(b_ack, now);
     button_update(b_abort, now);
@@ -666,4 +684,9 @@ void loop() {
         }
         heartbeat_next_ms = now + HEARTBEAT_MS;
     }
+
+    // ---- network LAST (P0-2): all physical safety + FSM + telemetry above run every
+    // loop before any (potentially blocking) MQTT reconnect is attempted. Incoming
+    // commands (abort/start/maintenance) set flags consumed at the top of the next loop.
+    mqtt_tick();
 }
