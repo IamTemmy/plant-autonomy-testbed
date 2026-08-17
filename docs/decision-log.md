@@ -145,6 +145,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-123](#dl-123) | 2026-08-11 | `plantctl` diagnostics CLI (v1) — a read-only tool encoding the operational runbook so a check is one command instead of pasted SQL. First command `health` (services, WROVER heartbeat + FSM, soil raw+% on current anchors, light vs schedule, pump mode, DB freshness). Bakes in the UTC-age discipline and firmware-matched anchors. `soil`/`light`/`watering`/`incident` to follow incrementally; shared-config source of truth deferred to pass-2 recal. Also: DL-121 validated (dashboard 25%, maintenance) | Active |
 | [DL-124](#dl-124) | 2026-08-14 | Pass-2 calibration + single metered dose — with the plant wilting at raw ~2530 (~6%), finalized watering on the corrected scale: trigger 20%→**30%** (safely above the observed wilt zone), target 85%→**70%** (no re-saturation), single dose **150 mL** via `SESSION_CAP == DOSE1` (supplement structurally impossible), implementing the DL-117 volume-dose redesign with proven harness code. Also documents the accelerating-draw observation honestly against the transpiration/stomatal-closure literature. For a supervised bottom-water rescue run | Active |
 | [DL-125](#dl-125) | 2026-08-16 | Probe is blind to bottom-watering — the DL-124 150 mL was fully absorbed (tray drained ~3 h, new canopy growth) yet the probe never rose above ~6%, so the mid/upper-column probe doesn't register a tray-fed dose that reaches the roots. Consequences: keep the wide 2585/1700 mapping but define the *healthy band empirically* (what the probe reads when the plant is verifiably thriving), not by assumed %; the probe alone can't tell "just watered" from "dry", so autonomy needs a second signal (watering-event memory and/or the camera). Action: supervised **100 mL** study dose (2nd tray-safe increment) to measure the 100 mL → Δmoisture-over-time response | Active |
+| [DL-126](#dl-126) | 2026-08-17 | External technical safety audit (ChatGPT, under Temmy's direction) triaged — 15 findings reviewed against HEAD e012704. Agreed on all five **P0** gates (reboot amnesia, network-before-safety, stale-EMA trigger, millis-rollover, fail-unsafe float/leak) as blockers before any unattended autonomy; none resolved by DL-125. Records per-finding verdicts and a greenlight order (reliability sprint). Key operational rule: the board is safe only while parked/latched — every P0 hazard activates on re-arm | Active |
 
 ---
 
@@ -3334,9 +3335,41 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 
 **Action / firmware.** Temporary single **100 mL** study dose (`DOSE1_ML = MAX_DOSE_ML = SESSION_CAP_ML = 100`, `SUPPLEMENT_ML = 0`) — the second tray-safe increment after the DL-124 150 mL (tray holds ~150 mL max, so more total water must be split across fills, gated by tray drainage, never by the blind probe). Supervised: expect the 100 mL to dispense on boot (soil ~4% < 30% trigger), then — because the probe stays flat — the same stall→fail→emergency-stop tail ~4.5 h later, which is **harmless** here (water already delivered; emergency-stop is a safe latched rest). The study is the moisture/tray/plant response over ~10 h, not the FSM outcome. `TRIGGER_PCT` 30% is **not** finalized — kept as a working value pending what these doses teach.
 
-**Validation (to fill).** Record: pre-dose raw + time (baseline raw 2547 / 4% @ 2026-08-16 18:51 CDT), the 100 mL dose time, tray-drawdown time, moisture trace over ~10 h, and plant response. Pairs with the 150 mL point toward the transfer function.
+**Validation (filled 2026-08-17).** 100 mL dosed 2026-08-16 22:30 CDT from raw 2543 (5.4%); serial confirmed `[DOSE] #1: 100 mL | session -> 100/100`, single dose, no supplement. **Tray drew down in <10 min** — vs ~3 h for the DL-124 150 mL — because the soil was already *primed* (still damp from the 150 mL two days prior), a clear priming/absorption-rate effect. Probe stayed flat ~5% through the settle, then the expected probe-blind stall→fail→**emergency-stop** latch at 03:32 CDT (harmless; water already delivered). **Refines the DL-125 finding: the probe is not fully blind, but severely lagged + attenuated** — by ~16 h later (2026-08-17 14:42) it had risen to raw 2459 / 14%, so the bottom-dose *does* reach the probe, just very late and muted (14%, far below the root-zone's true hydration). Transfer-function points so far: 150 mL from dry/unprimed → ~3 h drawdown; 100 mL from primed → <10 min drawdown, probe +~9 pts over ~16 h.
+
+**Post-dose safety note (per DL-126 audit).** At 14% the soil sits *below* the trigger, so the board is safe **only because it is latched in `stopped`** — a re-arm (ACK or reboot→monitor) would immediately re-dose with no memory of the 250 mL already given. This is the live instance of audit findings P0-1/P0-3; keep the board parked until the reboot-safe transaction lands.
 
 **Files.** `firmware/bottom-water-calibration/src/main.cpp`.
+
+---
+
+<a id="dl-126"></a>
+### DL-126 — External safety audit: triage, verdicts, and the reliability-sprint plan
+
+**Date:** 2026-08-17 · **Status:** Active — plan of record; each fix lands as its own later DL.
+
+**Context.** An external technical safety audit (produced by ChatGPT under Temmy's direction) reviewed the repo at baseline `37f4bbc` / HEAD `e012704`, raising 15 numbered findings across three priority gates: **P0 (1–5)** required before unattended autonomous watering, **P1 (6–12)** integration/data/security, **P2 (13–15)** engineering maturity. This entry records the review and the agreed order of work. The audit correctly corrected an earlier reviewer inference: HEAD *does* carry trigger 30 / target 70 / dose 100 / cap 100 / wet anchor 1700 — the stale `20%/85%` boot banner is a compiled string that lagged the constants, not proof of a mismatched build (that is finding 9, not a code defect).
+
+**Verdicts (condensed).**
+- **P0-1 Reboot loses the watering transaction — AGREE (top priority).** Harness state/`session_ml`/`dose_count` are RAM-only; boot returns to `ST_MONITOR` zeroed. `DOSE1_ML == SESSION_CAP_ML` bounds one dose *per in-memory session only*; it does **not** survive a reset. With DL-125's lagged/attenuated probe reading low for hours, a mid-settle reboot re-doses — and this is a *live* scenario (see DL-125 post-dose note). Fix: persist session to NVS, boot into pump-off `RECOVERY_HOLD`, assume dose delivered if uncertain, require explicit clear. Fix risk: low (reduces hazard); watch NVS wear (write on phase transitions).
+- **P0-2 Network serviced before safety — AGREE.** `loop()` runs `mqtt_tick()` (synchronous reconnect) before ABORT/leak/reservoir/pump-deadline. Fix: evaluate cutoff/ABORT/leak/reservoir at loop top; independent hard pump-on deadline; bounded net timeouts. Fix risk: low (safety-first ordering).
+- **P0-3 Stale EMA can trigger a dose — AGREE.** `moist_ema` holds its last value when `last_soil.valid` is false; auto-trigger has no freshness gate. Fix: track `last_valid_soil_ms`, require N consecutive valid samples to arm, add `ST_SENSOR_FAULT`, cut off + latch on invalid data mid-dose. Fix risk: low (gates watering).
+- **P0-4 millis() rollover unsafe — AGREE (low probability).** `now >= next_ms` comparisons break at ~49.7 d; board reboots far more often, so unlikely to reach it, but trivial to fix: `(uint32_t)(now - last) >= INTERVAL`, plus a near-`UINT32_MAX` test. Fix risk: low *if* the pump-deadline refactor is unit-tested.
+- **P0-5 Float/leak not fail-safe on disconnect — AGREE.** Both read as always-valid; an open float can read "reservoir OK", a disconnected leak sensor "dry" — failures masquerade as safe. Fix: debounce, sensor-health states, startup diagnostics, block autonomy until safety inputs validate. Fix risk: low; over-twitchy checks fail *closed* (safe).
+- **P1-6 Hub drops water-volume fields — AGREE (already biting us: "~0 mL watered" summaries).** `listener.py` extracts only `daily_pump_ms`. Fix: versioned payload end-to-end. Greenlight (also our own observability).
+- **P1-7 Dashboard lacks Phase-5 states — AGREE.** Pairs with 6. Defer.
+- **P1-8 Two firmwares diverged — AGREE (already flagged DL-114).** Port bottom-water FSM into the modular integrated firmware, compile-disable top-water, centralize config. High effort; defer until P0s land.
+- **P1-9 Runtime/docs contradict code (stale banner) — AGREE.** Caused the earlier false deploy inference. Fix: print compiled constants + build SHA at boot/MQTT; CI consistency check. Cheap; greenlight.
+- **P1-10 Retention breaks provenance — AGREE (minor).** Defer.
+- **P1-11 MQTT no per-client ACL — AGREE.** Shared creds can publish `plant/cmd/dose`. Harden before unattended; defer.
+- **P1-12 Camera accepts unauth uploads — AGREE.** Bundle with camera phase; defer.
+- **P2-13/14/15 — AGREE** (no CI/tests; unpinned builds overstate the README's reproducibility claim; camera greenness needs exposure/WB/geometry controls + reference patch, no ML until repeatable). Defer to maturity phase.
+
+**Greenlight order (reliability sprint, before any unattended autonomy).** (1) reboot-safe watering transaction + recovery hold [P0-1]; (2) safety loop independent of network [P0-2]; (3) sensor freshness + fault states [P0-3]; (4) rollover-safe scheduling [P0-4]; (5) fail-safe float/leak [P0-5]; then cheap wins (9) build-SHA/runtime banner and (6) versioned payload; then (8) production firmware port, (13) CI/fault-injection tests, (14/10) pinning + DB integrity, (11/12) MQTT ACL + camera auth, (15) vision calibration.
+
+**Operational rule (effective now).** The board is safe **only while parked/latched** (currently `stopped` at 14% soil, below trigger). Every P0 hazard activates on re-arm, so keep it in integrated+maintenance (reboot-safe, DL-113) or latched between supervised runs until at least P0-1/P0-3 land. The open I²C fault (BME280+BH1750 dead) is a live example of the P0-3/P0-5 question — resolve within the same sprint.
+
+**Files.** None — audit record and plan. Each fix is a separate future DL + commit.
 
 ---
 
