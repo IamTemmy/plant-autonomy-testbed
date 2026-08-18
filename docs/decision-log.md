@@ -3499,6 +3499,8 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 
 **Interpreting (to fill on run).** BME280 + BH1750 **PRESENT** → sensors electrically alive; the 3-day "fault" was just the harness not reading them (no hardware work needed; the integrated firmware, or the eventual unified port, will restore telemetry). One/both **MISSING** → genuine hardware fault; isolate (remove one device, re-scan, see if the other returns) and pursue wiring/sensor replacement.
 
+**Result (2026-08-17).** Scanner reports every second: `0x23 <- BH1750`, `0x77 <- BME280`, and `0x3C` (the OLED) — `SUMMARY: BME280 PRESENT | BH1750 PRESENT`. **No hardware fault.** All three I2C devices are electrically alive and always were; the environmental sensors only went silent because the running harness reads no I2C. Telemetry returns as soon as I2C-reading firmware runs (integrated, or the unified port). Lesson: "sensor offline in telemetry" ≠ "sensor broken" — confirm on the bus before assuming a hardware failure.
+
 **Files.** `firmware/test-sketches/15-i2c-scanner/{platformio.ini,src/main.cpp,README.md}`.
 
 ---
