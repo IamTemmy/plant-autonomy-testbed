@@ -153,6 +153,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-131](#dl-131) | 2026-08-17 | Audit P0-4 fix — rollover-safe periodic timing. The four cadence timers (sensor read, publish, heartbeat, MQTT-retry) stored an absolute future deadline (`now >= next_ms`), which breaks at the ~49.7-day `millis()` wrap; converted to the elapsed idiom `(uint32_t)(now - last_ms) >= interval`. The pump-critical timers (dose cutoff, settle, grace, P0-2 hard deadline) were already elapsed-style and untouched. Low severity (cadence only; board reboots far more often than 49 days) but now correct | Active |
 | [DL-132](#dl-132) | 2026-08-17 | I2C diagnostic — the BME280+BH1750 telemetry that went stale at 2026-08-14 21:17:44Z stopped at the exact instant the board was reflashed from integrated to the watering harness (which reads no I2C), strongly suggesting the sensors are alive and simply weren't being read, not a hardware fault. Added a side-effect-free I2C scanner sketch (`test-sketches/15-i2c-scanner`, no pump/WiFi/watering) to confirm on the bus before assuming any hardware failure | Active |
 | [DL-133](#dl-133) | 2026-08-17 | Dashboard Phase-5 awareness (audit P1-7) — the dashboard showed the harness's `monitor` state as raw "monitor" and never surfaced maintenance (it only knew the integrated firmware's names + dropped the `maintenance` flag at the listener). Fixed: listener now persists the `maintenance` flag as its own `system_status` metric; `STATE_DISPLAY` gains the harness state names (monitor/dosing/settle/grace/recovery_hold/sensor_fault); the banner shows "Maintenance" when the flag is on (but real faults like recovery_hold/sensor_fault are never masked) | Active |
+| [DL-134](#dl-134) | 2026-08-17 | Audit P1-9 fix — runtime/build identity. The boot banner hardcoded "triggers at <=20%, target 85%" (wrong; real values 30/70) which caused a false deploy diagnosis mid-audit. Banner now prints the **actual compiled** `TRIGGER_PCT`/`TARGET_PCT`, plus a `Build: <git-sha> @ <time>` stamp injected via `platformio.ini`; the git SHA also rides in the retained MQTT status payload (`"build"`), so the deployed firmware identity is machine-readable rather than un-provable from the repo alone | Active |
 
 ---
 
@@ -3522,6 +3523,24 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Note.** This is the dashboard half of the firmware/dashboard divergence (audit P1-8). The eventual unified firmware will settle the state vocabulary; until then the dashboard understands both.
 
 **Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dash_common.py`.
+
+---
+
+<a id="dl-134"></a>
+### DL-134 — Audit P1-9: runtime/build identity (no more lying banner)
+
+**Date:** 2026-08-17 · **Status:** Active.
+
+**Context.** The harness boot banner hardcoded `Autonomous: triggers at <=20%, target 85%`. The real constants have been `TRIGGER_PCT=30`, `TARGET_PCT=70` since DL-124 — so the banner was simply a stale string that lagged the code. This directly caused a **false deploy diagnosis** during the P0 audit review: seeing "20%/85%" on serial was misread as "the flashed build has old constants," when in fact HEAD was correct and only the printed banner was wrong. And there was no way to confirm *which* build was actually running — repo state can't prove the deployed binary.
+
+**Fix.**
+- **Banner prints the actual compiled constants.** `Serial.printf(... TRIGGER_PCT, TARGET_PCT)` instead of the hardcoded literals, so the banner can never drift from the code again. (The `Params:` line already printed live dose/cap values; this extends the same principle to trigger/target.)
+- **Build stamp.** `platformio.ini` injects `FW_GIT_SHA` (short hash, `-dirty` if uncommitted) and `FW_BUILD_TIME` (UTC) via `!echo` build flags; the banner prints `Build: <sha> @ <time>`. `#ifndef` fallbacks keep it compiling (as `"unknown"`) if the shell injection doesn't expand.
+- **Machine-readable over MQTT.** The retained status payload gains a `"build":"<sha>"` field, so the hub / `plantctl` / a dashboard query can confirm exactly what firmware is live — the deploy identity is no longer un-provable.
+
+**Safety.** Diagnostic/observability only — no pump or control-flow change. Brace/paren balanced; not compile-tested in-authoring (no toolchain) — `pio run` is the deploy step, and it will also reveal whether the `!echo` SHA injection expands on this shell (falls back to "unknown" if not).
+
+**Files.** `firmware/bottom-water-calibration/platformio.ini`, `firmware/bottom-water-calibration/src/main.cpp`.
 
 ---
 
