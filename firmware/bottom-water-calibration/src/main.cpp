@@ -30,12 +30,9 @@
 #include <Preferences.h>   // NVS: persist the watering transaction across reboots (DL-127 / audit P0-1)
 #include <math.h>
 
-// P1-9: build identity. platformio.ini injects these; fall back if built without it.
+// P1-9: build identity. platformio.ini injects the git SHA; fall back if built without it.
 #ifndef FW_GIT_SHA
 #define FW_GIT_SHA "unknown"
-#endif
-#ifndef FW_BUILD_TIME
-#define FW_BUILD_TIME "unknown"
 #endif
 
 #include "secrets.h"  // WIFI_SSID/PASSWORD, MQTT_USER/PASSWORD (copy from integrated)
@@ -459,9 +456,9 @@ void setup() {
     delay(500);
     // P1-9: print the ACTUAL compiled constants + a build stamp so the banner can never
     // drift from the code again (the old hardcoded "20%/85%" line caused a false deploy
-    // diagnosis). FW_GIT_SHA / FW_BUILD_TIME are injected by platformio.ini.
+    // diagnosis). FW_GIT_SHA is injected by platformio.ini.
     Serial.println("\n=== Bottom-Watering Control Loop (Phase 5 prototype) ===");
-    Serial.printf("Build: %s @ %s\n", FW_GIT_SHA, FW_BUILD_TIME);
+    Serial.printf("Build: %s\n", FW_GIT_SHA);
     Serial.printf("Autonomous: triggers at <=%.0f%%, target %.0f%%; DOSE btn / MQTT 'start' forces a session.\n",
                   TRIGGER_PCT, TARGET_PCT);
     Serial.println("Buttons: DOSE(26) start | ACK(33) clear-stop / advance-wait | ABORT(32) stop");

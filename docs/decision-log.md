@@ -3542,6 +3542,8 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 
 **Files.** `firmware/bottom-water-calibration/platformio.ini`, `firmware/bottom-water-calibration/src/main.cpp`.
 
+**Fix-up (same day).** The initial `platformio.ini` injected a build *time* via `date -u +%Y-...`; the bare `%` broke PlatformIO's config parser (`InvalidProjectConfError`) before the shell ran. Dropped the build-time line entirely (the git SHA is the identifier that matters) — banner now prints just `Build: <sha>`. The SHA injection (no `%`) is unaffected.
+
 ---
 
 ## Maintaining this log
