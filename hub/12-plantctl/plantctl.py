@@ -160,8 +160,15 @@ def _check_pump(conn):
         "SELECT status, ts FROM system_status WHERE device='wrover' AND metric='fsm_state' "
         "ORDER BY ts DESC LIMIT 1").fetchone()
     fsm = st[0] if st else "unknown"
-    maint = (fsm == "maintenance")
-    _c(OK if maint else INFO, "mode", "maintenance (watering disabled)" if maint else fsm)
+    # Maintenance is a separate flag (DL-128/DL-133), not a state string — read the metric.
+    mrow = conn.execute(
+        "SELECT value FROM system_status WHERE device='wrover' AND metric='maintenance' "
+        "ORDER BY ts DESC LIMIT 1").fetchone()
+    maint = bool(mrow[0]) if mrow and mrow[0] is not None else False
+    if maint:
+        _c(OK, "mode", f"maintenance — auto-watering disabled (state: {fsm})")
+    else:
+        _c(INFO, "mode", f"armed (state: {fsm})")
     on = conn.execute(
         "SELECT ts FROM system_status WHERE metric='pump' AND value>0 "
         "ORDER BY ts DESC LIMIT 1").fetchone()

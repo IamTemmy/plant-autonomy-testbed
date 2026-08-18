@@ -155,6 +155,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-133](#dl-133) | 2026-08-17 | Dashboard Phase-5 awareness (audit P1-7) — the dashboard showed the harness's `monitor` state as raw "monitor" and never surfaced maintenance (it only knew the integrated firmware's names + dropped the `maintenance` flag at the listener). Fixed: listener now persists the `maintenance` flag as its own `system_status` metric; `STATE_DISPLAY` gains the harness state names (monitor/dosing/settle/grace/recovery_hold/sensor_fault); the banner shows "Maintenance" when the flag is on (but real faults like recovery_hold/sensor_fault are never masked) | Active |
 | [DL-134](#dl-134) | 2026-08-17 | Audit P1-9 fix — runtime/build identity. The boot banner hardcoded "triggers at <=20%, target 85%" (wrong; real values 30/70) which caused a false deploy diagnosis mid-audit. Banner now prints the **actual compiled** `TRIGGER_PCT`/`TARGET_PCT`, plus a `Build: <git-sha> @ <time>` stamp injected via `platformio.ini`; the git SHA also rides in the retained MQTT status payload (`"build"`), so the deployed firmware identity is machine-readable rather than un-provable from the repo alone | Active |
 | [DL-135](#dl-135) | 2026-08-17 | Audit P1-6 (partial) — hub now captures the harness's water-volume telemetry. The harness publishes `session_ml`/`dose_count`, but the listener only extracted the integrated firmware's `daily_pump_ms` (which the harness never sends) → the "~0 mL watered today" summaries. Fixed: listener persists `session_ml`+`dose_count` as metrics; `_daily_ml` (alerter) and a new `daily_ml_delivered()` (dashboard) compute the 24 h total by summing positive `session_ml` deltas across sessions, falling back to `daily_pump_ms` for the integrated firmware | Active |
+| [DL-136](#dl-136) | 2026-08-17 | plantctl maintenance-detection fix — `plantctl health` checked `fsm_state == "maintenance"`, but maintenance is a separate flag (DL-128) stored as its own `metric='maintenance'` (DL-133), so plantctl was blind to it and implied watering was enabled while the board was parked. Now reads the maintenance metric and reports "maintenance — auto-watering disabled (state: …)", consistent with the firmware and dashboard. Read-only diagnostic; verified against a synthetic DB | Active |
 
 ---
 
@@ -3563,6 +3564,23 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Why "partial" P1-6.** The audit's fuller P1-6 asks for a *versioned* payload (`schema_version`, `firmware`, `build_sha`, `boot_id`, `sequence`, …) with producer and consumers updated together. This change captures the missing water-volume fields (the immediate, user-visible bug) without the full schema-versioning envelope; the `build_sha` half already landed in DL-134. Full payload versioning remains a follow-up, best done with the P1-8 firmware unification.
 
 **Files.** `hub/04-listener/listener.py`, `hub/04-listener/alerter.py`, `hub/06-dashboard/dash_common.py`.
+
+---
+
+<a id="dl-136"></a>
+### DL-136 — plantctl maintenance-detection fix
+
+**Date:** 2026-08-17 · **Status:** Active.
+
+**Context.** `plantctl health` (DL-123) predates the harness maintenance flag (DL-128) and the listener change that stores it (DL-133). Its `_check_pump` computed `maint = (fsm == "maintenance")` — expecting the *state string* to be "maintenance". But the harness reports `state="monitor"` with maintenance as a **separate** boolean, now stored as `metric='maintenance'`. So plantctl never saw maintenance: with the board parked (monitor + maintenance), it printed "mode: monitor" and implied auto-watering was enabled — a diagnostic giving the wrong safety-relevant answer.
+
+**Fix.** `_check_pump` now reads the latest `metric='maintenance'` value and reports "maintenance — auto-watering disabled (state: <fsm>)" when set, or "armed (state: <fsm>)" otherwise — bringing plantctl in line with the firmware truth and the dashboard banner (DL-133).
+
+**Validation.** `py_compile` clean; run against a synthetic DB with `state=monitor` + `maintenance=1` prints "maintenance — auto-watering disabled (state: monitor)". Read-only tool (mode=ro, PRAGMA query_only) — no writes, no actuation. Deploy is just copying `plantctl.py` to the Pi (already symlinked on PATH).
+
+**Note.** plantctl's other queries (soil `soil_raw`/`soil`, pump `metric='pump'`, lux `sensor='lux'`) were confirmed correct against the live schema. The anchor/trigger constants remain an in-file block pending the deferred shared-config single-source-of-truth.
+
+**Files.** `hub/12-plantctl/plantctl.py`.
 
 ---
 
