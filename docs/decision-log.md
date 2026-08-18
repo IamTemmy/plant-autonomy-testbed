@@ -151,6 +151,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-129](#dl-129) | 2026-08-17 | Audit P0-2 fix — physical safety independent of the network. An independent hard pump-on ceiling (`MAX_PUMP_ON_MS` = 165 s, above the largest legit dose) is enforced at the **very top of `loop()` before any MQTT work**, latching to STOPPED if tripped; `mqtt_tick()` moved to the **end** of the loop so all safety/FSM/telemetry run first; MQTT socket timeout cut to 2 s to bound any blocked reconnect. The pump can no longer overrun because a broker failure delayed the cutoff | Active |
 | [DL-130](#dl-130) | 2026-08-17 | Audit P0-3 fix — sensor freshness + `ST_SENSOR_FAULT`. Soil readings get a freshness timestamp; if no valid reading arrives within `SOIL_STALE_MS` (30 s), soil is "stale" and **auto- and manual starts are both blocked** (no more triggering off a frozen EMA from a dead probe). Stale *during* a session cuts the pump and latches the new `ST_SENSOR_FAULT` (clears on ACK once fresh). A fresh boot is "stale" until the first valid read, so the board can't act before it has real data | Active |
 | [DL-131](#dl-131) | 2026-08-17 | Audit P0-4 fix — rollover-safe periodic timing. The four cadence timers (sensor read, publish, heartbeat, MQTT-retry) stored an absolute future deadline (`now >= next_ms`), which breaks at the ~49.7-day `millis()` wrap; converted to the elapsed idiom `(uint32_t)(now - last_ms) >= interval`. The pump-critical timers (dose cutoff, settle, grace, P0-2 hard deadline) were already elapsed-style and untouched. Low severity (cadence only; board reboots far more often than 49 days) but now correct | Active |
+| [DL-132](#dl-132) | 2026-08-17 | I2C diagnostic — the BME280+BH1750 telemetry that went stale at 2026-08-14 21:17:44Z stopped at the exact instant the board was reflashed from integrated to the watering harness (which reads no I2C), strongly suggesting the sensors are alive and simply weren't being read, not a hardware fault. Added a side-effect-free I2C scanner sketch (`test-sketches/15-i2c-scanner`, no pump/WiFi/watering) to confirm on the bus before assuming any hardware failure | Active |
 
 ---
 
@@ -3484,6 +3485,21 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Safety.** Purely a timing-correctness change to cadence timers; touches no pump logic and cannot initiate a dose. Brace/paren balanced; not compile-tested in-authoring — `pio run` + flash. A simulated near-`UINT32_MAX` rollover test is noted as a TODO for the P2-13 CI/test phase.
 
 **Files.** `firmware/bottom-water-calibration/src/main.cpp`.
+
+---
+
+<a id="dl-132"></a>
+### DL-132 — I2C diagnostic: scanner sketch (are BME280/BH1750 actually dead?)
+
+**Date:** 2026-08-17 · **Status:** Active — diagnostic.
+
+**Context.** The hub had been alerting "can't verify grow light" (DL-122) for ~3 days: `bh1750` (lux) and `bme280` (temp/humidity/pressure) both last reported at exactly `2026-08-14 21:17:44Z`, while the analog sensors (soil/leak/float) stayed live. That looked like the shared-I2C hardware fault suspected earlier. But two facts reframe it: (1) the currently-flashed **watering harness reads no I2C at all** (no `Wire`, no BME280/BH1750 code — it only handles soil/leak/float/pump); (2) the stale timestamp (`21:17:44Z` = `16:17 CDT`) coincides with the Aug-14 reflash from the integrated firmware to the harness, and the DL-122 "can't verify" push fired ~35 min later (consistent with the 30-min stale-lux threshold). So the environmental sensors most likely went "silent" simply because the running firmware stopped reading them — not because they failed.
+
+**Action.** Rather than reflash the integrated firmware (which carries the pre-sprint watering logic) just to test two sensors, added a **side-effect-free I2C scanner** at `firmware/test-sketches/15-i2c-scanner/` — it probes the shared bus (SDA=21/SCL=22) and prints PASS/FAIL for BME280 (0x76/0x77) and BH1750 (0x23). No pump, WiFi, MQTT, or watering; it only touches the bus. Consistent with the existing per-component `test-sketches/` convention.
+
+**Interpreting (to fill on run).** BME280 + BH1750 **PRESENT** → sensors electrically alive; the 3-day "fault" was just the harness not reading them (no hardware work needed; the integrated firmware, or the eventual unified port, will restore telemetry). One/both **MISSING** → genuine hardware fault; isolate (remove one device, re-scan, see if the other returns) and pursue wiring/sensor replacement.
+
+**Files.** `firmware/test-sketches/15-i2c-scanner/{platformio.ini,src/main.cpp,README.md}`.
 
 ---
 
