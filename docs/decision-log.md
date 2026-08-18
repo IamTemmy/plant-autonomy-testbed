@@ -158,6 +158,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-136](#dl-136) | 2026-08-17 | plantctl maintenance-detection fix — `plantctl health` checked `fsm_state == "maintenance"`, but maintenance is a separate flag (DL-128) stored as its own `metric='maintenance'` (DL-133), so plantctl was blind to it and implied watering was enabled while the board was parked. Now reads the maintenance metric and reports "maintenance — auto-watering disabled (state: …)", consistent with the firmware and dashboard. Read-only diagnostic; verified against a synthetic DB | Active |
 | [DL-137](#dl-137) | 2026-08-17 | plantctl grow-light false-alarm fix — under the harness (which reads no I2C) `plantctl health` warned "lux stale — can't verify light (WROVER offline?)", misleading since the WROVER is up and just isn't reading light. Now distinguishes by evidence: if soil is fresh but lux stale → calm INFO "not reported by current firmware"; if soil is *also* stale → keeps the real WARN (board may be down). Honest in both modes without muting a genuine outage; verified both cases against synthetic DBs | Active |
 | [DL-138](#dl-138) | 2026-08-17 | Reboot-alert fatigue fix — every dev flash/reset fired the high-priority "controller rebooting repeatedly" push, desensitizing a serious alert. Now the listener classifies reboots by the **pre-reboot** maintenance state (dev flash = was in maintenance → `reboot_maint`; genuine reboot = was armed → `reboot`); the flap alert counts only armed reboots, so developer churn never triggers it while a real reboot storm still does. Dev flashes still appear in the low-priority daily summary as a note. Keeps the serious alert serious | Active |
+| [DL-139](#dl-139) | 2026-08-18 | Grow-light "can't verify / WROVER offline" false alarm — the alerter's `_check_grow_light` cried offline whenever lux was stale during lit hours, but under the harness (no I2C) lux is always absent while the board is fine. Applied the same evidence-based gate as DL-137: if soil is fresh the board is demonstrably alive, so suppress the offline alarm; only alert when soil is *also* stale (genuinely unreachable). Confirmed not a timezone issue (Pi still America/New_York; soil live, lux stale since the 08-14 harness flash) | Active |
 
 ---
 
@@ -3621,6 +3622,23 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Caveat.** Relies on status-before-state publish ordering on reconnect to capture the pre-reboot flag; if a retained state arrived first, a real reboot could be mis-tagged as dev (missing one alert). Acceptable given the ordering holds for the harness, and repeated *real* reboots would still surface via the daily summary. The P1-8 unification and a future explicit "dev mode" could make this crisper.
 
 **Files.** `hub/04-listener/listener.py`, `hub/04-listener/alerter.py`.
+
+---
+
+<a id="dl-139"></a>
+### DL-139 — Grow-light "can't verify / offline" false alarm (alerter)
+
+**Date:** 2026-08-18 · **Status:** Active.
+
+**Context.** A "🔍 Can't verify grow light — … the plant controller (WROVER) may be offline" push fired at 07:30, just after the photoperiod window opened. The operator suspected a timezone regression from the prior day's work. Checked and ruled out: the Pi is still `America/New_York` (EDT), and the DB showed soil **0 min** old while lux was **~4 days** old (stale since `2026-08-14 21:17:44Z`, the harness-flash instant from DL-132). So the board is alive and simply not reading lux — the harness reads no I2C — the identical false positive DL-137 removed from `plantctl`, but in the *alerter's* `_check_grow_light`, which DL-137 didn't touch.
+
+**Fix.** Add `_soil_age_s()` as a board-liveness signal and gate the blind-lux branch on it: when lux is stale during lit hours, only raise the "may be offline" alert if soil is **also** stale (`board_alive` false). If soil is fresh, the WROVER is demonstrably up and just isn't reporting light — reset the timer and stay quiet. Mirrors DL-137 so the health readout and the push alerter reason identically; a genuine outage (board unreachable → soil stale too) still alerts, and the real light mismatch checks (dark-during-on / lit-during-off, which require fresh lux) are unaffected.
+
+**Validation.** `py_compile` clean. Verified: (soil 30 s, lux stale) → board alive → suppressed; (soil 2 d, lux stale) → board down → alert fires.
+
+**Note.** Interim, like DL-137/138: once P1-8 unifies the firmware so one build reads every sensor, lux is present again and this liveness gate becomes moot.
+
+**Files.** `hub/04-listener/alerter.py`.
 
 ---
 

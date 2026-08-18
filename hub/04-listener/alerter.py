@@ -260,6 +260,22 @@ def _latest_lux(conn):
         age = None
     return (row[0], age)
 
+def _soil_age_s(conn):
+    """Age in seconds of the most recent soil reading, or None. Used as a board-liveness
+    signal (DL-139): fresh soil means the WROVER is up even when lux is absent (the
+    bottom-water harness reads no I2C, so no lux) — so 'no lux' must not be reported as
+    'controller offline'. Mirrors the evidence-based reasoning in plantctl (DL-137)."""
+    row = conn.execute(
+        "SELECT ts FROM sensor_readings WHERE sensor='soil_raw' AND device='soil' "
+        "ORDER BY id DESC LIMIT 1").fetchone()
+    if not row:
+        return None
+    try:
+        t = datetime.fromisoformat(row[0].replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - t).total_seconds()
+    except Exception:
+        return None
+
 
 def _latest_camera_age_s(conn):
     """Seconds since the most recent camera_readings row, or None if there are none."""
@@ -291,7 +307,14 @@ def _check_grow_light(conn, now_mono):
     # for a sustained stretch, that itself is the alert -- otherwise a real outage during
     # the day goes unnoticed exactly when the light being wrong matters most (DL-122).
     if lux is None or age is None or age > GROW_LUX_STALE_S:
-        if expected_on:
+        # Board-liveness gate (DL-139): if soil is fresh, the WROVER is demonstrably up
+        # and simply isn't reporting lux (the bottom-water harness reads no I2C). That is
+        # not an outage, so don't raise the "controller may be offline" alarm — it's the
+        # same false positive DL-137 removed from plantctl. Only when soil is ALSO stale
+        # (board genuinely unreachable) do we treat blind-lux as an alertable condition.
+        soil_age = _soil_age_s(conn)
+        board_alive = soil_age is not None and soil_age <= GROW_LUX_STALE_S
+        if expected_on and not board_alive:
             if _st["gl_stale_since"] is None:
                 _st["gl_stale_since"] = now_mono
             if (now_mono - _st["gl_stale_since"] >= GROW_LUX_UNVERIFIABLE_S
@@ -303,7 +326,8 @@ def _check_grow_light(conn, now_mono):
                        "default", ["mag"])
                 _st["gl_unverifiable_alerted"] = True
         else:
-            # Outside lit hours, missing lux isn't actionable; reset the timer.
+            # Either outside lit hours, or the board is alive but this firmware doesn't
+            # read lux (harness). Neither is actionable as an outage; reset the timer.
             _st["gl_stale_since"] = None
         # Can't evaluate a mismatch without lux; clear those trackers.
         _st["gl_mismatch_since"] = None
