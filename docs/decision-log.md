@@ -150,6 +150,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-128](#dl-128) | 2026-08-17 | Maintenance / safe-resting-state in the harness — a persisted `maintenance` flag that blocks **auto**-triggering while still allowing **manual** doses (button / MQTT `start`), toggled via `plant/cmd/maintenance` on\|off, surfaced in the state payload. **Boots into maintenance every time** (Q1-a), so a flash/reboot never fires the pump; watering is armed explicitly. Mirrors the integrated firmware's maintenance concept, protects data cleanliness during sprint testing, and (with DL-127) means a post-recovery return to monitor no longer surprise-doses | Active |
 | [DL-129](#dl-129) | 2026-08-17 | Audit P0-2 fix — physical safety independent of the network. An independent hard pump-on ceiling (`MAX_PUMP_ON_MS` = 165 s, above the largest legit dose) is enforced at the **very top of `loop()` before any MQTT work**, latching to STOPPED if tripped; `mqtt_tick()` moved to the **end** of the loop so all safety/FSM/telemetry run first; MQTT socket timeout cut to 2 s to bound any blocked reconnect. The pump can no longer overrun because a broker failure delayed the cutoff | Active |
 | [DL-130](#dl-130) | 2026-08-17 | Audit P0-3 fix — sensor freshness + `ST_SENSOR_FAULT`. Soil readings get a freshness timestamp; if no valid reading arrives within `SOIL_STALE_MS` (30 s), soil is "stale" and **auto- and manual starts are both blocked** (no more triggering off a frozen EMA from a dead probe). Stale *during* a session cuts the pump and latches the new `ST_SENSOR_FAULT` (clears on ACK once fresh). A fresh boot is "stale" until the first valid read, so the board can't act before it has real data | Active |
+| [DL-131](#dl-131) | 2026-08-17 | Audit P0-4 fix — rollover-safe periodic timing. The four cadence timers (sensor read, publish, heartbeat, MQTT-retry) stored an absolute future deadline (`now >= next_ms`), which breaks at the ~49.7-day `millis()` wrap; converted to the elapsed idiom `(uint32_t)(now - last_ms) >= interval`. The pump-critical timers (dose cutoff, settle, grace, P0-2 hard deadline) were already elapsed-style and untouched. Low severity (cadence only; board reboots far more often than 49 days) but now correct | Active |
 
 ---
 
@@ -3462,6 +3463,25 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Note / deferred.** A stale probe while *idle* in MONITOR blocks watering but does not (in this change) latch a fault — it fails safe (won't dose) but isn't loudly surfaced. Hub-side alerting on soil staleness (analogous to the DL-122 lux "can't verify" alert) is the natural place to surface a dead probe during idle; noted as a follow-up, not P0-3 firmware scope.
 
 **Test plan.** Arm; unplug the soil probe (or force out-of-range) and confirm: (1) idle → auto/manual starts rejected with `[SENSOR] ... rejected — soil stale`; (2) unplug mid-dose → `[SENSOR] soil stale during session` , pump off, `sensor_fault`; (3) reconnect + ACK → clears to monitor. Confirm normal operation with a healthy probe is unchanged.
+
+**Files.** `firmware/bottom-water-calibration/src/main.cpp`.
+
+---
+
+<a id="dl-131"></a>
+### DL-131 — Audit P0-4: rollover-safe periodic timing
+
+**Date:** 2026-08-17 · **Status:** Active — fourth P0 of the DL-126 sprint.
+
+**Problem (audit P0-4).** Four periodic timers stored an absolute future deadline and compared `now >= next_ms`: sensor read, telemetry publish, heartbeat, and the MQTT reconnect retry. At the ESP32's ~49.7-day `millis()` rollover, a deadline computed just before the wrap becomes unreachable by the post-wrap `now`, so that periodic task could stall (or fire in a burst) until values re-aligned.
+
+**Fix.** Convert those four to the rollover-safe elapsed idiom — store the *last* fire time and compare `(uint32_t)(now - last_ms) >= interval`, which is correct across the wrap because unsigned subtraction wraps consistently. Renamed `*_next_ms` → `*_last_ms` for the four; behaviour (cadence) is unchanged in normal operation.
+
+**Already safe, left untouched.** The pump-safety-critical timers were *already* written in the elapsed idiom and are correct across rollover: dose cutoff (`now - dose_start_ms >= dose_target_ms`), settle (`now - settle_start_ms >= SETTLE_MIN_MS`), grace (`now - grace_start_ms >= GRACE_MS`), leak debounce, WiFi boot timeout, and the P0-2 hard pump deadline (already `(uint32_t)(now - pump_on_ms)`). So the safety path never had the rollover bug; only cadence timers did.
+
+**Severity.** Low, as the audit notes: this board reboots far more often than every 49 days (campus power/network cycling, DL-119), so it is unlikely to *reach* the rollover — but the fix is trivial and removes the latent bug. No behaviour change short of the wrap.
+
+**Safety.** Purely a timing-correctness change to cadence timers; touches no pump logic and cannot initiate a dose. Brace/paren balanced; not compile-tested in-authoring — `pio run` + flash. A simulated near-`UINT32_MAX` rollover test is noted as a TODO for the P2-13 CI/test phase.
 
 **Files.** `firmware/bottom-water-calibration/src/main.cpp`.
 

@@ -325,13 +325,13 @@ static void on_message(char* topic, byte* payload, unsigned int len) {
     else Serial.println("MQTT: cmd ignored (want 'start' or 'abort')");
 }
 
-static unsigned long mqtt_next_attempt_ms = 0;
+static unsigned long mqtt_last_attempt_ms = 0;
 static void mqtt_tick() {
     if (WiFi.status() != WL_CONNECTED) return;
     if (mqtt.connected()) { mqtt.loop(); return; }
     unsigned long now = millis();
-    if (now < mqtt_next_attempt_ms) return;
-    mqtt_next_attempt_ms = now + MQTT_RETRY_MS;
+    if ((uint32_t)(now - mqtt_last_attempt_ms) < MQTT_RETRY_MS) return;   // P0-4: rollover-safe
+    mqtt_last_attempt_ms = now;
     Serial.print("MQTT: connecting... ");
     const char* will = "{\"online\":false}";
     if (mqtt.connect(MQTT_CLIENT_ID, MQTT_USER, MQTT_PASSWORD, T_STATUS, 0, true, will)) {
@@ -443,7 +443,7 @@ static void evaluate(unsigned long now) {
 }
 
 // ============================== Setup / loop ===============================
-static unsigned long sensor_next_ms = 0, publish_next_ms = 0, heartbeat_next_ms = 0;
+static unsigned long sensor_last_ms = 0, publish_last_ms = 0, heartbeat_last_ms = 0;
 static unsigned long heartbeat = 0;
 
 void setup() {
@@ -532,7 +532,7 @@ void loop() {
     button_update(b_abort, now);
 
     // ---- sensor read + EMA (decision variable) ----
-    if (now >= sensor_next_ms) {
+    if ((uint32_t)(now - sensor_last_ms) >= SENSOR_READ_MS) {   // P0-4: rollover-safe
         last_soil = soil_read();
         last_leak = leak_read();
         last_reservoir_empty = reservoir_empty_read();
@@ -542,7 +542,7 @@ void loop() {
                                          : (MOIST_EMA_ALPHA * last_soil.pct
                                             + (1.0f - MOIST_EMA_ALPHA) * moist_ema);
         }
-        sensor_next_ms = now + SENSOR_READ_MS;
+        sensor_last_ms = now;
     }
 
     // P0-3: soil is "stale" if no valid reading has arrived within SOIL_STALE_MS, or we
@@ -688,15 +688,15 @@ void loop() {
     }
 
     // ---- telemetry ----
-    if (now >= publish_next_ms) {
+    if ((uint32_t)(now - publish_last_ms) >= PUBLISH_MS) {   // P0-4: rollover-safe
         publish_soil(last_soil);
         publish_leak(last_leak);
         publish_float(last_reservoir_empty);
-        publish_next_ms = now + PUBLISH_MS;
+        publish_last_ms = now;
     }
 
     // ---- heartbeat / progress ----
-    if (now >= heartbeat_next_ms) {
+    if ((uint32_t)(now - heartbeat_last_ms) >= HEARTBEAT_MS) {   // P0-4: rollover-safe
         heartbeat++;
         publish_status(heartbeat);
         if (state == ST_SETTLE) {
@@ -708,8 +708,11 @@ void loop() {
             Serial.printf("[GRACE] %lds left | soil %.1f%% vs stall %.1f%%\n",
                           left, moist_ema, stall_reading);
         }
-        heartbeat_next_ms = now + HEARTBEAT_MS;
+        heartbeat_last_ms = now;
     }
+    // P0-4 note: all periodic timers now use the rollover-safe elapsed idiom
+    // `(uint32_t)(now - last) >= interval`, correct across the ~49.7-day millis() wrap.
+    // TODO(P2-13): add a host-compilable simulated-rollover test near UINT32_MAX.
 
     // ---- network LAST (P0-2): all physical safety + FSM + telemetry above run every
     // loop before any (potentially blocking) MQTT reconnect is attempted. Incoming
