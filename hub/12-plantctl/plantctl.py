@@ -200,13 +200,22 @@ def _check_light(conn):
         expected_on = hour >= GROW_ON_HOUR or hour < GROW_OFF_HOUR
     row = _latest(conn, "sensor_readings", "sensor='lux'")
     if not row:
-        _c(WARN, "lux", "no readings");
+        _c(WARN, "lux", "no readings")
     else:
         ts, lux = row
         age = _age_s(ts)
         lit = lux > GROW_LUX_THRESHOLD
         if age is not None and age > SENSOR_STALE_S:
-            _c(WARN, "lux", f"stale ({_fmt_age(age)}) — can't verify light (WROVER offline?)")
+            # Lux is stale. Distinguish "the board is down" from "this firmware doesn't read
+            # lux" (the bottom-water harness reads no I2C): if soil is fresh, the WROVER is
+            # alive and simply isn't reporting light — an expected INFO, not a fault.
+            soil = _latest(conn, "sensor_readings", "sensor='soil_raw' AND device='soil'")
+            soil_age = _age_s(soil[0]) if soil else None
+            if soil_age is not None and soil_age <= SENSOR_STALE_S:
+                _c(INFO, "lux", f"not reported by current firmware (harness reads no light sensor; "
+                                f"last lux {_fmt_age(age)})")
+            else:
+                _c(WARN, "lux", f"stale ({_fmt_age(age)}) — can't verify light (WROVER may be offline)")
         else:
             want = "on" if expected_on else "off"
             good = (lit == expected_on)

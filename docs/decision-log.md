@@ -156,6 +156,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-134](#dl-134) | 2026-08-17 | Audit P1-9 fix — runtime/build identity. The boot banner hardcoded "triggers at <=20%, target 85%" (wrong; real values 30/70) which caused a false deploy diagnosis mid-audit. Banner now prints the **actual compiled** `TRIGGER_PCT`/`TARGET_PCT`, plus a `Build: <git-sha> @ <time>` stamp injected via `platformio.ini`; the git SHA also rides in the retained MQTT status payload (`"build"`), so the deployed firmware identity is machine-readable rather than un-provable from the repo alone | Active |
 | [DL-135](#dl-135) | 2026-08-17 | Audit P1-6 (partial) — hub now captures the harness's water-volume telemetry. The harness publishes `session_ml`/`dose_count`, but the listener only extracted the integrated firmware's `daily_pump_ms` (which the harness never sends) → the "~0 mL watered today" summaries. Fixed: listener persists `session_ml`+`dose_count` as metrics; `_daily_ml` (alerter) and a new `daily_ml_delivered()` (dashboard) compute the 24 h total by summing positive `session_ml` deltas across sessions, falling back to `daily_pump_ms` for the integrated firmware | Active |
 | [DL-136](#dl-136) | 2026-08-17 | plantctl maintenance-detection fix — `plantctl health` checked `fsm_state == "maintenance"`, but maintenance is a separate flag (DL-128) stored as its own `metric='maintenance'` (DL-133), so plantctl was blind to it and implied watering was enabled while the board was parked. Now reads the maintenance metric and reports "maintenance — auto-watering disabled (state: …)", consistent with the firmware and dashboard. Read-only diagnostic; verified against a synthetic DB | Active |
+| [DL-137](#dl-137) | 2026-08-17 | plantctl grow-light false-alarm fix — under the harness (which reads no I2C) `plantctl health` warned "lux stale — can't verify light (WROVER offline?)", misleading since the WROVER is up and just isn't reading light. Now distinguishes by evidence: if soil is fresh but lux stale → calm INFO "not reported by current firmware"; if soil is *also* stale → keeps the real WARN (board may be down). Honest in both modes without muting a genuine outage; verified both cases against synthetic DBs | Active |
 
 ---
 
@@ -3579,6 +3580,23 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Validation.** `py_compile` clean; run against a synthetic DB with `state=monitor` + `maintenance=1` prints "maintenance — auto-watering disabled (state: monitor)". Read-only tool (mode=ro, PRAGMA query_only) — no writes, no actuation. Deploy is just copying `plantctl.py` to the Pi (already symlinked on PATH).
 
 **Note.** plantctl's other queries (soil `soil_raw`/`soil`, pump `metric='pump'`, lux `sensor='lux'`) were confirmed correct against the live schema. The anchor/trigger constants remain an in-file block pending the deferred shared-config single-source-of-truth.
+
+**Files.** `hub/12-plantctl/plantctl.py`.
+
+---
+
+<a id="dl-137"></a>
+### DL-137 — plantctl grow-light false-alarm fix (harness reads no I2C)
+
+**Date:** 2026-08-17 · **Status:** Active.
+
+**Context.** While the bottom-water harness is flashed, `plantctl health` showed the grow-light line as `⚠ lux stale — can't verify light (WROVER offline?)`. That is misleading: the WROVER is up and healthy (soil/leak/float streaming), it simply reads no I2C, so lux is expected to be absent (same root as DL-132). A diagnostic that cries "fault/offline" about an expected condition trains the operator to ignore it.
+
+**Fix (evidence-based, no firmware detection needed).** In `_check_light`, when lux is stale, also check the soil freshness: if soil is fresh (≤ `SENSOR_STALE_S`) the board is clearly alive, so report a calm INFO — "not reported by current firmware (harness reads no light sensor)". Only if soil is *also* stale (board genuinely unreachable) keep the `⚠` "can't verify — WROVER may be offline". This distinguishes "this firmware doesn't read lux" from "the board is down" using data plantctl already has, so it stays honest under both the harness and the integrated firmware (where fresh lux resumes and the normal lit/dark check applies).
+
+**Validation.** `py_compile` clean; both cases verified against synthetic DBs — (soil fresh, lux 3 d stale) → calm INFO; (soil and lux both stale) → WARN. Read-only tool, no writes/actuation. Deploy: copy `plantctl.py` to the Pi.
+
+**Note.** Like DL-136, this is interim: the P1-8 firmware unification will make one firmware read every sensor, dissolving the "which firmware reads what" ambiguity entirely.
 
 **Files.** `hub/12-plantctl/plantctl.py`.
 
