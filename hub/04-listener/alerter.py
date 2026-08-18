@@ -192,9 +192,21 @@ def _presence(conn):
 
 
 def _reboots_24h(conn):
+    # Armed reboots only (status='reboot'). Maintenance/dev reboots are tagged
+    # 'reboot_maint' (DL-138) and deliberately excluded so the high-priority flap
+    # alert never fires on developer flashes.
     return _scalar(conn,
         "SELECT COUNT(*) FROM system_status WHERE device='wrover' "
-        "AND metric='reboot' AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now','-24 hours')") or 0
+        "AND metric='reboot' AND status='reboot' "
+        "AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now','-24 hours')") or 0
+
+def _dev_reboots_24h(conn):
+    # Maintenance/dev reboots (developer flashes) — shown in the daily summary as a
+    # low-key note, never alerted on. DL-138.
+    return _scalar(conn,
+        "SELECT COUNT(*) FROM system_status WHERE device='wrover' "
+        "AND metric='reboot' AND status='reboot_maint' "
+        "AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now','-24 hours')") or 0
 
 
 def _daily_ml(conn):
@@ -510,5 +522,8 @@ def evaluate(conn):
         state = _latest_fsm(conn) or "unknown"
         body = (f"Soil {soil_s} \u00b7 state {state} \u00b7 ~{_daily_ml(conn):.0f} mL "
                 f"watered today \u00b7 {_reboots_24h(conn)} reboot(s)/24h.")
+        dev = _dev_reboots_24h(conn)
+        if dev:
+            body += f" ({dev} dev flash(es) in maintenance.)"
         notify("Daily plant summary", body, "low", ["seedling"])
         _st["last_heartbeat_date"] = today

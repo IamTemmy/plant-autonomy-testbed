@@ -43,6 +43,11 @@ _wd_lock    = threading.Lock()
 # Reboot detection (DL-060): last uptime_s seen per device; a drop means a reboot.
 # Touched only from on_message (single background thread) -> no lock needed.
 _last_uptime = {}
+# Last-known maintenance state per device (DL-138). Read at reboot-detection time to
+# tell a developer flash/reset (was in maintenance) from a genuine field reboot (was
+# armed). Because the board publishes status (uptime) before state (maintenance) on
+# reconnect, this still holds the PRE-reboot value when a reboot is detected.
+_last_maint = {}
 
 # ----------------------------------------------------------------------
 # Configuration
@@ -182,6 +187,8 @@ def route_message(
             pump = data.get("pump")
             daily = data.get("daily_pump_ms")
             maint = data.get("maintenance")   # harness only (DL-128); absent for integrated
+            if maint is not None:
+                _last_maint[device] = bool(maint)   # DL-138: for reboot classification
             session_ml = data.get("session_ml")  # harness reports delivered volume by mL (P1-6)
             dose_count = data.get("dose_count")
             if state is not None:
@@ -257,14 +264,20 @@ def route_message(
             if uptime is not None:
                 prev = _last_uptime.get(device)
                 if prev is not None and uptime < prev:
+                    # DL-138: classify the reboot. If the device was in maintenance
+                    # (developer flash/reset), tag it 'reboot_maint' so the high-priority
+                    # flap alert ignores it; a genuine reboot while armed stays 'reboot'
+                    # and still alerts. Both are recorded for the daily summary/forensics.
+                    was_maint = _last_maint.get(device, False)
+                    marker = "reboot_maint" if was_maint else "reboot"
                     conn.execute(
                         """INSERT INTO system_status
                            (ts, message_id, run_id, device, status, metric, value)
                            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (ts, message_id, run_id, device, "reboot", "reboot", float(prev)),
+                        (ts, message_id, run_id, device, marker, "reboot", float(prev)),
                     )
-                    log.warning("Reboot detected on %s: uptime %ss < previous %ss",
-                                device, uptime, prev)
+                    log.warning("Reboot detected on %s (%s): uptime %ss < previous %ss",
+                                device, marker, uptime, prev)
                 _last_uptime[device] = uptime
             return
 

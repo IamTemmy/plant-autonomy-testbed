@@ -157,6 +157,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-135](#dl-135) | 2026-08-17 | Audit P1-6 (partial) — hub now captures the harness's water-volume telemetry. The harness publishes `session_ml`/`dose_count`, but the listener only extracted the integrated firmware's `daily_pump_ms` (which the harness never sends) → the "~0 mL watered today" summaries. Fixed: listener persists `session_ml`+`dose_count` as metrics; `_daily_ml` (alerter) and a new `daily_ml_delivered()` (dashboard) compute the 24 h total by summing positive `session_ml` deltas across sessions, falling back to `daily_pump_ms` for the integrated firmware | Active |
 | [DL-136](#dl-136) | 2026-08-17 | plantctl maintenance-detection fix — `plantctl health` checked `fsm_state == "maintenance"`, but maintenance is a separate flag (DL-128) stored as its own `metric='maintenance'` (DL-133), so plantctl was blind to it and implied watering was enabled while the board was parked. Now reads the maintenance metric and reports "maintenance — auto-watering disabled (state: …)", consistent with the firmware and dashboard. Read-only diagnostic; verified against a synthetic DB | Active |
 | [DL-137](#dl-137) | 2026-08-17 | plantctl grow-light false-alarm fix — under the harness (which reads no I2C) `plantctl health` warned "lux stale — can't verify light (WROVER offline?)", misleading since the WROVER is up and just isn't reading light. Now distinguishes by evidence: if soil is fresh but lux stale → calm INFO "not reported by current firmware"; if soil is *also* stale → keeps the real WARN (board may be down). Honest in both modes without muting a genuine outage; verified both cases against synthetic DBs | Active |
+| [DL-138](#dl-138) | 2026-08-17 | Reboot-alert fatigue fix — every dev flash/reset fired the high-priority "controller rebooting repeatedly" push, desensitizing a serious alert. Now the listener classifies reboots by the **pre-reboot** maintenance state (dev flash = was in maintenance → `reboot_maint`; genuine reboot = was armed → `reboot`); the flap alert counts only armed reboots, so developer churn never triggers it while a real reboot storm still does. Dev flashes still appear in the low-priority daily summary as a note. Keeps the serious alert serious | Active |
 
 ---
 
@@ -3599,6 +3600,27 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Note.** Like DL-136, this is interim: the P1-8 firmware unification will make one firmware read every sensor, dissolving the "which firmware reads what" ambiguity entirely.
 
 **Files.** `hub/12-plantctl/plantctl.py`.
+
+---
+
+<a id="dl-138"></a>
+### DL-138 — Reboot-alert fatigue fix (dev flashes vs genuine reboots)
+
+**Date:** 2026-08-17 · **Status:** Active.
+
+**Context.** Every firmware flash/reset during development produced an uptime reset, which the reboot detector (DL-060) recorded, and ≥2 in 24 h fired the high-priority "controller rebooting repeatedly" push. During an active sprint that meant the *serious* reboot alert fired constantly on expected churn — the classic desensitization the operator flagged: "per-reboot alerts are serious notifications, we don't want to be psychologically accustomed to them."
+
+**Design (Option A — maintenance suppresses the alert).** The distinguishing signal is the maintenance state *before* the reboot: a developer flashes while parked (maintenance on); a genuine field reboot happens while armed. Since DL-128 makes the board always **boot into maintenance**, the post-reboot state can't distinguish them — but the *pre-reboot* state can. The listener publishes status (uptime) before state (maintenance) on reconnect, so at reboot-detection time the in-memory last-known maintenance flag still holds the pre-reboot value.
+
+**Implementation.**
+- **Listener:** track `_last_maint[device]` from state payloads; at reboot detection, tag the marker `status='reboot_maint'` if the device was in maintenance, else `status='reboot'`. Both are still recorded (forensics + summary).
+- **Alerter:** `_reboots_24h` now counts only `status='reboot'` (armed) — the flap alert fires only on genuine reboots. New `_dev_reboots_24h` counts the maintenance ones; the low-priority **daily summary** appends "(N dev flash(es) in maintenance.)" so developer activity is still visible as a changelog without alarming.
+
+**Validation.** Both files `py_compile` clean. Verified: 5 dev flashes + 0 real → armed count 0 → flap alert does **not** fire; 2 real reboots while armed → fires. Dev flashes counted separately for the summary.
+
+**Caveat.** Relies on status-before-state publish ordering on reconnect to capture the pre-reboot flag; if a retained state arrived first, a real reboot could be mis-tagged as dev (missing one alert). Acceptable given the ordering holds for the harness, and repeated *real* reboots would still surface via the daily summary. The P1-8 unification and a future explicit "dev mode" could make this crisper.
+
+**Files.** `hub/04-listener/listener.py`, `hub/04-listener/alerter.py`.
 
 ---
 
