@@ -152,6 +152,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-130](#dl-130) | 2026-08-17 | Audit P0-3 fix — sensor freshness + `ST_SENSOR_FAULT`. Soil readings get a freshness timestamp; if no valid reading arrives within `SOIL_STALE_MS` (30 s), soil is "stale" and **auto- and manual starts are both blocked** (no more triggering off a frozen EMA from a dead probe). Stale *during* a session cuts the pump and latches the new `ST_SENSOR_FAULT` (clears on ACK once fresh). A fresh boot is "stale" until the first valid read, so the board can't act before it has real data | Active |
 | [DL-131](#dl-131) | 2026-08-17 | Audit P0-4 fix — rollover-safe periodic timing. The four cadence timers (sensor read, publish, heartbeat, MQTT-retry) stored an absolute future deadline (`now >= next_ms`), which breaks at the ~49.7-day `millis()` wrap; converted to the elapsed idiom `(uint32_t)(now - last_ms) >= interval`. The pump-critical timers (dose cutoff, settle, grace, P0-2 hard deadline) were already elapsed-style and untouched. Low severity (cadence only; board reboots far more often than 49 days) but now correct | Active |
 | [DL-132](#dl-132) | 2026-08-17 | I2C diagnostic — the BME280+BH1750 telemetry that went stale at 2026-08-14 21:17:44Z stopped at the exact instant the board was reflashed from integrated to the watering harness (which reads no I2C), strongly suggesting the sensors are alive and simply weren't being read, not a hardware fault. Added a side-effect-free I2C scanner sketch (`test-sketches/15-i2c-scanner`, no pump/WiFi/watering) to confirm on the bus before assuming any hardware failure | Active |
+| [DL-133](#dl-133) | 2026-08-17 | Dashboard Phase-5 awareness (audit P1-7) — the dashboard showed the harness's `monitor` state as raw "monitor" and never surfaced maintenance (it only knew the integrated firmware's names + dropped the `maintenance` flag at the listener). Fixed: listener now persists the `maintenance` flag as its own `system_status` metric; `STATE_DISPLAY` gains the harness state names (monitor/dosing/settle/grace/recovery_hold/sensor_fault); the banner shows "Maintenance" when the flag is on (but real faults like recovery_hold/sensor_fault are never masked) | Active |
 
 ---
 
@@ -3502,6 +3503,25 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Result (2026-08-17).** Scanner reports every second: `0x23 <- BH1750`, `0x77 <- BME280`, and `0x3C` (the OLED) — `SUMMARY: BME280 PRESENT | BH1750 PRESENT`. **No hardware fault.** All three I2C devices are electrically alive and always were; the environmental sensors only went silent because the running harness reads no I2C. Telemetry returns as soon as I2C-reading firmware runs (integrated, or the unified port). Lesson: "sensor offline in telemetry" ≠ "sensor broken" — confirm on the bus before assuming a hardware failure.
 
 **Files.** `firmware/test-sketches/15-i2c-scanner/{platformio.ini,src/main.cpp,README.md}`.
+
+---
+
+<a id="dl-133"></a>
+### DL-133 — Dashboard Phase-5 awareness (audit P1-7)
+
+**Date:** 2026-08-17 · **Status:** Active.
+
+**Context.** After flashing the harness, the board correctly reported `{"state":"monitor","maintenance":1}` (parked safe), but the dashboard showed a raw "monitor" and never indicated maintenance. Two causes: (1) the listener stored only the `state` value into `system_status` and **dropped the `maintenance` flag** entirely; (2) `STATE_DISPLAY` only knew the *integrated* firmware's names (`monitoring`, `watering`, …) — the harness publishes different ones (`monitor`, `dosing`, `settle`, `grace`, `recovery_hold`, `sensor_fault`), so `monitor` fell through to the raw string, and maintenance (a separate boolean field, not a state) was never surfaced. This is audit finding P1-7.
+
+**Fix.**
+- **Listener** (`hub/04-listener/listener.py`): also persist the `maintenance` flag from the state payload as its own `system_status` metric (`metric='maintenance'`, `on/off` + 1.0/0.0), mirroring how `pump` is stored. Absent for the integrated firmware (harmless — nothing stored).
+- **Dashboard** (`hub/06-dashboard/dash_common.py`): add the harness state names to `STATE_DISPLAY` (monitor→Monitoring, dosing, settle, grace, and the new safety states recovery_hold/sensor_fault as faults); add `latest_maintenance()`; in `render_state_banner`, when maintenance is on *and* the underlying state is monitor/monitoring, show "Maintenance" — the operationally important fact. Real faults (recovery_hold, sensor_fault, leak, stopped) are **not** masked by the flag.
+
+**Validation.** Both files `py_compile` clean. Logic checked: `monitor`+maint→"Maintenance"; `monitor`+armed→"Monitoring"; `recovery_hold`+maint→"Recovery hold" (fault not masked). Deploy: copy both files, restart `plant-listener` and `plant-dashboard`; the harness's retained state re-publishes on connect so the maintenance metric populates. (Historic rows before this change have no maintenance metric; the banner falls back to the plain state until the next publish.)
+
+**Note.** This is the dashboard half of the firmware/dashboard divergence (audit P1-8). The eventual unified firmware will settle the state vocabulary; until then the dashboard understands both.
+
+**Files.** `hub/04-listener/listener.py`, `hub/06-dashboard/dash_common.py`.
 
 ---
 

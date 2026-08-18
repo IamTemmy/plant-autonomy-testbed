@@ -48,6 +48,7 @@ COLORS = {
 }
 
 STATE_DISPLAY = {
+    # integrated firmware names
     "monitoring":      ("Monitoring",          "ok",    "Watching soil moisture"),
     "watering":        ("Watering",            "ok",    "Pump pulsing toward target"),
     "manual":          ("Manual watering",     "ok",    "Manual override running"),
@@ -57,6 +58,13 @@ STATE_DISPLAY = {
     "stopped":         ("Emergency stop",      "fault", "Halted \u2014 needs ACK"),
     "watering_fault":  ("Watering fault",      "fault", "Soil not responding \u2014 pump stopped, needs ACK"),
     "maintenance":     ("Maintenance",         "warn",  "Watering paused intentionally; long-press MANUAL to resume"),
+    # bottom-water harness names (DL-124..DL-131)
+    "monitor":         ("Monitoring",          "ok",    "Watching soil moisture"),
+    "dosing":          ("Dosing",              "ok",    "Pump delivering a metered dose"),
+    "settle":          ("Settling",            "ok",    "Dose delivered \u2014 waiting for absorption"),
+    "grace":           ("Grace wait",          "warn",  "Slow absorption \u2014 one-time recovery wait"),
+    "recovery_hold":   ("Recovery hold",       "fault", "Rebooted mid-session \u2014 pump off, needs ACK"),
+    "sensor_fault":    ("Sensor fault",        "fault", "Soil probe stale/invalid \u2014 pump stopped, needs ACK"),
 }
 
 _BANNER_PALETTE = {
@@ -130,6 +138,18 @@ def latest_fsm_state():
         return None
     return {"ts": df.iloc[0]["ts"], "state": df.iloc[0]["status"],
             "daily_pump_ms": df.iloc[0]["value"]}
+
+def latest_maintenance():
+    """True/False if the harness has reported a maintenance flag, else None
+    (integrated firmware doesn't publish it). DL-128 / P1-7."""
+    df = query_df(
+        """SELECT value FROM system_status
+           WHERE device = 'wrover' AND metric = 'maintenance'
+           ORDER BY id DESC LIMIT 1"""
+    )
+    if df.empty:
+        return None
+    return bool(df.iloc[0]["value"])
 
 def latest_wrover_pump() -> str:
     df = query_df(
@@ -266,8 +286,14 @@ def render_state_banner():
         bg, bd, col = _BANNER_PALETTE["unknown"]
         label, meta = "No state received yet", "Waiting for the WROVER to report"
     else:
-        label, tier, sub = STATE_DISPLAY.get(
-            fsm["state"], (fsm["state"], "unknown", ""))
+        # Maintenance is a flag layered on the (usually "monitor") state; when it's on,
+        # that's the operationally important fact to surface. DL-128 / P1-7.
+        maint = latest_maintenance()
+        if maint and fsm["state"] in ("monitor", "monitoring"):
+            label, tier, sub = STATE_DISPLAY["maintenance"]
+        else:
+            label, tier, sub = STATE_DISPLAY.get(
+                fsm["state"], (fsm["state"], "unknown", ""))
         bg, bd, col = _BANNER_PALETTE.get(tier, _BANNER_PALETTE["unknown"])
         pump = latest_wrover_pump()
         daily_ml = int(fsm["daily_pump_ms"] / 1000) if fsm["daily_pump_ms"] is not None else 0

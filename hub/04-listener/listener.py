@@ -181,6 +181,7 @@ def route_message(
             state = data.get("state")
             pump = data.get("pump")
             daily = data.get("daily_pump_ms")
+            maint = data.get("maintenance")   # harness only (DL-128); absent for integrated
             if state is not None:
                 conn.execute(
                     """INSERT INTO system_status
@@ -188,6 +189,14 @@ def route_message(
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (ts, message_id, run_id, device, state, "fsm_state",
                      float(daily) if daily is not None else None),
+                )
+            if maint is not None:
+                conn.execute(
+                    """INSERT INTO system_status
+                       (ts, message_id, run_id, device, status, metric, value)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (ts, message_id, run_id, device, "on" if maint else "off",
+                     "maintenance", 1.0 if maint else 0.0),
                 )
             if pump is not None:
                 conn.execute(
