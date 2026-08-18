@@ -151,6 +151,29 @@ def latest_maintenance():
         return None
     return bool(df.iloc[0]["value"])
 
+def daily_ml_delivered():
+    """mL delivered in the last 24 h, summed from the harness's session_ml deltas
+    (each dose bumps session_ml; a reset drops it). Falls back to the integrated
+    firmware's cumulative pump run-time. Mirrors alerter._daily_ml (P1-6)."""
+    df = query_df(
+        """WITH s AS (
+               SELECT value, LAG(value) OVER (ORDER BY id) AS prev
+               FROM system_status
+               WHERE device='wrover' AND metric='session_ml'
+                 AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now','-24 hours')
+           )
+           SELECT COALESCE(SUM(CASE WHEN value > COALESCE(prev,0)
+                                    THEN value - COALESCE(prev,0) ELSE 0 END), 0) AS ml
+           FROM s"""
+    )
+    ml = float(df.iloc[0]["ml"]) if not df.empty and df.iloc[0]["ml"] is not None else 0.0
+    if ml > 0:
+        return ml
+    fsm = latest_fsm_state()
+    if fsm and fsm.get("daily_pump_ms"):
+        return fsm["daily_pump_ms"] / 1000.0
+    return 0.0
+
 def latest_wrover_pump() -> str:
     df = query_df(
         """SELECT status FROM system_status
@@ -296,7 +319,7 @@ def render_state_banner():
                 fsm["state"], (fsm["state"], "unknown", ""))
         bg, bd, col = _BANNER_PALETTE.get(tier, _BANNER_PALETTE["unknown"])
         pump = latest_wrover_pump()
-        daily_ml = int(fsm["daily_pump_ms"] / 1000) if fsm["daily_pump_ms"] is not None else 0
+        daily_ml = int(daily_ml_delivered())
         meta = (f"{sub} &middot; Pump: {'ON' if pump == 'on' else 'off'} "
                 f"&middot; Daily watering: {daily_ml} mL &middot; "
                 f"Updated {format_local(fsm['ts'])}")

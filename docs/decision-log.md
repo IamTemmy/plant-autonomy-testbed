@@ -154,6 +154,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-132](#dl-132) | 2026-08-17 | I2C diagnostic — the BME280+BH1750 telemetry that went stale at 2026-08-14 21:17:44Z stopped at the exact instant the board was reflashed from integrated to the watering harness (which reads no I2C), strongly suggesting the sensors are alive and simply weren't being read, not a hardware fault. Added a side-effect-free I2C scanner sketch (`test-sketches/15-i2c-scanner`, no pump/WiFi/watering) to confirm on the bus before assuming any hardware failure | Active |
 | [DL-133](#dl-133) | 2026-08-17 | Dashboard Phase-5 awareness (audit P1-7) — the dashboard showed the harness's `monitor` state as raw "monitor" and never surfaced maintenance (it only knew the integrated firmware's names + dropped the `maintenance` flag at the listener). Fixed: listener now persists the `maintenance` flag as its own `system_status` metric; `STATE_DISPLAY` gains the harness state names (monitor/dosing/settle/grace/recovery_hold/sensor_fault); the banner shows "Maintenance" when the flag is on (but real faults like recovery_hold/sensor_fault are never masked) | Active |
 | [DL-134](#dl-134) | 2026-08-17 | Audit P1-9 fix — runtime/build identity. The boot banner hardcoded "triggers at <=20%, target 85%" (wrong; real values 30/70) which caused a false deploy diagnosis mid-audit. Banner now prints the **actual compiled** `TRIGGER_PCT`/`TARGET_PCT`, plus a `Build: <git-sha> @ <time>` stamp injected via `platformio.ini`; the git SHA also rides in the retained MQTT status payload (`"build"`), so the deployed firmware identity is machine-readable rather than un-provable from the repo alone | Active |
+| [DL-135](#dl-135) | 2026-08-17 | Audit P1-6 (partial) — hub now captures the harness's water-volume telemetry. The harness publishes `session_ml`/`dose_count`, but the listener only extracted the integrated firmware's `daily_pump_ms` (which the harness never sends) → the "~0 mL watered today" summaries. Fixed: listener persists `session_ml`+`dose_count` as metrics; `_daily_ml` (alerter) and a new `daily_ml_delivered()` (dashboard) compute the 24 h total by summing positive `session_ml` deltas across sessions, falling back to `daily_pump_ms` for the integrated firmware | Active |
 
 ---
 
@@ -3543,6 +3544,25 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Files.** `firmware/bottom-water-calibration/platformio.ini`, `firmware/bottom-water-calibration/src/main.cpp`.
 
 **Fix-up (same day).** The initial `platformio.ini` injected a build *time* via `date -u +%Y-...`; the bare `%` broke PlatformIO's config parser (`InvalidProjectConfError`) before the shell ran. Dropped the build-time line entirely (the git SHA is the identifier that matters) — banner now prints just `Build: <sha>`. The SHA injection (no `%`) is unaffected.
+
+---
+
+<a id="dl-135"></a>
+### DL-135 — Audit P1-6 (partial): hub captures harness water-volume telemetry
+
+**Date:** 2026-08-17 · **Status:** Active.
+
+**Context.** The daily ntfy summary and the dashboard both reported "~0 mL watered today" even after real doses. Root cause: the bottom-water harness reports delivered water by **volume** — its state payload carries `session_ml` and `dose_count` — but the hub pipeline was built around the *integrated* firmware's `daily_pump_ms` (pump run-time in ms). The listener only extracted `daily_pump_ms` (never sent by the harness), stored NULL in `fsm_state.value`, and every consumer read that NULL as zero. So the harness *was* reporting how much it watered; the hub was discarding it.
+
+**Fix (hub-side; no firmware change).**
+- **Listener** (`hub/04-listener/listener.py`): also persist `session_ml` and `dose_count` from the state payload as their own `system_status` metrics.
+- **Daily total** (`alerter._daily_ml` and new `dash_common.daily_ml_delivered`): compute the 24 h delivered volume by summing the *positive increments* of `session_ml` over the window — each dose bumps `session_ml` by its delivered mL, and a session reset drops it to 0, so summing positive deltas yields the true total across multiple sessions. Falls back to the integrated firmware's `daily_pump_ms` when no `session_ml` is present, so both firmwares report correctly.
+
+**Validation.** All three files `py_compile` clean. Delta-sum logic unit-checked on a synthetic sawtooth series (two 100 mL sessions → 200 mL, not 0 or 100). Deploy: copy `listener.py`, `alerter.py`, `dash_common.py`; restart `plant-listener` + `plant-dashboard`. The volume metrics populate as the harness publishes state; historic rows predating this change have no `session_ml` metric, so the 24 h total reflects only doses observed after deploy.
+
+**Why "partial" P1-6.** The audit's fuller P1-6 asks for a *versioned* payload (`schema_version`, `firmware`, `build_sha`, `boot_id`, `sequence`, …) with producer and consumers updated together. This change captures the missing water-volume fields (the immediate, user-visible bug) without the full schema-versioning envelope; the `build_sha` half already landed in DL-134. Full payload versioning remains a follow-up, best done with the P1-8 firmware unification.
+
+**Files.** `hub/04-listener/listener.py`, `hub/04-listener/alerter.py`, `hub/06-dashboard/dash_common.py`.
 
 ---
 
