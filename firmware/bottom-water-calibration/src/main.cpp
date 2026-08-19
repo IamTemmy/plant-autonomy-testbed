@@ -58,8 +58,15 @@ static constexpr uint16_t SOIL_RAW_WET       = 1700;  // 100% anchor: true satur
 
 // Leak (DL-026). Conductive pads: HIGHER raw = WETTER.
 static constexpr uint8_t  LEAK_SAMPLES     = 16;
-static constexpr uint16_t LEAK_THRESHOLD   = 200;
+static constexpr uint16_t LEAK_THRESHOLD   = 200;      // >= this = leak (DL-026: dry=0, wet up to ~50% scale)
 static constexpr uint32_t LEAK_DEBOUNCE_MS = 3000;
+// P0-5 fail-safe: a 100k pull-up now sits on GPIO39, so a DISCONNECTED leak sensor floats
+// to near full-scale instead of reading ~0 ("no leak"). Any read at/above this ceiling is
+// treated as a sensor fault (wire cut / module unplugged), not a valid dry/leak value —
+// so a broken leak wire announces itself rather than silently disabling leak protection.
+// The DIYables comb sensor tops out near ~50% scale (~2067) even fully submerged (DL-026),
+// so a reading this high cannot be real water — it can only be the pull-up on an open pin.
+static constexpr uint16_t LEAK_DISCONNECT_RAW = 3500;
 
 static constexpr bool  FLOAT_EMPTY_WHEN_CLOSED = true;   // DL-043
 static constexpr float PUMP_ML_PER_SEC         = 1.0f;   // DL-048
@@ -228,12 +235,16 @@ static SoilReading soil_read() {
     return r;
 }
 
-struct LeakReading { uint16_t raw; bool detected; };
+struct LeakReading { uint16_t raw; bool detected; bool disconnected; };
 static LeakReading leak_read() {
     uint32_t sum = 0;
     for (uint8_t i = 0; i < LEAK_SAMPLES; i++) sum += analogRead(LEAK_PIN);
     uint16_t raw = (uint16_t)(sum / LEAK_SAMPLES);
-    return LeakReading{raw, raw >= LEAK_THRESHOLD};
+    // P0-5: near full-scale = pull-up on an open pin = sensor disconnected (can't be real
+    // water; DL-026 caps a submerged reading near ~50%). Below that, >=THRESHOLD = leak.
+    bool disc = raw >= LEAK_DISCONNECT_RAW;
+    bool leak = !disc && raw >= LEAK_THRESHOLD;
+    return LeakReading{raw, leak, disc};
 }
 
 static bool reservoir_empty_read() {
@@ -561,8 +572,12 @@ void loop() {
                             (uint32_t)(now - last_valid_soil_ms) > SOIL_STALE_MS;
 
     // ---- leak debounce ----
-    if (last_leak.detected) { if (leak_since_ms == 0) leak_since_ms = now; }
-    else                    { leak_since_ms = 0; }
+    // P0-5: a disconnected leak sensor (near full-scale via the GPIO39 pull-up) is a
+    // fault, not a valid reading — treat it like a leak trip so leak protection can never
+    // be silently lost. Both a real leak and a disconnect debounce into ST_LEAK_FAULT.
+    const bool leak_or_disc = last_leak.detected || last_leak.disconnected;
+    if (leak_or_disc) { if (leak_since_ms == 0) leak_since_ms = now; }
+    else              { leak_since_ms = 0; }
     const bool leak_confirmed = (leak_since_ms != 0 && now - leak_since_ms >= LEAK_DEBOUNCE_MS);
 
     const State prev = state;
@@ -585,7 +600,9 @@ void loop() {
 
     // ---- safety first: overrides everything, every tick ----
     if (leak_confirmed) {
-        pump_off(); last_reason = "leak"; state = ST_LEAK_FAULT;
+        pump_off();
+        last_reason = last_leak.disconnected ? "leak sensor disconnected" : "leak";
+        state = ST_LEAK_FAULT;
     } else if (b_abort.edge || req_abort) {
         pump_off(); last_reason = "abort"; state = ST_STOPPED;
     } else if (soil_stale && active) {
@@ -594,7 +611,11 @@ void loop() {
         pump_off(); last_reason = "soil sensor stale"; state = ST_SENSOR_FAULT;
         Serial.println("[SENSOR] soil stale during session — pump OFF, latched SENSOR_FAULT");
     } else if (state == ST_LEAK_FAULT) {
-        if (b_ack.edge && !last_leak.detected) { last_reason = ""; state = ST_MONITOR; }
+        // Clears on ACK only once the sensor reads dry AND is connected again (P0-5):
+        // a still-disconnected sensor must not be ACK-able back into service.
+        if (b_ack.edge && !last_leak.detected && !last_leak.disconnected) {
+            last_reason = ""; state = ST_MONITOR;
+        }
     } else if (state == ST_SENSOR_FAULT) {
         // Clears on ACK, but only once fresh valid data has returned (like leak needs dry).
         pump_off();

@@ -159,6 +159,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-137](#dl-137) | 2026-08-17 | plantctl grow-light false-alarm fix — under the harness (which reads no I2C) `plantctl health` warned "lux stale — can't verify light (WROVER offline?)", misleading since the WROVER is up and just isn't reading light. Now distinguishes by evidence: if soil is fresh but lux stale → calm INFO "not reported by current firmware"; if soil is *also* stale → keeps the real WARN (board may be down). Honest in both modes without muting a genuine outage; verified both cases against synthetic DBs | Active |
 | [DL-138](#dl-138) | 2026-08-17 | Reboot-alert fatigue fix — every dev flash/reset fired the high-priority "controller rebooting repeatedly" push, desensitizing a serious alert. Now the listener classifies reboots by the **pre-reboot** maintenance state (dev flash = was in maintenance → `reboot_maint`; genuine reboot = was armed → `reboot`); the flap alert counts only armed reboots, so developer churn never triggers it while a real reboot storm still does. Dev flashes still appear in the low-priority daily summary as a note. Keeps the serious alert serious | Active |
 | [DL-139](#dl-139) | 2026-08-18 | Grow-light "can't verify / WROVER offline" false alarm — the alerter's `_check_grow_light` cried offline whenever lux was stale during lit hours, but under the harness (no I2C) lux is always absent while the board is fine. Applied the same evidence-based gate as DL-137: if soil is fresh the board is demonstrably alive, so suppress the offline alarm; only alert when soil is *also* stale (genuinely unreachable). Confirmed not a timezone issue (Pi still America/New_York; soil live, lux stale since the 08-14 harness flash) | Active |
+| [DL-140](#dl-140) | 2026-08-18 | Audit P0-5 (leak half) — fail-safe leak sensor on disconnect. Added a 100k pull-up from GPIO39 to 3.3V so a disconnected leak sensor floats to full-scale instead of reading ~0 ("no leak"). Firmware now treats a reading ≥ `LEAK_DISCONNECT_RAW` (3500) as a **sensor fault** (latches ST_LEAK_FAULT, distinct reason "leak sensor disconnected") rather than a valid value, and won't ACK-clear until the sensor reads dry **and** connected. Bench-validated: dry-connected raw 0, disconnected raw 4095 — 3500 sits safely between the ~2067 submerged ceiling and the disconnect. Float half still open | Active |
 
 ---
 
@@ -3639,6 +3640,25 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Note.** Interim, like DL-137/138: once P1-8 unifies the firmware so one build reads every sensor, lux is present again and this liveness gate becomes moot.
 
 **Files.** `hub/04-listener/alerter.py`.
+
+---
+
+<a id="dl-140"></a>
+### DL-140 — Audit P0-5 (leak half): fail-safe leak sensor on disconnect
+
+**Date:** 2026-08-18 · **Status:** Active — leak half of the last P0.
+
+**Problem (audit P0-5).** The leak sensor (DIYables comb, GPIO39, ADC1 input-only) read ~0 when dry and higher when wet (threshold 200, DL-026). But GPIO39 has no internal pull, so a **disconnected** sensor (cut wire / unplugged module) floated to an arbitrary value — most likely near 0 = "no leak" — silently disabling leak protection in the dangerous direction: a real leak with a broken wire would go undetected.
+
+**Fix (hardware + firmware).**
+- **Hardware:** a 100 kΩ pull-up from GPIO39 to 3.3V. A connected sensor still pulls the pin to its dry 0 (the module wins over the weak pull-up); a disconnected pin floats up to full-scale.
+- **Firmware:** `leak_read()` now classifies three cases — dry (`< LEAK_THRESHOLD`), leak (`LEAK_THRESHOLD..LEAK_DISCONNECT_RAW`), and **disconnected** (`≥ LEAK_DISCONNECT_RAW`, 3500). A disconnect is treated as a fault, folded into the same debounce → `ST_LEAK_FAULT` path as a real leak (so protection can never be silently lost), with a distinct reason "leak sensor disconnected". The fault **won't ACK-clear until the sensor reads dry AND connected**, so a still-broken sensor can't be dismissed back into service.
+
+**Bench validation.** With the pull-up installed, live `plant/sensors/leak`: connected+dry → `leak_raw 0`; pin removed → `leak_raw 4095`. The 3500 threshold sits safely between the sensor's ~2067 fully-submerged ceiling (DL-026 — a real reading can never reach 3500) and the 4095 disconnect. Brace/paren balanced; not compile-tested in-authoring — `pio run` + flash on the Mac.
+
+**Note.** This is the **leak half** of P0-5. The **float** (GPIO27, switch-to-GND + INPUT_PULLUP) has a harder problem: an open switch and a cut wire are electrically identical (both open circuits pulled HIGH), so a disconnected float is indistinguishable from "reservoir has water" — unfixable by a pull alone. A supervised resistor-divider rewire (three distinct voltage levels for closed / open / cut) is the proper fix and is deferred to a follow-up DL.
+
+**Files.** `firmware/bottom-water-calibration/src/main.cpp`.
 
 ---
 
