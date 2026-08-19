@@ -40,7 +40,7 @@
 // ======================= Reused hardware configuration =====================
 static constexpr uint8_t SOIL_PIN       = 34;
 static constexpr uint8_t LEAK_PIN       = 39;
-static constexpr uint8_t FLOAT_PIN      = 27;  // INPUT_PULLUP, CLOSED = empty
+static constexpr uint8_t FLOAT_PIN      = 27;  // digital, INPUT_PULLUP (set in setup, DL-141); CLOSED=empty=LOW
 static constexpr uint8_t PUMP_GATE_PIN  = 25;
 static constexpr uint8_t LED_GREEN      = 18;
 static constexpr uint8_t LED_YELLOW     = 19;
@@ -482,6 +482,7 @@ void setup() {
     pinMode(BTN_DOSE, INPUT_PULLUP);
     pinMode(BTN_ACK, INPUT_PULLUP);
     pinMode(BTN_ABORT, INPUT_PULLUP);
+    pinMode(FLOAT_PIN, INPUT_PULLUP);   // DL-141: was missing — float read was unreliable without its pull-up
     analogReadResolution(12);
     analogSetPinAttenuation(SOIL_PIN, ADC_11db);
     analogSetPinAttenuation(LEAK_PIN, ADC_11db);

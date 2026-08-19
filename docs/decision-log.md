@@ -160,6 +160,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-138](#dl-138) | 2026-08-17 | Reboot-alert fatigue fix — every dev flash/reset fired the high-priority "controller rebooting repeatedly" push, desensitizing a serious alert. Now the listener classifies reboots by the **pre-reboot** maintenance state (dev flash = was in maintenance → `reboot_maint`; genuine reboot = was armed → `reboot`); the flap alert counts only armed reboots, so developer churn never triggers it while a real reboot storm still does. Dev flashes still appear in the low-priority daily summary as a note. Keeps the serious alert serious | Active |
 | [DL-139](#dl-139) | 2026-08-18 | Grow-light "can't verify / WROVER offline" false alarm — the alerter's `_check_grow_light` cried offline whenever lux was stale during lit hours, but under the harness (no I2C) lux is always absent while the board is fine. Applied the same evidence-based gate as DL-137: if soil is fresh the board is demonstrably alive, so suppress the offline alarm; only alert when soil is *also* stale (genuinely unreachable). Confirmed not a timezone issue (Pi still America/New_York; soil live, lux stale since the 08-14 harness flash) | Active |
 | [DL-140](#dl-140) | 2026-08-18 | Audit P0-5 (leak half) — fail-safe leak sensor on disconnect. Added a 100k pull-up from GPIO39 to 3.3V so a disconnected leak sensor floats to full-scale instead of reading ~0 ("no leak"). Firmware now treats a reading ≥ `LEAK_DISCONNECT_RAW` (3500) as a **sensor fault** (latches ST_LEAK_FAULT, distinct reason "leak sensor disconnected") rather than a valid value, and won't ACK-clear until the sensor reads dry **and** connected. Bench-validated: dry-connected raw 0, disconnected raw 4095 — 3500 sits safely between the ~2067 submerged ceiling and the disconnect. Float half still open | Active |
+| [DL-141](#dl-141) | 2026-08-18 | Audit P0-5 (float half) — supervised-disconnect evaluated, **deferred**; float kept on digital GPIO27. A supervised resistor-divider (R1 10k pull-up on GPIO35 + R2 10k across the switch) was designed and bench-validated (empty raw 0, water raw ~1868, both rock-steady) — but detecting a *cut* requires R2 mounted out at the float (so a break removes it with the switch), a permanent connection not worth committing now given the low, bounded severity (a disconnected float only risks a dry-run, already capped by P0-2's `MAX_PUMP_ON_MS` + volume metering + the working leak sensor). Reverted intent to GPIO27 digital and **fixed a real latent bug: the missing `pinMode(FLOAT_PIN, INPUT_PULLUP)`** — the float had been read without its pull-up | Active |
 
 ---
 
@@ -3659,6 +3660,25 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Note.** This is the **leak half** of P0-5. The **float** (GPIO27, switch-to-GND + INPUT_PULLUP) has a harder problem: an open switch and a cut wire are electrically identical (both open circuits pulled HIGH), so a disconnected float is indistinguishable from "reservoir has water" — unfixable by a pull alone. A supervised resistor-divider rewire (three distinct voltage levels for closed / open / cut) is the proper fix and is deferred to a follow-up DL.
 
 **Files.** `firmware/bottom-water-calibration/src/main.cpp`.
+
+---
+
+<a id="dl-141"></a>
+### DL-141 — Audit P0-5 (float half): supervised disconnect evaluated, deferred; pinMode bug fixed
+
+**Date:** 2026-08-18 · **Status:** Active — closes P0-5 with the float half consciously deferred.
+
+**Goal.** Make a disconnected reservoir float fail *safe*. The float (GPIO27, switch-to-GND, `INPUT_PULLUP`) has a fundamental limitation: an *open* switch (reservoir has water) and a *cut* wire are both open circuits pulled HIGH — electrically identical — so a disconnected float is indistinguishable from "full" and could let the pump run dry. A pull-up alone can't fix this (unlike the leak sensor, whose healthy state actively drives the pin low, making disconnect distinguishable — DL-140).
+
+**What was designed and bench-tested.** A **supervised resistor divider** to force three distinct levels: R1 = 10k pull-up (3.3V→ADC pin), R2 = 10k across the switch, read on GPIO35 (ADC1, WiFi-safe; GPIO27 is ADC2 and can't analog-read with WiFi up; GPIO32 is `BTN_ABORT`). Predicted/observed: empty (closed) → ~0; water (open) → ~1868 (steady); cut → ~4095. Empty and water were bench-validated **rock-steady** on GPIO35.
+
+**Why deferred.** The cut→4095 level only works if **R2 is mounted out at the float** (in parallel with the switch), so a break removes R2 *with* the switch. On the breadboard, R2 survives a disconnect and "cut" collides with "water" (both ~1868) — confirmed live. Mounting R2 at the float needs a permanent, reliable connection (solder / screw-terminal / secured twist); a flaky one would cause *false* disconnect faults, arguably worse. Given the hazard is **low and bounded** — a disconnected float only risks a dry-run, already capped by P0-2's `MAX_PUMP_ON_MS` hard pump ceiling, volume-metered doses, maintenance-by-default, and the fully-working leak sensor — the added permanent complexity was judged not worth it now. The divider design and readings are recorded here so it can be revisited without re-deriving.
+
+**What shipped instead.** Float stays on **GPIO27 digital** (unchanged logic). Fixed a **real latent bug found during this work: `pinMode(FLOAT_PIN, INPUT_PULLUP)` was never called** — the float was being `digitalRead` without its internal pull-up, so an open switch floated instead of reading a clean HIGH (intermittent/unreliable empty-vs-water). Now set alongside the button pull-ups.
+
+**Net P0-5 outcome.** Leak: fully fail-safe on disconnect (DL-140). Float: disconnect-supervision deferred with rationale; the pre-existing pull-up bug fixed so the float itself now reads reliably.
+
+**Files.** `firmware/bottom-water-calibration/src/main.cpp`. (Diagnostic sketch `test-sketches/16-float-divider` was a throwaway bench tool, not committed.)
 
 ---
 
