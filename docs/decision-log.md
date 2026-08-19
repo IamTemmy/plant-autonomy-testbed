@@ -161,6 +161,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-139](#dl-139) | 2026-08-18 | Grow-light "can't verify / WROVER offline" false alarm — the alerter's `_check_grow_light` cried offline whenever lux was stale during lit hours, but under the harness (no I2C) lux is always absent while the board is fine. Applied the same evidence-based gate as DL-137: if soil is fresh the board is demonstrably alive, so suppress the offline alarm; only alert when soil is *also* stale (genuinely unreachable). Confirmed not a timezone issue (Pi still America/New_York; soil live, lux stale since the 08-14 harness flash) | Active |
 | [DL-140](#dl-140) | 2026-08-18 | Audit P0-5 (leak half) — fail-safe leak sensor on disconnect. Added a 100k pull-up from GPIO39 to 3.3V so a disconnected leak sensor floats to full-scale instead of reading ~0 ("no leak"). Firmware now treats a reading ≥ `LEAK_DISCONNECT_RAW` (3500) as a **sensor fault** (latches ST_LEAK_FAULT, distinct reason "leak sensor disconnected") rather than a valid value, and won't ACK-clear until the sensor reads dry **and** connected. Bench-validated: dry-connected raw 0, disconnected raw 4095 — 3500 sits safely between the ~2067 submerged ceiling and the disconnect. Float half still open | Active |
 | [DL-141](#dl-141) | 2026-08-18 | Audit P0-5 (float half) — supervised-disconnect evaluated, **deferred**; float kept on digital GPIO27. A supervised resistor-divider (R1 10k pull-up on GPIO35 + R2 10k across the switch) was designed and bench-validated (empty raw 0, water raw ~1868, both rock-steady) — but detecting a *cut* requires R2 mounted out at the float (so a break removes it with the switch), a permanent connection not worth committing now given the low, bounded severity (a disconnected float only risks a dry-run, already capped by P0-2's `MAX_PUMP_ON_MS` + volume metering + the working leak sensor). Reverted intent to GPIO27 digital and **fixed a real latent bug: the missing `pinMode(FLOAT_PIN, INPUT_PULLUP)`** — the float had been read without its pull-up | Active |
+| [DL-142](#dl-142) | 2026-08-18 | **Watering strategy settled** (design, pre-P1-8) — plateau-gated volume dosing on a 20–40% band. Trigger < 20%, target ≥ 40%, but 40% is an *equilibrated outcome of metered volume*, not a live probe cutoff (the probe is blind to the filling direction, DL-125). Cycle: dose 150 mL → wait `SETTLE_MIN_MS` (~2–3 h) then watch for the probe to **plateau** (reuse existing PLATEAU detector) → if plateau < 40% supplement **100 mL** → re-plateau → repeat; ≥ 40% stops until it drifts < 20%. Per-dose ≤ 150 mL hard cap (tray never overflows; multi-dose, never single big dose). Re-enables supplements (`SESSION_CAP > DOSE1`). Wide moist band prevents hydrophobia; the 40%→20% descent per cycle becomes the draw-down dataset. Hydrophobia-adaptive branch deferred | Active |
 
 ---
 
@@ -3679,6 +3680,31 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Net P0-5 outcome.** Leak: fully fail-safe on disconnect (DL-140). Float: disconnect-supervision deferred with rationale; the pre-existing pull-up bug fixed so the float itself now reads reliably.
 
 **Files.** `firmware/bottom-water-calibration/src/main.cpp`. (Diagnostic sketch `test-sketches/16-float-divider` was a throwaway bench tool, not committed.)
+
+---
+
+<a id="dl-142"></a>
+### DL-142 — Watering strategy settled: plateau-gated volume dosing on a 20–40% band
+
+**Date:** 2026-08-18 · **Status:** Active — design decision; implemented as part of the P1-8 port.
+
+**Why now.** Watering had been a pile of hard-won lessons (DL-104→125) without a committed forward strategy. This entry settles it so P1-8 has a stable target and the plant is protected from thirsting again.
+
+**The core constraint (from DL-125).** The mid-column probe is **blind to the filling direction** — a tray-fed dose reaches the roots hours before (or without) the probe registering it. So watering **cannot** be closed-loop "pump until the probe reads 40%"; that would over-dose (the DL-117 failure). The probe reads reliably when *dry/settled* and tracks *drying* cleanly (DL-120), so it is trustworthy for the **trigger** and for **post-dose plateau evaluation**, just not as a live fill gauge.
+
+**The settled strategy — plateau-gated volume dosing:**
+- **Band 20–40%.** Trigger a cycle when the probe drifts **below 20%**; target **≥ 40%**. The wide, always-moist band (a) prevents the soil from returning to the bone-dry hydrophobic state that caused the DL-117 lag, and (b) makes the moisture gap itself the anti-re-dose guard.
+- **First dose 150 mL**, then evaluate. `40%` is the *equilibrated outcome* of delivered volume, confirmed after settle — not a pump cutoff.
+- **Plateau gate (reuses existing FSM logic).** After a dose, wait `SETTLE_MIN_MS` (~2–3 h, so a supplement can't fire inside the probe lag), then use the existing PLATEAU detector (`PLATEAU_SLOPE_PCT` over `PLATEAU_WINDOW_MS`) to detect the probe has *stopped changing* — the plateau value is the true post-dose level. "Significant settle" = plateau, not a big rise (the rise is small/slow even when healthy, DL-125).
+- **Supplement 100 mL** (smaller than the first dose, for finer approach to 40%) if the plateau is < 40%; re-plateau; repeat until ≥ 40%.
+- **Per-dose hard cap ≤ 150 mL** — the tray absorbs each dose before the next, so it never holds standing water (overflow-proof by construction; multi-dose, never one big dose). Re-enables supplements (`SESSION_CAP > DOSE1`, reversing the DL-124 `SESSION_CAP == DOSE1` single-dose interim).
+- **Dataset.** Each cycle's **40%→20% descent time** is logged; over weeks it reveals the plant's water-use rhythm and whether it drifts with growth/environment — the honest, data-driven foundation for future predictive dosing (not "the plant signals thirst"; plants don't — DL-124).
+
+**Deferred (noted, not built):** a hydrophobia-adaptive branch (switch logic if a dose shows an abnormally long probe-response latency) — the always-moist band should prevent hydrophobia, so build the simple version first and add this only if it recurs. Also: absolute saturation-finding (needs a supervised in-lab "dose until the tray holds standing water" session) is an optional future refinement, not required for this strategy.
+
+**Note.** The healthy-band %'s here ride on the DL-121 2585/1700 mapping; the current reading (~17%) is contaminated by a stray test dose during DL-129 stop-testing, so the first *clean* cycle under this strategy establishes the real draw-down baseline.
+
+**Files.** Design only — no code in this entry. Implemented in the P1-8 integrated-firmware port (trigger/target/dose/supplement/plateau constants + re-enabled supplement path).
 
 ---
 
