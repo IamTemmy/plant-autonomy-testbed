@@ -141,8 +141,8 @@ static constexpr uint16_t LEAK_DISCONNECT_RAW = 3500;
 // DL-125): dose a measured volume, wait the settle, read the plateau, decide.
 static constexpr float    TRIGGER_PCT      = 20.0f;   // start a cycle when moisture drifts below this
 static constexpr float    TARGET_PCT       = 40.0f;   // stop supplementing once the plateau reaches/exceeds this
-static constexpr uint16_t DOSE1_ML         = 150;     // first dose of a cycle
-static constexpr uint16_t SUPPLEMENT_ML    = 100;     // each subsequent dose if plateau < target
+static constexpr uint16_t DOSE1_ML         = 100;     // first dose of a cycle (DL-154: 150->100; the 150mL first cycle equilibrated to ~70% over ~12h, well past the 40% target)
+static constexpr uint16_t SUPPLEMENT_ML    = 50;      // each subsequent dose if plateau < target (DL-154: 100->50 for a finer approach to target)
 static constexpr uint16_t MAX_DOSE_ML      = 150;     // hard per-dose cap: tray absorbs each dose, never holds standing water
 static constexpr uint16_t SESSION_CAP_ML   = 600;     // safety ceiling on total mL across one cycle's doses (SESSION_CAP > DOSE1 re-enables supplements)
 static constexpr uint32_t SETTLE_MIN_MS    = 3UL * 60UL * 60UL * 1000UL;  // min wait after a dose before a plateau can gate a supplement (~3h; beats the probe lag)

@@ -173,6 +173,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-151](#dl-151) | 2026-08-19 | **P1-8 COMPLETE — system armed, autonomous watering live.** Moved the pump tube from the flash-test bottle back to the plant tray, filled the reservoir, confirmed sensors connected, and armed via `plant/cmd/maintenance off` (serial: `[MAINT] armed`). The first autonomous cycle ran as designed on the real plant — trigger (<20%) → dose → settle, per the DL-142 strategy. The unified integrated firmware is now the production firmware: reads all sensors (lux/temp restored), runs the hardened DL-142 plateau-gated dosing with all P0 fail-safes, and waters the plant unattended. This first cycle establishes the real draw-down baseline (the prior ~17% was contaminated by a stray DL-129 test dose). Two-firmware split resolved; harness superseded. **Milestone: closed-loop autonomous watering achieved** | Active |
 | [DL-152](#dl-152) | 2026-08-19 | **P2-13 step 1/N** — host-test harness seeded. Added pytest scaffolding (`pytest.ini`, `tests/conftest.py` putting the numbered hub dirs on `sys.path`) and a first real test module: 9 tests for `retention.py`'s `prune()` (cutoff correctness, keep-recent, empty table, batch-boundary looping) and `prune_images()` (mtime pruning, non-JPG safety, disabled/missing-dir). Tests run against synthetic in-memory SQLite + tmp dirs — no hardware/network/live DB. Mutation-checked: breaking `prune` fails 3 tests, confirming they have teeth. 9/9 green. CI workflow is the next commit | Active |
 | [DL-153](#dl-153) | 2026-08-19 | **P2-13 step 2/N** — CI runner. Added `.github/workflows/tests.yml` (GitHub Actions): on every push/PR to main, checks out, sets up Python 3.12, installs pytest, runs the suite. Tested modules are stdlib-only so CI installs just pytest (a `requirements-dev.txt` gets added when coverage reaches modules with third-party imports). This makes the DL-152 host-tests automatic — regressions now caught on every change, with a visible pass/fail on GitHub. Validated: YAML parses, `pytest` from repo root is 9/9 green (the exact CI command) | Active |
+| [DL-154](#dl-154) | 2026-08-20 | **Dose-size tune + first-cycle calibration data.** The first autonomous cycle (DL-151) gave a clean 12-hour draw-down curve: auto-trigger fired at ~03:00 (soil <20%), then a 150 mL dose equilibrated **slowly over ~12h to a ~70% plateau** — well past the 40% target (at the +3h SETTLE_MIN mark it was only ~40%, still climbing; validates why plateau-detection, not a fixed wait, gates supplements). So 150 mL overshoots. Reduced `DOSE1_ML` 150→100 and `SUPPLEMENT_ML` 100→50 for a finer approach to 40%. Caveat: one cycle; the mL→% relation will shift as the plant grows and consumes more — this is a step, not a final calibration. The accumulating descent cycles are the dataset for a future consumption model (regression/ML). Requires a live reflash + re-arm; data on the Pi is unaffected. Constants coherent (both ≤ MAX_DOSE 150; SESSION_CAP 600 > DOSE1 so supplements stay enabled) | Active |
 
 ---
 
@@ -3909,6 +3910,27 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Validation.** Workflow YAML parses; the exact CI command (`pytest` from the repo root) is 9/9 green locally. The first push will show the run under the repo's Actions tab and a status check on the commit.
 
 **Files.** `.github/workflows/tests.yml`.
+
+---
+
+<a id="dl-154"></a>
+### DL-154 — Dose-size tune + first-cycle calibration data
+
+**Date:** 2026-08-20 · **Status:** Active.
+
+**The data.** The first autonomous cycle (DL-151) produced a clean draw-down curve (30h sparse query + dashboard):
+- **Baseline** ~17–20% flat for a day (the contaminated-but-stable start).
+- **Auto-trigger** fired ~03:00 Aug 20 when soil crossed below 20% — the FSM starting a cycle unattended, as designed.
+- **Climb** ~03:30→~15:00: a smooth ~12-hour rise, 20% → 40% (+3h) → 50% (+8h) → 66% (+12h).
+- **Plateau** ~16:00 onward: flat at **~66–70%**, settled (last 6h barely move).
+
+**Key finding.** A 150 mL dose equilibrates **slowly (~12h) to ~70%** — well past the 40% target. Two consequences: (1) 150 mL overshoots, so the first dose should be smaller; (2) the settle is far slower than the dose, so at the +3h `SETTLE_MIN_MS` mark the probe read only ~40% and was *still climbing* — a fixed "wait then check" would misread it, which is exactly why supplements are gated on **plateau detection**, not elapsed time. The curve validates the DL-142 design.
+
+**Change.** `DOSE1_ML` 150 → 100, `SUPPLEMENT_ML` 100 → 50 (finer approach to 40%). `MAX_DOSE_ML` stays 150 (independent tray-overflow ceiling). Constants remain coherent: both doses ≤ MAX_DOSE; `SESSION_CAP_ML` 600 > DOSE1 keeps supplements enabled.
+
+**Honest caveats.** This is **one** cycle; the mL→% relationship will shift as the plant grows and transpires more, so 100 mL is a reasoned adjustment, not a final calibration. The value of the accumulating 70%→20% descents is as the dataset for a future consumption model (start with regression / curve-fit against temp + plant age; "ML" only once many varied cycles exist). Requires a **live reflash + re-arm**; logged data on the Pi is unaffected by the reflash (only a ~10 s reading gap while the ESP32 reboots).
+
+**Files.** `firmware/integrated/src/config.h`.
 
 ---
 
