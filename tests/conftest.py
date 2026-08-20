@@ -13,6 +13,7 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Hub script directories that host-tests import from. Add more as coverage grows.
 _HUB_DIRS = [
     "hub/10-maintenance",   # retention.py
+    "hub/04-listener",      # alerter.py (board-liveness + reboot-classification helpers)
 ]
 for _d in _HUB_DIRS:
     _p = os.path.join(_REPO_ROOT, _d)

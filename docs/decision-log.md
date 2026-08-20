@@ -174,6 +174,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-152](#dl-152) | 2026-08-19 | **P2-13 step 1/N** — host-test harness seeded. Added pytest scaffolding (`pytest.ini`, `tests/conftest.py` putting the numbered hub dirs on `sys.path`) and a first real test module: 9 tests for `retention.py`'s `prune()` (cutoff correctness, keep-recent, empty table, batch-boundary looping) and `prune_images()` (mtime pruning, non-JPG safety, disabled/missing-dir). Tests run against synthetic in-memory SQLite + tmp dirs — no hardware/network/live DB. Mutation-checked: breaking `prune` fails 3 tests, confirming they have teeth. 9/9 green. CI workflow is the next commit | Active |
 | [DL-153](#dl-153) | 2026-08-19 | **P2-13 step 2/N** — CI runner. Added `.github/workflows/tests.yml` (GitHub Actions): on every push/PR to main, checks out, sets up Python 3.12, installs pytest, runs the suite. Tested modules are stdlib-only so CI installs just pytest (a `requirements-dev.txt` gets added when coverage reaches modules with third-party imports). This makes the DL-152 host-tests automatic — regressions now caught on every change, with a visible pass/fail on GitHub. Validated: YAML parses, `pytest` from repo root is 9/9 green (the exact CI command) | Active |
 | [DL-154](#dl-154) | 2026-08-20 | **Dose-size tune + first-cycle calibration data.** The first autonomous cycle (DL-151) gave a clean 12-hour draw-down curve: auto-trigger fired at ~03:00 (soil <20%), then a 150 mL dose equilibrated **slowly over ~12h to a ~70% plateau** — well past the 40% target (at the +3h SETTLE_MIN mark it was only ~40%, still climbing; validates why plateau-detection, not a fixed wait, gates supplements). So 150 mL overshoots. Reduced `DOSE1_ML` 150→100 and `SUPPLEMENT_ML` 100→50 for a finer approach to 40%. Caveat: one cycle; the mL→% relation will shift as the plant grows and consumes more — this is a step, not a final calibration. The accumulating descent cycles are the dataset for a future consumption model (regression/ML). Requires a live reflash + re-arm; data on the Pi is unaffected. Constants coherent (both ≤ MAX_DOSE 150; SESSION_CAP 600 > DOSE1 so supplements stay enabled) | Active |
+| [DL-155](#dl-155) | 2026-08-20 | **P2-13 step 3/N** — alerter host-tests. Added 15 tests for `alerter.py`'s query helpers, covering the exact logic we'd had bugs in: `_soil_age_s` board-liveness (DL-139), `_latest_lux`/`_soil_pct`, and the `_reboots_24h`/`_dev_reboots_24h` armed-vs-maintenance reboot classification (DL-138), plus `_presence`. Runs against synthetic in-memory SQLite; `alerter.py` imports clean on host (stdlib only). Mutation-checked: making `_reboots_24h` count dev flashes (the original DL-138 bug) correctly fails a test. Suite now 24/24. Added `hub/04-listener` to the test path | Active |
 
 ---
 
@@ -3931,6 +3932,27 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Honest caveats.** This is **one** cycle; the mL→% relationship will shift as the plant grows and transpires more, so 100 mL is a reasoned adjustment, not a final calibration. The value of the accumulating 70%→20% descents is as the dataset for a future consumption model (start with regression / curve-fit against temp + plant age; "ML" only once many varied cycles exist). Requires a **live reflash + re-arm**; logged data on the Pi is unaffected by the reflash (only a ~10 s reading gap while the ESP32 reboots).
 
 **Files.** `firmware/integrated/src/config.h`.
+
+---
+
+<a id="dl-155"></a>
+### DL-155 — P2-13 step 3: alerter host-tests
+
+**Date:** 2026-08-20 · **Status:** Active — third step of P2-13 (host-tests).
+
+**This step.** A second test module (`tests/test_alerter.py`, 15 tests) for `hub/04-listener/alerter.py`'s DB-query helpers — chosen because they encode the board-liveness and reboot-classification logic that had real bugs (DL-137/138/139), so regression coverage here is high-value:
+- `_soil_age_s` — the DL-139 board-liveness signal (None when empty, small for recent, large for old, requires soil device + `soil_raw` sensor, and a direct check reproducing the "board_alive = soil fresh" gate).
+- `_latest_lux` / `_soil_pct` — latest value + age, most-recent-wins.
+- `_reboots_24h` / `_dev_reboots_24h` — the DL-138 split: armed reboots (`status='reboot'`) counted, maintenance/dev flashes (`reboot_maint`) excluded from the alerting count and vice-versa; 24h window respected.
+- `_presence` — latest status, "unknown" when empty.
+
+**Host-clean.** `alerter.py` imports with stdlib only (urllib, not requests/paho; env reads have defaults), so it needs no dependencies in CI. Added `hub/04-listener` to `conftest.py`'s path.
+
+**Teeth.** Mutation check: making `_reboots_24h` also count `reboot_maint` (i.e. reintroducing the DL-138 reboot-fatigue bug) correctly fails `test_reboots_24h_counts_only_armed`.
+
+**Suite.** 24/24 green (9 retention + 15 alerter). No hub code changed.
+
+**Files.** `tests/test_alerter.py`, `tests/conftest.py`.
 
 ---
 
