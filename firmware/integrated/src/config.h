@@ -54,11 +54,6 @@ static constexpr uint32_t LED_BLINK_MS        = 400;    // status LED blink peri
 static constexpr uint32_t BUTTON_DEBOUNCE_MS  = 50;     // pushbutton debounce
 static constexpr uint32_t BTN_LONGPRESS_MS    = 2000;   // hold MANUAL this long to toggle maintenance mode (DL-089)
 static constexpr uint32_t LEAK_DEBOUNCE_MS    = 3000;   // leak must persist this long to latch
-static constexpr uint32_t WATER_PULSE_MS      = 5000;   // pump-on duration per watering pulse (~5 mL at 1.0 mL/s, DL-049)
-static constexpr uint32_t WATER_SETTLE_MS     = 10000;  // wait for water to wick to the off-center probe before re-reading (DL-049)
-static constexpr uint8_t  WATER_WATCHDOG_PULSES = 8;    // consecutive no-progress pulses -> watering fault (DL-053)
-static constexpr uint16_t WATER_RESPONSE_MARGIN = 30;   // raw drop that counts as the soil responding (DL-053)
-static constexpr uint32_t DAILY_WINDOW_MS     = 86400000UL;  // rolling 24h fallback window, used until NTP time is available (DL-058)
 static constexpr float    PUMP_ML_PER_SEC     = 1.0f;        // measured pump flow rate (DL-048)
 static constexpr float    MAX_DAILY_PUMP_ML   = 200.0f;      // daily water cap in mL (DL-048/058); raise to 250-300 if soil dries too fast
 // Time sync for the calendar-midnight daily reset (DL-058). POSIX TZ string carries DST rules.
@@ -127,18 +122,6 @@ static constexpr uint16_t LEAK_RAW_DRY = 0;  // clean dry baseline
 // ---- Thresholds: DECIDED boundaries the firmware acts on ------------------
 // Seeded from DL-020 / DL-026; tunable in Phase 2.
 
-// Soil: water when raw RISES to/above TRIGGER (drying out); stop when it
-// FALLS to/below STOP (re-wetted). Hysteresis prevents toggling. (DL-020)
-//
-// ⚠ LEGACY / STALE (DL-114): these raw thresholds were tuned for the OLD
-// 2523/1953 calibration. Under the current 2585/2250 anchors (DL-106) they now
-// map to ~70% (trigger) and >100% (stop, unreachable) — NOT valid for the new
-// scale. They belong to the top-water pulse FSM that is being retired for the
-// bottom-watering loop. Re-tune or remove BEFORE that FSM is ever re-enabled
-// (it is reachable only outside maintenance mode).
-static constexpr uint16_t SOIL_THRESHOLD_TRIGGER = 2352;  // legacy: ~30% @ old cal, ~70% @ new (DL-073)
-static constexpr uint16_t SOIL_THRESHOLD_STOP    = 2200;  // legacy: ~57% @ old cal, >100% @ new
-
 // Leak: enter CRITICAL at/above this; latched until ACK button. (DL-026)
 static constexpr uint16_t LEAK_THRESHOLD = 200;
 // P0-5 (DL-140): a 100k pull-up on GPIO39 makes a DISCONNECTED leak sensor float to
@@ -149,10 +132,9 @@ static constexpr uint16_t LEAK_THRESHOLD = 200;
 static constexpr uint16_t LEAK_DISCONNECT_RAW = 3500;
 
 // ---- Bottom-watering loop (DL-142) — the SETTLED strategy the ported FSM uses ----
-// Plateau-gated volume dosing on a 20-40% band. These supersede the legacy raw-threshold
-// pulse constants above (SOIL_THRESHOLD_*, WATER_PULSE_MS, WATER_WATCHDOG_PULSES,
-// WATER_RESPONSE_MARGIN), which retire with the old top-water FSM in the P1-8 FSM port.
-// Added here (unused until that port) so the constants land in one reviewable step.
+// Plateau-gated volume dosing on a 20-40% band. (The legacy raw-threshold pulse constants
+// — SOIL_THRESHOLD_*, WATER_PULSE_MS, WATER_WATCHDOG_PULSES, WATER_RESPONSE_MARGIN — were
+// retired in the P1-8 cleanup, DL-150, along with the old top-water FSM.)
 //
 // % here are on the DL-121 2585/1700 soil mapping. 40% is an EQUILIBRATED OUTCOME of
 // metered volume, never a live pump cutoff (the probe is blind to the filling direction,

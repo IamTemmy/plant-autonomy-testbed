@@ -169,6 +169,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-147](#dl-147) | 2026-08-19 | **P1-8 port step 5b/N — the FSM watering brain** (the big one). Replaced integrated's old top-water pulse FSM (`run_pulse`/`enter_watering`/watchdog + ST_WATERING/MANUAL/DAILY_LIMIT/WATERING_FAULT) with the harness's hardened plateau-gated volume-dosing loop (DL-142) plus all audit P0 fail-safes: P0-1 NVS reboot-safe transaction + `ST_RECOVERY_HOLD`, P0-2 independent hard pump ceiling at tick top, P0-3 soil freshness + `ST_SENSOR_FAULT`, P0-5 leak-disconnect (consumes `LeakReading.disconnected`). Boot-default-ON maintenance (DL-128). **Re-expressed as a module** in integrated's contract: main.cpp reads sensors and passes them into `fsm_tick(soil,flt,leak)`; the FSM owns only decision state/pump/NVS/LEDs/buttons/publish (no direct sensor/WiFi reads). Pump-on time tracked in-FSM (integrated's `pump.h` doesn't expose it). Added `ABSORB_RISE_PCT` 7.0 to config. Interface unchanged (fsm_begin/tick/request_maintenance/state_name/daily_pump_ms). Legacy raw-threshold constants left for a follow-up cleanup (still referenced by the OLED daily-limit display). **Needs bench flash-test before production** | Active |
 | [DL-148](#dl-148) | 2026-08-19 | **P1-8 port step 6/N** — state payload. Widened integrated's `mqtt_publish_state` to carry the bottom-watering fields the hub already parses: `session_ml`, `dose_count`, `moist_pct`, `maintenance`, `reason` (matching the harness payload exactly). FSM's `publish_state_now()` now passes its real session statics. **Zero hub changes needed** — the listener/dashboard/plantctl were built for these field names (DL-133/135); the listener's "absent for integrated" comment is now stale (a hub doc nit for later). Compiles clean | Active |
 | [DL-149](#dl-149) | 2026-08-19 | **P1-8 port step 7/N — bench flash-test PASSED.** Flashed the unified integrated firmware and validated on the bench (tube to a bottle, not the plant). Confirmed: safe boot (maintenance ON, **no auto-water despite soil at 19.9% — below the 20% trigger**, proving DL-128 boot-default); **lux + temp reading again** (BME280 @0x77 23.1C, BH1750 5 lux — the I2C sensors the harness couldn't read, the core P1-8 payoff); manual dose (MANUAL short-press → dosing, pump ON); STOP/abort (→ stopped); ACK/clear (→ monitor); **P0-5 leak-disconnect** (pulled GPIO39 → leak_fault reason "leak sensor disconnected", buzzer, phone push, ACK refused while disconnected, cleared once reconnected+dry). Soil-stale (P0-3) not hand-tested (probe left undisturbed; shares the validated debounce/latch/ACK machinery). Turns DL-147's "awaiting flash-test" into validated | Active |
+| [DL-150](#dl-150) | 2026-08-19 | **P1-8 port step 8/N** — dead-constant cleanup. Removed the 7 legacy top-water pulse-FSM constants now unused after the DL-147 FSM port (`SOIL_THRESHOLD_TRIGGER/STOP`, `WATER_PULSE_MS`, `WATER_SETTLE_MS`, `WATER_WATCHDOG_PULSES`, `WATER_RESPONSE_MARGIN`, `DAILY_WINDOW_MS`) plus their stale DL-114 warning comment. Verified zero references remain in src. `MAX_DAILY_PUMP_ML` kept (still feeds the OLED daily-budget row — a cosmetically-stale display now showing 0/N since the new FSM has no daily-limit model; the OLD row refresh is a separate follow-up, Option B). Compiles clean | Active |
 
 ---
 
@@ -3840,6 +3841,19 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Outcome.** The ported watering brain works on real hardware. DL-147's "awaiting bench flash-test" is now satisfied. Remaining before the harness is retired: minor legacy-constant/OLED cleanup, then integrated becomes the production firmware.
 
 **Files.** None (validation entry).
+
+---
+
+<a id="dl-150"></a>
+### DL-150 — P1-8 port step 8: dead-constant cleanup
+
+**Date:** 2026-08-19 · **Status:** Active — tidy-up after the FSM port.
+
+**This step.** With the old top-water pulse FSM replaced (DL-147), seven of its constants were dead (defined in `config.h`, referenced nowhere): `SOIL_THRESHOLD_TRIGGER`, `SOIL_THRESHOLD_STOP`, `WATER_PULSE_MS`, `WATER_SETTLE_MS`, `WATER_WATCHDOG_PULSES`, `WATER_RESPONSE_MARGIN`, `DAILY_WINDOW_MS`. Removed them and their stale DL-114 "legacy/stale threshold" warning comment; fixed the DL-142 block comment that referenced them. Verified zero remaining references in `src/`.
+
+**Deliberately kept.** `MAX_DAILY_PUMP_ML` — still passed by `main.cpp` into `oled_render` for the OLED's daily pump-budget row. The new dosing FSM has no daily-limit concept, so that row now shows a cosmetically-stale `0 / N`. Refreshing it (e.g. to show `session_ml`/`dose_count` instead) means an `oled_render` signature change across three files — a small display-design task kept **separate** (Option B, deferred) rather than bundled into this constant sweep. `LED_BLINK_MS` also kept (still used by the FSM tick).
+
+**Files.** `firmware/integrated/src/config.h`.
 
 ---
 
