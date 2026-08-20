@@ -9,6 +9,11 @@
 #include "net_wifi.h"
 #include "fsm.h"
 
+// P1-8/DL-134: build identity. platformio.ini injects the git SHA; fall back if absent.
+#ifndef FW_GIT_SHA
+#define FW_GIT_SHA "unknown"
+#endif
+
 static WiFiClient   wifi_client;
 static PubSubClient mqtt(wifi_client);
 
@@ -52,10 +57,10 @@ void mqtt_publish_status(unsigned long heartbeat) {
     if (!mqtt.connected()) {
         return;
     }
-    char payload[96];
+    char payload[128];
     snprintf(payload, sizeof(payload),
-             "{\"online\":true,\"uptime_s\":%lu,\"rssi\":%d,\"heartbeat\":%lu}",
-             millis() / 1000UL, WiFi.RSSI(), heartbeat);
+             "{\"online\":true,\"uptime_s\":%lu,\"rssi\":%d,\"heartbeat\":%lu,\"build\":\"%s\"}",
+             millis() / 1000UL, WiFi.RSSI(), heartbeat, FW_GIT_SHA);
     // retained = true: late subscribers (and the dashboard) get last-known.
     mqtt.publish(MQTT_TOPIC_STATUS, payload, true);
 }

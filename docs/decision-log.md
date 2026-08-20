@@ -164,6 +164,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-142](#dl-142) | 2026-08-18 | **Watering strategy settled** (design, pre-P1-8) — plateau-gated volume dosing on a 20–40% band. Trigger < 20%, target ≥ 40%, but 40% is an *equilibrated outcome of metered volume*, not a live probe cutoff (the probe is blind to the filling direction, DL-125). Cycle: dose 150 mL → wait `SETTLE_MIN_MS` (~2–3 h) then watch for the probe to **plateau** (reuse existing PLATEAU detector) → if plateau < 40% supplement **100 mL** → re-plateau → repeat; ≥ 40% stops until it drifts < 20%. Per-dose ≤ 150 mL hard cap (tray never overflows; multi-dose, never single big dose). Re-enables supplements (`SESSION_CAP > DOSE1`). Wide moist band prevents hydrophobia; the 40%→20% descent per cycle becomes the draw-down dataset. Hydrophobia-adaptive branch deferred | Active |
 | [DL-143](#dl-143) | 2026-08-19 | **P1-8 port step 1/N** — leak-disconnect flag into integrated firmware. Ported the DL-140 P0-5 fail-safe (leak `disconnected` = raw ≥ `LEAK_DISCONNECT_RAW` 3500) into integrated's modular `leak` module (`config.h` constant, `LeakReading.disconnected` field, three-way classify in `leak_read`). Behavior-preserving: the old FSM still reads `.detected` unchanged (a disconnect reads `detected=false` as before); the new flag is added for the FSM port to consume in a later step. Modular structure preserved per the P1-8 plan; one change per commit | Active |
 | [DL-144](#dl-144) | 2026-08-19 | **P1-8 port step 2/N** — DL-142 watering constants into integrated `config.h`. Added the settled bottom-watering params (TRIGGER_PCT 20, TARGET_PCT 40, DOSE1_ML 150, SUPPLEMENT_ML 100, MAX_DOSE_ML 150, SESSION_CAP_ML 600, SETTLE_MIN_MS ~3h, PLATEAU_WINDOW/SLOPE, GRACE_MS) plus the P0 safety constants (MAX_PUMP_ON_MS 165s, SOIL_STALE_MS 30s, MOIST_EMA_ALPHA) as a marked block. Behavior-neutral — nothing references them until the FSM port; the legacy raw-threshold pulse constants (SOIL_THRESHOLD_*, WATER_PULSE_MS, etc.) stay for now and retire *with* the old FSM in the port. Compiles clean, no name collisions | Active |
+| [DL-145](#dl-145) | 2026-08-19 | **P1-8 port step 3/N** — build identity into integrated. Ported the DL-134 git-SHA stamp: `platformio.ini` injects `FW_GIT_SHA` via the `%`-free `!echo` idiom, and `mqtt_publish_status` gains a `"build":"<sha>"` field (matching the harness, so the hub can confirm which firmware is live). `#ifndef` fallback keeps it compiling as "unknown" if injection doesn't expand. `session_ml`/`dose_count`/full state-payload reconciliation deliberately deferred to the FSM-port step, where that data is born (integrated already had maintenance-command handling from DL-089). Compiles clean | Active |
 
 ---
 
@@ -3743,6 +3744,23 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Note.** `%` values ride on the DL-121 2585/1700 mapping; `TARGET_PCT` is an equilibrated outcome of metered volume, not a live pump cutoff (DL-125).
 
 **Files.** `firmware/integrated/src/config.h`.
+
+---
+
+<a id="dl-145"></a>
+### DL-145 — P1-8 port step 3: build identity into integrated
+
+**Date:** 2026-08-19 · **Status:** Active — third step of the P1-8 unification.
+
+**This step.** Port the DL-134 build-identity mechanism (which integrated lacked entirely) so the unified firmware can self-report its commit:
+- `platformio.ini`: inject `FW_GIT_SHA` (short hash, `-dirty` if uncommitted) via the `%`-free `!echo` build flag — the corrected idiom from the DL-134 fixup (a `date +%…` breaks PlatformIO's config parser; SHA only).
+- `net_mqtt.cpp`: `#ifndef FW_GIT_SHA` fallback, and a `"build":"<sha>"` field in the retained `mqtt_publish_status` payload — matching the harness so the hub / `plantctl` can confirm which firmware is live.
+
+**Scope decision.** The other hub-expected fields (`session_ml`, `dose_count`, and full `plant/state/wrover` reconciliation) are **deferred to the FSM-port step**, because those values are produced by the harness's volume-dosing FSM, which hasn't been ported — publishing placeholder zeros now would be misleading and rewired anyway. Integrated already handles the `plant/cmd/maintenance` command (DL-089), so no command-path work is needed here.
+
+**Verification.** Only the ini *comment* contains `%` (harmless); the `build_flags` value is `%`-free. `net_mqtt.cpp` brace-balanced. Compiles clean; the `!echo` SHA injection is the same one validated live on this shell in DL-134.
+
+**Files.** `firmware/integrated/platformio.ini`, `firmware/integrated/src/net_mqtt.cpp`.
 
 ---
 
