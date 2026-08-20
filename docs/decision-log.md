@@ -171,6 +171,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-149](#dl-149) | 2026-08-19 | **P1-8 port step 7/N — bench flash-test PASSED.** Flashed the unified integrated firmware and validated on the bench (tube to a bottle, not the plant). Confirmed: safe boot (maintenance ON, **no auto-water despite soil at 19.9% — below the 20% trigger**, proving DL-128 boot-default); **lux + temp reading again** (BME280 @0x77 23.1C, BH1750 5 lux — the I2C sensors the harness couldn't read, the core P1-8 payoff); manual dose (MANUAL short-press → dosing, pump ON); STOP/abort (→ stopped); ACK/clear (→ monitor); **P0-5 leak-disconnect** (pulled GPIO39 → leak_fault reason "leak sensor disconnected", buzzer, phone push, ACK refused while disconnected, cleared once reconnected+dry). Soil-stale (P0-3) not hand-tested (probe left undisturbed; shares the validated debounce/latch/ACK machinery). Turns DL-147's "awaiting flash-test" into validated | Active |
 | [DL-150](#dl-150) | 2026-08-19 | **P1-8 port step 8/N** — dead-constant cleanup. Removed the 7 legacy top-water pulse-FSM constants now unused after the DL-147 FSM port (`SOIL_THRESHOLD_TRIGGER/STOP`, `WATER_PULSE_MS`, `WATER_SETTLE_MS`, `WATER_WATCHDOG_PULSES`, `WATER_RESPONSE_MARGIN`, `DAILY_WINDOW_MS`) plus their stale DL-114 warning comment. Verified zero references remain in src. `MAX_DAILY_PUMP_ML` kept (still feeds the OLED daily-budget row — a cosmetically-stale display now showing 0/N since the new FSM has no daily-limit model; the OLD row refresh is a separate follow-up, Option B). Compiles clean | Active |
 | [DL-151](#dl-151) | 2026-08-19 | **P1-8 COMPLETE — system armed, autonomous watering live.** Moved the pump tube from the flash-test bottle back to the plant tray, filled the reservoir, confirmed sensors connected, and armed via `plant/cmd/maintenance off` (serial: `[MAINT] armed`). The first autonomous cycle ran as designed on the real plant — trigger (<20%) → dose → settle, per the DL-142 strategy. The unified integrated firmware is now the production firmware: reads all sensors (lux/temp restored), runs the hardened DL-142 plateau-gated dosing with all P0 fail-safes, and waters the plant unattended. This first cycle establishes the real draw-down baseline (the prior ~17% was contaminated by a stray DL-129 test dose). Two-firmware split resolved; harness superseded. **Milestone: closed-loop autonomous watering achieved** | Active |
+| [DL-152](#dl-152) | 2026-08-19 | **P2-13 step 1/N** — host-test harness seeded. Added pytest scaffolding (`pytest.ini`, `tests/conftest.py` putting the numbered hub dirs on `sys.path`) and a first real test module: 9 tests for `retention.py`'s `prune()` (cutoff correctness, keep-recent, empty table, batch-boundary looping) and `prune_images()` (mtime pruning, non-JPG safety, disabled/missing-dir). Tests run against synthetic in-memory SQLite + tmp dirs — no hardware/network/live DB. Mutation-checked: breaking `prune` fails 3 tests, confirming they have teeth. 9/9 green. CI workflow is the next commit | Active |
 
 ---
 
@@ -3872,6 +3873,26 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Follow-ups (none blocking).** Deprecate the old harness in its README; optional OLED daily-row refresh (DL-150); then the project's next arc — the vision/greenness phase, P2 hardening (CI/tests first), and the predictive-dosing model built on the accumulating draw-down data.
 
 **Files.** None (milestone/validation entry).
+
+---
+
+<a id="dl-152"></a>
+### DL-152 — P2-13 step 1: host-test harness + first module (retention)
+
+**Date:** 2026-08-19 · **Status:** Active — first step of P2-13 (CI / automated tests).
+
+**Why.** Everything to date has been verified by hand (firmware on-device, hub by inspection). For a portfolio testbed, automated host-tests are the highest-value maturity add: they catch regressions in the Python/SQL logic on every change without hardware. Scope A (agreed): seed the harness with a focused, high-value first module, then add the CI runner, then grow coverage incrementally — one module per commit.
+
+**This step.** pytest scaffolding at the repo root:
+- `pytest.ini` — `testpaths = tests`, quiet output.
+- `tests/conftest.py` — puts the numbered hub dirs (not Python packages) on `sys.path` so tests can import the real modules; documents that tests use synthetic state only.
+- `tests/test_retention.py` — 9 tests for `hub/10-maintenance/retention.py`: `prune()` (removes only rows older than the cutoff, keeps recent, empty-table no-op, strict-`<` boundary, multi-batch looping with a monkeypatched small `BATCH`) and `prune_images()` (mtime pruning, ignores non-JPG, disabled at days=0, missing-dir safe). All run against in-memory SQLite / tmp dirs — no plant.db, Pi, or hardware.
+
+**Quality check.** Beyond 9/9 green, a mutation check (temporarily breaking `prune`'s `WHERE ts < ?` to delete everything) correctly failed 3 tests, confirming the tests actually constrain behavior rather than passing vacuously.
+
+**Run locally.** `pip install pytest` then `pytest` from the repo root.
+
+**Files.** `pytest.ini`, `tests/conftest.py`, `tests/test_retention.py`. (No hub code changed — tests import it unmodified.)
 
 ---
 
