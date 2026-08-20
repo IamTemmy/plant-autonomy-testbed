@@ -147,3 +147,28 @@ static constexpr uint16_t LEAK_THRESHOLD = 200;
 // tops out near ~2067 even submerged (DL-026), so a value this high can only be the
 // pull-up on an open pin. Bench-validated: dry-connected 0, disconnected 4095.
 static constexpr uint16_t LEAK_DISCONNECT_RAW = 3500;
+
+// ---- Bottom-watering loop (DL-142) — the SETTLED strategy the ported FSM uses ----
+// Plateau-gated volume dosing on a 20-40% band. These supersede the legacy raw-threshold
+// pulse constants above (SOIL_THRESHOLD_*, WATER_PULSE_MS, WATER_WATCHDOG_PULSES,
+// WATER_RESPONSE_MARGIN), which retire with the old top-water FSM in the P1-8 FSM port.
+// Added here (unused until that port) so the constants land in one reviewable step.
+//
+// % here are on the DL-121 2585/1700 soil mapping. 40% is an EQUILIBRATED OUTCOME of
+// metered volume, never a live pump cutoff (the probe is blind to the filling direction,
+// DL-125): dose a measured volume, wait the settle, read the plateau, decide.
+static constexpr float    TRIGGER_PCT      = 20.0f;   // start a cycle when moisture drifts below this
+static constexpr float    TARGET_PCT       = 40.0f;   // stop supplementing once the plateau reaches/exceeds this
+static constexpr uint16_t DOSE1_ML         = 150;     // first dose of a cycle
+static constexpr uint16_t SUPPLEMENT_ML    = 100;     // each subsequent dose if plateau < target
+static constexpr uint16_t MAX_DOSE_ML      = 150;     // hard per-dose cap: tray absorbs each dose, never holds standing water
+static constexpr uint16_t SESSION_CAP_ML   = 600;     // safety ceiling on total mL across one cycle's doses (SESSION_CAP > DOSE1 re-enables supplements)
+static constexpr uint32_t SETTLE_MIN_MS    = 3UL * 60UL * 60UL * 1000UL;  // min wait after a dose before a plateau can gate a supplement (~3h; beats the probe lag)
+static constexpr uint32_t PLATEAU_WINDOW_MS= 30UL * 60UL * 1000UL;         // window over which "stopped changing" is judged
+static constexpr float    PLATEAU_SLOPE_PCT= 1.0f;    // <= this change over the window = plateaued (probe has caught up)
+static constexpr uint32_t GRACE_MS         = 90UL * 60UL * 1000UL;         // one-time extra settle if absorption is slow
+
+// ---- Physical pump + sensor safety (P0-2 / P0-3 / DL-127..131) ------------
+static constexpr uint32_t MAX_PUMP_ON_MS   = 165000;  // P0-2: independent hard pump-on ceiling (>largest legit dose); checked before any network work
+static constexpr uint32_t SOIL_STALE_MS    = 30000;   // P0-3: no valid soil read within this -> stale -> block starts / fault mid-session
+static constexpr float    MOIST_EMA_ALPHA  = 0.1f;    // decision-variable smoothing on moisture %

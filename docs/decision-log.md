@@ -163,6 +163,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-141](#dl-141) | 2026-08-18 | Audit P0-5 (float half) — supervised-disconnect evaluated, **deferred**; float kept on digital GPIO27. A supervised resistor-divider (R1 10k pull-up on GPIO35 + R2 10k across the switch) was designed and bench-validated (empty raw 0, water raw ~1868, both rock-steady) — but detecting a *cut* requires R2 mounted out at the float (so a break removes it with the switch), a permanent connection not worth committing now given the low, bounded severity (a disconnected float only risks a dry-run, already capped by P0-2's `MAX_PUMP_ON_MS` + volume metering + the working leak sensor). Reverted intent to GPIO27 digital and **fixed a real latent bug: the missing `pinMode(FLOAT_PIN, INPUT_PULLUP)`** — the float had been read without its pull-up | Active |
 | [DL-142](#dl-142) | 2026-08-18 | **Watering strategy settled** (design, pre-P1-8) — plateau-gated volume dosing on a 20–40% band. Trigger < 20%, target ≥ 40%, but 40% is an *equilibrated outcome of metered volume*, not a live probe cutoff (the probe is blind to the filling direction, DL-125). Cycle: dose 150 mL → wait `SETTLE_MIN_MS` (~2–3 h) then watch for the probe to **plateau** (reuse existing PLATEAU detector) → if plateau < 40% supplement **100 mL** → re-plateau → repeat; ≥ 40% stops until it drifts < 20%. Per-dose ≤ 150 mL hard cap (tray never overflows; multi-dose, never single big dose). Re-enables supplements (`SESSION_CAP > DOSE1`). Wide moist band prevents hydrophobia; the 40%→20% descent per cycle becomes the draw-down dataset. Hydrophobia-adaptive branch deferred | Active |
 | [DL-143](#dl-143) | 2026-08-19 | **P1-8 port step 1/N** — leak-disconnect flag into integrated firmware. Ported the DL-140 P0-5 fail-safe (leak `disconnected` = raw ≥ `LEAK_DISCONNECT_RAW` 3500) into integrated's modular `leak` module (`config.h` constant, `LeakReading.disconnected` field, three-way classify in `leak_read`). Behavior-preserving: the old FSM still reads `.detected` unchanged (a disconnect reads `detected=false` as before); the new flag is added for the FSM port to consume in a later step. Modular structure preserved per the P1-8 plan; one change per commit | Active |
+| [DL-144](#dl-144) | 2026-08-19 | **P1-8 port step 2/N** — DL-142 watering constants into integrated `config.h`. Added the settled bottom-watering params (TRIGGER_PCT 20, TARGET_PCT 40, DOSE1_ML 150, SUPPLEMENT_ML 100, MAX_DOSE_ML 150, SESSION_CAP_ML 600, SETTLE_MIN_MS ~3h, PLATEAU_WINDOW/SLOPE, GRACE_MS) plus the P0 safety constants (MAX_PUMP_ON_MS 165s, SOIL_STALE_MS 30s, MOIST_EMA_ALPHA) as a marked block. Behavior-neutral — nothing references them until the FSM port; the legacy raw-threshold pulse constants (SOIL_THRESHOLD_*, WATER_PULSE_MS, etc.) stay for now and retire *with* the old FSM in the port. Compiles clean, no name collisions | Active |
 
 ---
 
@@ -3725,6 +3726,23 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Behavior-preserving.** The old FSM still consumes `.detected` exactly as before; a disconnect now yields `detected=false` (unchanged from prior behavior), so this commit changes no runtime behavior — it only *adds* the `disconnected` capability for the FSM port to consume in a later step. Brace-balanced; not compile-tested in-authoring (no toolchain) — `pio run` on the Mac.
 
 **Files.** `firmware/integrated/src/{config.h,leak.h,leak.cpp,main.cpp}`.
+
+---
+
+<a id="dl-144"></a>
+### DL-144 — P1-8 port step 2: DL-142 watering constants into integrated config
+
+**Date:** 2026-08-19 · **Status:** Active — second step of the P1-8 unification.
+
+**This step.** Stage the settled watering strategy's constants (DL-142) plus the P0 safety constants in integrated's `config.h`, so the FSM port has them ready and they land in one reviewable commit:
+- **Watering (DL-142):** `TRIGGER_PCT` 20, `TARGET_PCT` 40, `DOSE1_ML` 150, `SUPPLEMENT_ML` 100, `MAX_DOSE_ML` 150 (per-dose overflow cap), `SESSION_CAP_ML` 600 (cycle total ceiling; `> DOSE1` re-enables supplements), `SETTLE_MIN_MS` ~3 h, `PLATEAU_WINDOW_MS`/`PLATEAU_SLOPE_PCT`, `GRACE_MS`.
+- **Safety (P0-2/P0-3):** `MAX_PUMP_ON_MS` 165 s, `SOIL_STALE_MS` 30 s, `MOIST_EMA_ALPHA` 0.1.
+
+**Behavior-neutral.** Nothing references these yet — the old raw-threshold pulse FSM still runs on its legacy constants (`SOIL_THRESHOLD_TRIGGER/STOP`, `WATER_PULSE_MS`, `WATER_WATCHDOG_PULSES`, `WATER_RESPONSE_MARGIN`), which are left in place and **retire together with that FSM in the FSM-port step** (removing them now would break the still-present old `fsm.cpp`). Verified: each new name defined exactly once (no redefinition), integrated compiles clean.
+
+**Note.** `%` values ride on the DL-121 2585/1700 mapping; `TARGET_PCT` is an equilibrated outcome of metered volume, not a live pump cutoff (DL-125).
+
+**Files.** `firmware/integrated/src/config.h`.
 
 ---
 
