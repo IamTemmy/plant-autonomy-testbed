@@ -141,3 +141,9 @@ static constexpr uint16_t SOIL_THRESHOLD_STOP    = 2200;  // legacy: ~57% @ old 
 
 // Leak: enter CRITICAL at/above this; latched until ACK button. (DL-026)
 static constexpr uint16_t LEAK_THRESHOLD = 200;
+// P0-5 (DL-140): a 100k pull-up on GPIO39 makes a DISCONNECTED leak sensor float to
+// near full-scale instead of reading ~0 ("no leak"). A reading at/above this ceiling is
+// treated as a sensor fault (wire cut / unplugged), not a valid value — the comb sensor
+// tops out near ~2067 even submerged (DL-026), so a value this high can only be the
+// pull-up on an open pin. Bench-validated: dry-connected 0, disconnected 4095.
+static constexpr uint16_t LEAK_DISCONNECT_RAW = 3500;

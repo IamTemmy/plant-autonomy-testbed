@@ -31,7 +31,7 @@ static Bme280Reading last_air{NAN, NAN, NAN, false};
 static Bh1750Reading last_light{NAN, false};
 static SoilReading   last_soil{0, NAN, false};
 static FloatReading  last_float{false, false};
-static LeakReading   last_leak{0, false, false};
+static LeakReading   last_leak{0, false, false, false};
 
 void setup() {
     Serial.begin(115200);

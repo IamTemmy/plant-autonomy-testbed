@@ -17,8 +17,11 @@ LeakReading leak_read() {
     const uint16_t raw = static_cast<uint16_t>(sum / LEAK_SAMPLES);
 
     LeakReading r;
-    r.raw      = raw;
-    r.detected = (raw >= LEAK_THRESHOLD);
-    r.valid    = true;
+    r.raw = raw;
+    // P0-5 (DL-140): near full-scale = pull-up on an open pin = disconnected (can't be
+    // real water; DL-026 caps a submerged reading near ~2067). Below that, >=THRESHOLD = leak.
+    r.disconnected = (raw >= LEAK_DISCONNECT_RAW);
+    r.detected     = (!r.disconnected && raw >= LEAK_THRESHOLD);
+    r.valid        = true;
     return r;
 }

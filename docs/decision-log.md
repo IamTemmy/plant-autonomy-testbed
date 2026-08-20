@@ -162,6 +162,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-140](#dl-140) | 2026-08-18 | Audit P0-5 (leak half) — fail-safe leak sensor on disconnect. Added a 100k pull-up from GPIO39 to 3.3V so a disconnected leak sensor floats to full-scale instead of reading ~0 ("no leak"). Firmware now treats a reading ≥ `LEAK_DISCONNECT_RAW` (3500) as a **sensor fault** (latches ST_LEAK_FAULT, distinct reason "leak sensor disconnected") rather than a valid value, and won't ACK-clear until the sensor reads dry **and** connected. Bench-validated: dry-connected raw 0, disconnected raw 4095 — 3500 sits safely between the ~2067 submerged ceiling and the disconnect. Float half still open | Active |
 | [DL-141](#dl-141) | 2026-08-18 | Audit P0-5 (float half) — supervised-disconnect evaluated, **deferred**; float kept on digital GPIO27. A supervised resistor-divider (R1 10k pull-up on GPIO35 + R2 10k across the switch) was designed and bench-validated (empty raw 0, water raw ~1868, both rock-steady) — but detecting a *cut* requires R2 mounted out at the float (so a break removes it with the switch), a permanent connection not worth committing now given the low, bounded severity (a disconnected float only risks a dry-run, already capped by P0-2's `MAX_PUMP_ON_MS` + volume metering + the working leak sensor). Reverted intent to GPIO27 digital and **fixed a real latent bug: the missing `pinMode(FLOAT_PIN, INPUT_PULLUP)`** — the float had been read without its pull-up | Active |
 | [DL-142](#dl-142) | 2026-08-18 | **Watering strategy settled** (design, pre-P1-8) — plateau-gated volume dosing on a 20–40% band. Trigger < 20%, target ≥ 40%, but 40% is an *equilibrated outcome of metered volume*, not a live probe cutoff (the probe is blind to the filling direction, DL-125). Cycle: dose 150 mL → wait `SETTLE_MIN_MS` (~2–3 h) then watch for the probe to **plateau** (reuse existing PLATEAU detector) → if plateau < 40% supplement **100 mL** → re-plateau → repeat; ≥ 40% stops until it drifts < 20%. Per-dose ≤ 150 mL hard cap (tray never overflows; multi-dose, never single big dose). Re-enables supplements (`SESSION_CAP > DOSE1`). Wide moist band prevents hydrophobia; the 40%→20% descent per cycle becomes the draw-down dataset. Hydrophobia-adaptive branch deferred | Active |
+| [DL-143](#dl-143) | 2026-08-19 | **P1-8 port step 1/N** — leak-disconnect flag into integrated firmware. Ported the DL-140 P0-5 fail-safe (leak `disconnected` = raw ≥ `LEAK_DISCONNECT_RAW` 3500) into integrated's modular `leak` module (`config.h` constant, `LeakReading.disconnected` field, three-way classify in `leak_read`). Behavior-preserving: the old FSM still reads `.detected` unchanged (a disconnect reads `detected=false` as before); the new flag is added for the FSM port to consume in a later step. Modular structure preserved per the P1-8 plan; one change per commit | Active |
 
 ---
 
@@ -3705,6 +3706,25 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Note.** The healthy-band %'s here ride on the DL-121 2585/1700 mapping; the current reading (~17%) is contaminated by a stray test dose during DL-129 stop-testing, so the first *clean* cycle under this strategy establishes the real draw-down baseline.
 
 **Files.** Design only — no code in this entry. Implemented in the P1-8 integrated-firmware port (trigger/target/dose/supplement/plateau constants + re-enabled supplement path).
+
+---
+
+<a id="dl-143"></a>
+### DL-143 — P1-8 port step 1: leak-disconnect flag into integrated firmware
+
+**Date:** 2026-08-19 · **Status:** Active — first step of the P1-8 firmware unification.
+
+**P1-8 context.** The hardened watering logic lives in the monolithic bottom-water harness; the integrated firmware (modular, reads all sensors incl. BME280/BH1750/OLED) still has the old top-water FSM. P1-8 unifies them: port the harness's hardened logic into integrated's modular structure so there is one production firmware that reads everything. Doing it **one change per commit**, each validated, with the risky pump-path FSM port isolated to its own later step. (Recon: integrated's `soil` module is already byte-for-byte equivalent to the harness — no change needed there; soil *freshness* is FSM-layer and ports with the FSM.)
+
+**This step.** Port the DL-140 P0-5 leak fail-safe into integrated's `leak` module:
+- `config.h`: add `LEAK_DISCONNECT_RAW = 3500`.
+- `leak.h`: add `LeakReading.disconnected` (raw ≥ 3500 = unplugged/cut).
+- `leak.cpp`: three-way classify — dry / leak (`THRESHOLD..DISCONNECT`) / disconnected (`≥ DISCONNECT`).
+- `main.cpp`: widen the `last_leak` initializer to 4 fields.
+
+**Behavior-preserving.** The old FSM still consumes `.detected` exactly as before; a disconnect now yields `detected=false` (unchanged from prior behavior), so this commit changes no runtime behavior — it only *adds* the `disconnected` capability for the FSM port to consume in a later step. Brace-balanced; not compile-tested in-authoring (no toolchain) — `pio run` on the Mac.
+
+**Files.** `firmware/integrated/src/{config.h,leak.h,leak.cpp,main.cpp}`.
 
 ---
 

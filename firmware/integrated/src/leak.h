@@ -7,9 +7,10 @@
 #include <stdint.h>
 
 struct LeakReading {
-    uint16_t raw;       // averaged ADC count (higher = wetter)
-    bool     detected;  // raw >= LEAK_THRESHOLD (config.h)
-    bool     valid;     // analog read; always valid once begun
+    uint16_t raw;          // averaged ADC count (higher = wetter)
+    bool     detected;     // LEAK_THRESHOLD <= raw < LEAK_DISCONNECT_RAW
+    bool     disconnected; // raw >= LEAK_DISCONNECT_RAW: sensor unplugged / wire cut (P0-5, DL-140)
+    bool     valid;        // analog read; always valid once begun
 };
 
 // Configure the ADC pin. Call once from setup().
