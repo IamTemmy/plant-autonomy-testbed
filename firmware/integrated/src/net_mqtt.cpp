@@ -115,14 +115,18 @@ void mqtt_publish_leak(uint16_t raw, bool detected) {
     mqtt.publish(MQTT_TOPIC_SENSORS_LEAK, payload);  // not retained
 }
 
-void mqtt_publish_state(const char* state, bool pump_on, unsigned long daily_pump_ms) {
+void mqtt_publish_state(const char* state, bool pump_on, int session_ml,
+                        int dose_count, float moist_pct, bool maintenance,
+                        const char* reason) {
     if (!mqtt.connected()) {
         return;
     }
-    char payload[96];
+    char payload[192];
     snprintf(payload, sizeof(payload),
-             "{\"state\":\"%s\",\"pump\":%d,\"daily_pump_ms\":%lu}",
-             state, pump_on ? 1 : 0, daily_pump_ms);
+             "{\"state\":\"%s\",\"pump\":%d,\"session_ml\":%d,\"dose_count\":%d,"
+             "\"moist_pct\":%.1f,\"maintenance\":%d,\"reason\":\"%s\"}",
+             state, pump_on ? 1 : 0, session_ml, dose_count,
+             moist_pct, maintenance ? 1 : 0, reason);
     mqtt.publish(MQTT_TOPIC_STATE, payload, true);  // retained
 }
 

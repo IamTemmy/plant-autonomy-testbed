@@ -175,7 +175,9 @@ static void drive_leds() {
 
 // ---- state publish helper -------------------------------------------------
 static void publish_state_now() {
-    mqtt_publish_state(state_name(state), pump_is_on(), daily_pump_ms);
+    const float m = isnan(moist_ema) ? -1.0f : moist_ema;
+    mqtt_publish_state(state_name(state), pump_is_on(), (int)session_ml,
+                       dose_count, m, maintenance, last_reason);
 }
 
 // ---- dose / session control -----------------------------------------------

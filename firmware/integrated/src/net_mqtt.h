@@ -38,8 +38,12 @@ void mqtt_publish_float(bool reservoir_empty);
 void mqtt_publish_leak(uint16_t raw, bool detected);
 
 // Publish FSM state (retained: dashboard always has current state). No-op if
-// not connected.
-void mqtt_publish_state(const char* state, bool pump_on, unsigned long daily_pump_ms);
+// not connected. Carries the bottom-watering session fields (DL-148) the hub /
+// dashboard / plantctl expect: session volume, dose count, smoothed moisture,
+// maintenance flag, and the last state reason.
+void mqtt_publish_state(const char* state, bool pump_on, int session_ml,
+                        int dose_count, float moist_pct, bool maintenance,
+                        const char* reason);
 
 // True if currently connected to the broker.
 bool mqtt_connected();

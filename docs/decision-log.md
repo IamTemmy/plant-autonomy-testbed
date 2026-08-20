@@ -167,6 +167,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-145](#dl-145) | 2026-08-19 | **P1-8 port step 3/N** — build identity into integrated. Ported the DL-134 git-SHA stamp: `platformio.ini` injects `FW_GIT_SHA` via the `%`-free `!echo` idiom, and `mqtt_publish_status` gains a `"build":"<sha>"` field (matching the harness, so the hub can confirm which firmware is live). `#ifndef` fallback keeps it compiling as "unknown" if injection doesn't expand. `session_ml`/`dose_count`/full state-payload reconciliation deliberately deferred to the FSM-port step, where that data is born (integrated already had maintenance-command handling from DL-089). Compiles clean | Active |
 | [DL-146](#dl-146) | 2026-08-19 | **P1-8 port step 5a/N** — FSM port, structure only. Added the harness bottom-watering states (`ST_DOSING`, `ST_SETTLE`, `ST_GRACE`, `ST_RECOVERY_HOLD`, `ST_SENSOR_FAULT`) to integrated's `fsm.cpp` enum, `state_name`, and `drive_leds` (LED semantics mirror the harness). Purely additive/behavior-neutral: the new states are **defined but unreached** — the old top-water pulse FSM still runs unchanged; dosing/plateau logic + safety chain wire them in over later sub-steps (5b–5e). Old states retained until the logic swaps. Both switches cover all enum values (no -Wswitch gaps); compiles clean | Active |
 | [DL-147](#dl-147) | 2026-08-19 | **P1-8 port step 5b/N — the FSM watering brain** (the big one). Replaced integrated's old top-water pulse FSM (`run_pulse`/`enter_watering`/watchdog + ST_WATERING/MANUAL/DAILY_LIMIT/WATERING_FAULT) with the harness's hardened plateau-gated volume-dosing loop (DL-142) plus all audit P0 fail-safes: P0-1 NVS reboot-safe transaction + `ST_RECOVERY_HOLD`, P0-2 independent hard pump ceiling at tick top, P0-3 soil freshness + `ST_SENSOR_FAULT`, P0-5 leak-disconnect (consumes `LeakReading.disconnected`). Boot-default-ON maintenance (DL-128). **Re-expressed as a module** in integrated's contract: main.cpp reads sensors and passes them into `fsm_tick(soil,flt,leak)`; the FSM owns only decision state/pump/NVS/LEDs/buttons/publish (no direct sensor/WiFi reads). Pump-on time tracked in-FSM (integrated's `pump.h` doesn't expose it). Added `ABSORB_RISE_PCT` 7.0 to config. Interface unchanged (fsm_begin/tick/request_maintenance/state_name/daily_pump_ms). Legacy raw-threshold constants left for a follow-up cleanup (still referenced by the OLED daily-limit display). **Needs bench flash-test before production** | Active |
+| [DL-148](#dl-148) | 2026-08-19 | **P1-8 port step 6/N** — state payload. Widened integrated's `mqtt_publish_state` to carry the bottom-watering fields the hub already parses: `session_ml`, `dose_count`, `moist_pct`, `maintenance`, `reason` (matching the harness payload exactly). FSM's `publish_state_now()` now passes its real session statics. **Zero hub changes needed** — the listener/dashboard/plantctl were built for these field names (DL-133/135); the listener's "absent for integrated" comment is now stale (a hub doc nit for later). Compiles clean | Active |
 
 ---
 
@@ -3800,6 +3801,21 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Verification.** Brace/paren balanced; every referenced config constant and every pump/buzzer/mqtt call and every soil/leak/float field confirmed to exist in integrated's headers; no leftover harness-isms (no `soil_read`/`analogRead`/`publish_soil`/`WIFI_*`). Not compile-tested in authoring (no toolchain). **This is the pump-path core — it must be flash-tested at the bench (boot-safe maintenance, dose-to-a-bottle, plateau, supplement, all faults) BEFORE it is ever the production firmware.** Nothing waters until integrated is flashed, boots into maintenance, is bench-tested to a bottle, and is explicitly armed.
 
 **Files.** `firmware/integrated/src/fsm.cpp` (full rewrite), `firmware/integrated/src/config.h` (+`ABSORB_RISE_PCT`).
+
+---
+
+<a id="dl-148"></a>
+### DL-148 — P1-8 port step 6: state payload (watering fields)
+
+**Date:** 2026-08-19 · **Status:** Active — sixth step of the P1-8 unification.
+
+**This step.** Integrated's `mqtt_publish_state` previously sent only `state`/`pump`/`daily_pump_ms`. Widened it to the harness's field set so the ported FSM's session data reaches the hub: `session_ml`, `dose_count`, `moist_pct`, `maintenance`, `reason`. The FSM's `publish_state_now()` now passes its real module statics (moisture as `-1` when the EMA is still NaN, matching the harness convention). This closes the reconciliation deferred in DL-145.
+
+**Zero hub changes.** The listener, dashboard, and `plantctl` already parse exactly these field names (built for the harness, DL-133/135), so integrated matching the harness payload shape means the hub needs no edits — the dashboard's watering page and plantctl's session readout will work against the unified firmware unchanged. (One stale hub comment — `listener.py` calls `maintenance` "harness only … absent for integrated" — is now untrue and can be cleaned up in a later hub commit; purely cosmetic.)
+
+**Verification.** Signature/definition/call-site all consistent (only the new 7-arg form exists); `daily_pump_ms` retained for the OLED accessor; brace/paren balanced. Compiles clean.
+
+**Files.** `firmware/integrated/src/net_mqtt.h`, `firmware/integrated/src/net_mqtt.cpp`, `firmware/integrated/src/fsm.cpp`.
 
 ---
 
