@@ -172,6 +172,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-150](#dl-150) | 2026-08-19 | **P1-8 port step 8/N** — dead-constant cleanup. Removed the 7 legacy top-water pulse-FSM constants now unused after the DL-147 FSM port (`SOIL_THRESHOLD_TRIGGER/STOP`, `WATER_PULSE_MS`, `WATER_SETTLE_MS`, `WATER_WATCHDOG_PULSES`, `WATER_RESPONSE_MARGIN`, `DAILY_WINDOW_MS`) plus their stale DL-114 warning comment. Verified zero references remain in src. `MAX_DAILY_PUMP_ML` kept (still feeds the OLED daily-budget row — a cosmetically-stale display now showing 0/N since the new FSM has no daily-limit model; the OLD row refresh is a separate follow-up, Option B). Compiles clean | Active |
 | [DL-151](#dl-151) | 2026-08-19 | **P1-8 COMPLETE — system armed, autonomous watering live.** Moved the pump tube from the flash-test bottle back to the plant tray, filled the reservoir, confirmed sensors connected, and armed via `plant/cmd/maintenance off` (serial: `[MAINT] armed`). The first autonomous cycle ran as designed on the real plant — trigger (<20%) → dose → settle, per the DL-142 strategy. The unified integrated firmware is now the production firmware: reads all sensors (lux/temp restored), runs the hardened DL-142 plateau-gated dosing with all P0 fail-safes, and waters the plant unattended. This first cycle establishes the real draw-down baseline (the prior ~17% was contaminated by a stray DL-129 test dose). Two-firmware split resolved; harness superseded. **Milestone: closed-loop autonomous watering achieved** | Active |
 | [DL-152](#dl-152) | 2026-08-19 | **P2-13 step 1/N** — host-test harness seeded. Added pytest scaffolding (`pytest.ini`, `tests/conftest.py` putting the numbered hub dirs on `sys.path`) and a first real test module: 9 tests for `retention.py`'s `prune()` (cutoff correctness, keep-recent, empty table, batch-boundary looping) and `prune_images()` (mtime pruning, non-JPG safety, disabled/missing-dir). Tests run against synthetic in-memory SQLite + tmp dirs — no hardware/network/live DB. Mutation-checked: breaking `prune` fails 3 tests, confirming they have teeth. 9/9 green. CI workflow is the next commit | Active |
+| [DL-153](#dl-153) | 2026-08-19 | **P2-13 step 2/N** — CI runner. Added `.github/workflows/tests.yml` (GitHub Actions): on every push/PR to main, checks out, sets up Python 3.12, installs pytest, runs the suite. Tested modules are stdlib-only so CI installs just pytest (a `requirements-dev.txt` gets added when coverage reaches modules with third-party imports). This makes the DL-152 host-tests automatic — regressions now caught on every change, with a visible pass/fail on GitHub. Validated: YAML parses, `pytest` from repo root is 9/9 green (the exact CI command) | Active |
 
 ---
 
@@ -3893,6 +3894,21 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Run locally.** `pip install pytest` then `pytest` from the repo root.
 
 **Files.** `pytest.ini`, `tests/conftest.py`, `tests/test_retention.py`. (No hub code changed — tests import it unmodified.)
+
+---
+
+<a id="dl-153"></a>
+### DL-153 — P2-13 step 2: CI runner (GitHub Actions)
+
+**Date:** 2026-08-19 · **Status:** Active — second step of P2-13.
+
+**This step.** `.github/workflows/tests.yml` runs the host-test suite automatically: on every push and PR to `main`, it checks out the repo, sets up Python 3.12, installs pytest, and runs `pytest`. This turns the DL-152 tests from "run them by hand" into continuous verification — a regression in the hub's Python/SQL logic now fails CI visibly on GitHub rather than reaching the Pi unnoticed. (Firmware is still validated on-device separately; CI covers the host code.)
+
+**Dependency scope.** The currently-tested module (`retention.py`) is standard-library only, so CI installs just pytest — fast and honest about what's covered. When coverage grows to modules with third-party imports (streamlit dashboard, paho-mqtt listener), a `requirements-dev.txt` will be added and installed here.
+
+**Validation.** Workflow YAML parses; the exact CI command (`pytest` from the repo root) is 9/9 green locally. The first push will show the run under the repo's Actions tab and a status check on the commit.
+
+**Files.** `.github/workflows/tests.yml`.
 
 ---
 
