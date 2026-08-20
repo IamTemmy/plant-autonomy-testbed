@@ -165,6 +165,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-143](#dl-143) | 2026-08-19 | **P1-8 port step 1/N** — leak-disconnect flag into integrated firmware. Ported the DL-140 P0-5 fail-safe (leak `disconnected` = raw ≥ `LEAK_DISCONNECT_RAW` 3500) into integrated's modular `leak` module (`config.h` constant, `LeakReading.disconnected` field, three-way classify in `leak_read`). Behavior-preserving: the old FSM still reads `.detected` unchanged (a disconnect reads `detected=false` as before); the new flag is added for the FSM port to consume in a later step. Modular structure preserved per the P1-8 plan; one change per commit | Active |
 | [DL-144](#dl-144) | 2026-08-19 | **P1-8 port step 2/N** — DL-142 watering constants into integrated `config.h`. Added the settled bottom-watering params (TRIGGER_PCT 20, TARGET_PCT 40, DOSE1_ML 150, SUPPLEMENT_ML 100, MAX_DOSE_ML 150, SESSION_CAP_ML 600, SETTLE_MIN_MS ~3h, PLATEAU_WINDOW/SLOPE, GRACE_MS) plus the P0 safety constants (MAX_PUMP_ON_MS 165s, SOIL_STALE_MS 30s, MOIST_EMA_ALPHA) as a marked block. Behavior-neutral — nothing references them until the FSM port; the legacy raw-threshold pulse constants (SOIL_THRESHOLD_*, WATER_PULSE_MS, etc.) stay for now and retire *with* the old FSM in the port. Compiles clean, no name collisions | Active |
 | [DL-145](#dl-145) | 2026-08-19 | **P1-8 port step 3/N** — build identity into integrated. Ported the DL-134 git-SHA stamp: `platformio.ini` injects `FW_GIT_SHA` via the `%`-free `!echo` idiom, and `mqtt_publish_status` gains a `"build":"<sha>"` field (matching the harness, so the hub can confirm which firmware is live). `#ifndef` fallback keeps it compiling as "unknown" if injection doesn't expand. `session_ml`/`dose_count`/full state-payload reconciliation deliberately deferred to the FSM-port step, where that data is born (integrated already had maintenance-command handling from DL-089). Compiles clean | Active |
+| [DL-146](#dl-146) | 2026-08-19 | **P1-8 port step 5a/N** — FSM port, structure only. Added the harness bottom-watering states (`ST_DOSING`, `ST_SETTLE`, `ST_GRACE`, `ST_RECOVERY_HOLD`, `ST_SENSOR_FAULT`) to integrated's `fsm.cpp` enum, `state_name`, and `drive_leds` (LED semantics mirror the harness). Purely additive/behavior-neutral: the new states are **defined but unreached** — the old top-water pulse FSM still runs unchanged; dosing/plateau logic + safety chain wire them in over later sub-steps (5b–5e). Old states retained until the logic swaps. Both switches cover all enum values (no -Wswitch gaps); compiles clean | Active |
 
 ---
 
@@ -3761,6 +3762,21 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Verification.** Only the ini *comment* contains `%` (harmless); the `build_flags` value is `%`-free. `net_mqtt.cpp` brace-balanced. Compiles clean; the `!echo` SHA injection is the same one validated live on this shell in DL-134.
 
 **Files.** `firmware/integrated/platformio.ini`, `firmware/integrated/src/net_mqtt.cpp`.
+
+---
+
+<a id="dl-146"></a>
+### DL-146 — P1-8 port step 5a: FSM structure (states, names, LEDs)
+
+**Date:** 2026-08-19 · **Status:** Active — first sub-step of the FSM port (step 5 of P1-8).
+
+**The FSM port, and why it's sub-divided.** Replacing integrated's old top-water *pulse* FSM with the harness's hardened *plateau-gated volume-dosing* FSM (DL-142 + P0-1..P0-5) is the highest-stakes change in P1-8 — it is the pump path. It's split into compilable sub-steps so no single commit is a giant pump-path diff: **5a** structure (this) · 5b safety-first chain · 5c dosing/settle/plateau/supplement core · 5d P0-1 NVS recovery + P0-2 pump ceiling + P0-3 freshness · 5e state payload (`session_ml`/`dose_count`/`maintenance`). Infrastructure kept from integrated's FSM: the `fsm_begin`/`fsm_tick`/`fsm_request_maintenance` interface, `Button` debounce, LED driver, and NVS maintenance persistence (cleaner than the harness's). Reconciliation decisions signed off: keep integrated pin names (STOP/ACK/MANUAL ↔ harness ABORT/ACK/DOSE; MANUAL long-press = maintenance toggle, short-press = manual dose); adopt the harness **boot-default-ON maintenance** (DL-128) so a flash never auto-waters.
+
+**This sub-step (5a).** Added `ST_DOSING`, `ST_SETTLE`, `ST_GRACE`, `ST_RECOVERY_HOLD`, `ST_SENSOR_FAULT` to the enum, `state_name` (strings match the harness/dashboard vocabulary, DL-133), and `drive_leds` (dosing=green blink, settle=green, grace=yellow blink, recovery_hold=red, sensor_fault=red+yellow). **Behavior-neutral:** the new states are defined but unreached — verified they appear only in the enum/name/LED declarations, not in any tick logic. The old pulse FSM (ST_WATERING/MANUAL/DAILY_LIMIT/WATERING_FAULT) still runs unchanged and its states are retained until 5c/5d swap the logic. Both switches cover all enum values (no -Wswitch gaps); compiles clean.
+
+**Safety.** No runtime change — the board still runs the harness in production regardless; this only builds up the integrated firmware in the repo. Nothing waters until integrated is flashed, boots into maintenance, is bench-tested to a bottle, and is explicitly armed.
+
+**Files.** `firmware/integrated/src/fsm.cpp`.
 
 ---
 

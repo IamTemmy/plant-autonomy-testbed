@@ -20,6 +20,13 @@ enum State {
     ST_STOPPED,
     ST_WATERING_FAULT,
     ST_MAINTENANCE,
+    // P1-8 FSM port (DL-146+, step 5a): bottom-watering states from the harness.
+    // Added now for structure; unreached until the dosing logic ports in a later step.
+    ST_DOSING,          // pump delivering a metered dose
+    ST_SETTLE,          // dose delivered, waiting for absorption/plateau
+    ST_GRACE,           // one-time extra settle if absorption is slow
+    ST_RECOVERY_HOLD,   // booted into an interrupted session (P0-1): pump off, wait for ACK
+    ST_SENSOR_FAULT,    // soil stale/invalid (P0-3): pump off, wait for ACK once fresh
 };
 
 static State state = ST_MONITORING;
@@ -100,6 +107,11 @@ static const char* state_name(State s) {
         case ST_STOPPED:         return "stopped";
         case ST_WATERING_FAULT:  return "watering_fault";
         case ST_MAINTENANCE:     return "maintenance";
+        case ST_DOSING:          return "dosing";
+        case ST_SETTLE:          return "settle";
+        case ST_GRACE:           return "grace";
+        case ST_RECOVERY_HOLD:   return "recovery_hold";
+        case ST_SENSOR_FAULT:    return "sensor_fault";
     }
     return "unknown";
 }
@@ -182,6 +194,11 @@ static void drive_leds() {
         case ST_STOPPED:                  r = true; blink = true; break;
         case ST_WATERING_FAULT:           r = true; y = true; break;
         case ST_MAINTENANCE:              g = true; y = true; break;
+        case ST_DOSING:                   g = true; blink = true; break;  // pump active
+        case ST_SETTLE:                   g = true; break;                // waiting, steady
+        case ST_GRACE:                    y = true; blink = true; break;  // extended wait
+        case ST_RECOVERY_HOLD:            r = true; break;                // fault, needs ACK
+        case ST_SENSOR_FAULT:             r = true; y = true; break;      // sensor fault, needs ACK
     }
     if (blink && !blink_on) { g = false; y = false; r = false; }
     digitalWrite(LED_GREEN,  g ? HIGH : LOW);
