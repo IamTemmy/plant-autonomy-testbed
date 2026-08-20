@@ -166,6 +166,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-144](#dl-144) | 2026-08-19 | **P1-8 port step 2/N** — DL-142 watering constants into integrated `config.h`. Added the settled bottom-watering params (TRIGGER_PCT 20, TARGET_PCT 40, DOSE1_ML 150, SUPPLEMENT_ML 100, MAX_DOSE_ML 150, SESSION_CAP_ML 600, SETTLE_MIN_MS ~3h, PLATEAU_WINDOW/SLOPE, GRACE_MS) plus the P0 safety constants (MAX_PUMP_ON_MS 165s, SOIL_STALE_MS 30s, MOIST_EMA_ALPHA) as a marked block. Behavior-neutral — nothing references them until the FSM port; the legacy raw-threshold pulse constants (SOIL_THRESHOLD_*, WATER_PULSE_MS, etc.) stay for now and retire *with* the old FSM in the port. Compiles clean, no name collisions | Active |
 | [DL-145](#dl-145) | 2026-08-19 | **P1-8 port step 3/N** — build identity into integrated. Ported the DL-134 git-SHA stamp: `platformio.ini` injects `FW_GIT_SHA` via the `%`-free `!echo` idiom, and `mqtt_publish_status` gains a `"build":"<sha>"` field (matching the harness, so the hub can confirm which firmware is live). `#ifndef` fallback keeps it compiling as "unknown" if injection doesn't expand. `session_ml`/`dose_count`/full state-payload reconciliation deliberately deferred to the FSM-port step, where that data is born (integrated already had maintenance-command handling from DL-089). Compiles clean | Active |
 | [DL-146](#dl-146) | 2026-08-19 | **P1-8 port step 5a/N** — FSM port, structure only. Added the harness bottom-watering states (`ST_DOSING`, `ST_SETTLE`, `ST_GRACE`, `ST_RECOVERY_HOLD`, `ST_SENSOR_FAULT`) to integrated's `fsm.cpp` enum, `state_name`, and `drive_leds` (LED semantics mirror the harness). Purely additive/behavior-neutral: the new states are **defined but unreached** — the old top-water pulse FSM still runs unchanged; dosing/plateau logic + safety chain wire them in over later sub-steps (5b–5e). Old states retained until the logic swaps. Both switches cover all enum values (no -Wswitch gaps); compiles clean | Active |
+| [DL-147](#dl-147) | 2026-08-19 | **P1-8 port step 5b/N — the FSM watering brain** (the big one). Replaced integrated's old top-water pulse FSM (`run_pulse`/`enter_watering`/watchdog + ST_WATERING/MANUAL/DAILY_LIMIT/WATERING_FAULT) with the harness's hardened plateau-gated volume-dosing loop (DL-142) plus all audit P0 fail-safes: P0-1 NVS reboot-safe transaction + `ST_RECOVERY_HOLD`, P0-2 independent hard pump ceiling at tick top, P0-3 soil freshness + `ST_SENSOR_FAULT`, P0-5 leak-disconnect (consumes `LeakReading.disconnected`). Boot-default-ON maintenance (DL-128). **Re-expressed as a module** in integrated's contract: main.cpp reads sensors and passes them into `fsm_tick(soil,flt,leak)`; the FSM owns only decision state/pump/NVS/LEDs/buttons/publish (no direct sensor/WiFi reads). Pump-on time tracked in-FSM (integrated's `pump.h` doesn't expose it). Added `ABSORB_RISE_PCT` 7.0 to config. Interface unchanged (fsm_begin/tick/request_maintenance/state_name/daily_pump_ms). Legacy raw-threshold constants left for a follow-up cleanup (still referenced by the OLED daily-limit display). **Needs bench flash-test before production** | Active |
 
 ---
 
@@ -3777,6 +3778,28 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Safety.** No runtime change — the board still runs the harness in production regardless; this only builds up the integrated firmware in the repo. Nothing waters until integrated is flashed, boots into maintenance, is bench-tested to a bottle, and is explicitly armed.
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-147"></a>
+### DL-147 — P1-8 port step 5b: the FSM watering brain
+
+**Date:** 2026-08-19 · **Status:** Active — the core of the FSM port. **Awaiting bench flash-test.**
+
+**What changed.** Integrated's old top-water *pulse* FSM is gone; in its place is the harness's hardened *plateau-gated volume-dosing* FSM. Removed: `run_pulse`, `enter_watering`, the effectiveness watchdog, and states `ST_WATERING`/`ST_MANUAL`/`ST_DAILY_LIMIT`/`ST_WATERING_FAULT`. Added the full DL-142 loop — `ST_MONITOR → ST_DOSING → ST_SETTLE →` (plateau) `→ evaluate →` supplement or `ST_GRACE` or done — with the audit fail-safes:
+- **P0-1** reboot-safe transaction: session state mirrored to NVS on every transition; boot into `ST_RECOVERY_HOLD` (pump off, wait for ACK) if a dose was interrupted mid-flight, so a reset never blind re-doses.
+- **P0-2** independent hard pump ceiling (`MAX_PUMP_ON_MS`) checked at the very top of `fsm_tick`, before anything else — a pure backstop that can only turn the pump off.
+- **P0-3** soil freshness: `last_valid_soil_ms`; a stale probe blocks starts and cuts an active dose into `ST_SENSOR_FAULT`.
+- **P0-5** leak-disconnect: consumes the `LeakReading.disconnected` flag (DL-143) — a disconnected sensor latches `ST_LEAK_FAULT` like a real leak, clears on ACK only when dry **and** connected.
+- **DL-128** maintenance boot-default-ON: a flash/reboot never auto-waters; arm via MQTT (`plant/cmd/maintenance off`) or the MANUAL long-press toggle. Manual doses (MANUAL short-press) allowed even in maintenance, but never on a stale probe.
+
+**Architecture — re-expressed, not transplanted.** The harness was a monolith that read sensors in `loop()`. Integrated's contract has `main.cpp` read the sensors and pass them into `fsm_tick(soil, flt, leak)`. So the FSM was rewritten as a module that *receives* `SoilReading`/`FloatReading`/`LeakReading` and owns only the decision state, pump, NVS transaction, LEDs, buttons, and the state publish — no direct sensor/WiFi/telemetry (main.cpp keeps those). Pump-on time is tracked inside the FSM (`pump_on_since_ms`) since integrated's `pump.h` doesn't expose it. Buttons map STOP↔abort, ACK↔ack, MANUAL↔dose (short = manual dose, long = maintenance toggle). The `fsm.h` interface is unchanged, so `main.cpp`/`oled.cpp` need no edits.
+
+**Also.** Added `ABSORB_RISE_PCT = 7.0` to `config.h` (the absorb/stall threshold `evaluate()` needs — missed in the DL-144 constant batch). The legacy raw-threshold constants (`SOIL_THRESHOLD_*`, `WATER_PULSE_MS`, `WATER_WATCHDOG_PULSES`, `WATER_RESPONSE_MARGIN`, `DAILY_WINDOW_MS`) are now unused except `MAX_DAILY_PUMP_ML`, still read by the OLED daily-limit display — so retiring them is a **separate follow-up cleanup** (touches the OLED signature), kept out of this commit to stay focused and compilable.
+
+**Verification.** Brace/paren balanced; every referenced config constant and every pump/buzzer/mqtt call and every soil/leak/float field confirmed to exist in integrated's headers; no leftover harness-isms (no `soil_read`/`analogRead`/`publish_soil`/`WIFI_*`). Not compile-tested in authoring (no toolchain). **This is the pump-path core — it must be flash-tested at the bench (boot-safe maintenance, dose-to-a-bottle, plateau, supplement, all faults) BEFORE it is ever the production firmware.** Nothing waters until integrated is flashed, boots into maintenance, is bench-tested to a bottle, and is explicitly armed.
+
+**Files.** `firmware/integrated/src/fsm.cpp` (full rewrite), `firmware/integrated/src/config.h` (+`ABSORB_RISE_PCT`).
 
 ---
 

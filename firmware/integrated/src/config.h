@@ -166,6 +166,7 @@ static constexpr uint16_t SESSION_CAP_ML   = 600;     // safety ceiling on total
 static constexpr uint32_t SETTLE_MIN_MS    = 3UL * 60UL * 60UL * 1000UL;  // min wait after a dose before a plateau can gate a supplement (~3h; beats the probe lag)
 static constexpr uint32_t PLATEAU_WINDOW_MS= 30UL * 60UL * 1000UL;         // window over which "stopped changing" is judged
 static constexpr float    PLATEAU_SLOPE_PCT= 1.0f;    // <= this change over the window = plateaued (probe has caught up)
+static constexpr float    ABSORB_RISE_PCT  = 7.0f;    // moisture rise that counts as the dose being "absorbed" (else: stall)
 static constexpr uint32_t GRACE_MS         = 90UL * 60UL * 1000UL;         // one-time extra settle if absorption is slow
 
 // ---- Physical pump + sensor safety (P0-2 / P0-3 / DL-127..131) ------------
