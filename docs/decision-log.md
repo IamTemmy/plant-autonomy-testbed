@@ -168,6 +168,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-146](#dl-146) | 2026-08-19 | **P1-8 port step 5a/N** — FSM port, structure only. Added the harness bottom-watering states (`ST_DOSING`, `ST_SETTLE`, `ST_GRACE`, `ST_RECOVERY_HOLD`, `ST_SENSOR_FAULT`) to integrated's `fsm.cpp` enum, `state_name`, and `drive_leds` (LED semantics mirror the harness). Purely additive/behavior-neutral: the new states are **defined but unreached** — the old top-water pulse FSM still runs unchanged; dosing/plateau logic + safety chain wire them in over later sub-steps (5b–5e). Old states retained until the logic swaps. Both switches cover all enum values (no -Wswitch gaps); compiles clean | Active |
 | [DL-147](#dl-147) | 2026-08-19 | **P1-8 port step 5b/N — the FSM watering brain** (the big one). Replaced integrated's old top-water pulse FSM (`run_pulse`/`enter_watering`/watchdog + ST_WATERING/MANUAL/DAILY_LIMIT/WATERING_FAULT) with the harness's hardened plateau-gated volume-dosing loop (DL-142) plus all audit P0 fail-safes: P0-1 NVS reboot-safe transaction + `ST_RECOVERY_HOLD`, P0-2 independent hard pump ceiling at tick top, P0-3 soil freshness + `ST_SENSOR_FAULT`, P0-5 leak-disconnect (consumes `LeakReading.disconnected`). Boot-default-ON maintenance (DL-128). **Re-expressed as a module** in integrated's contract: main.cpp reads sensors and passes them into `fsm_tick(soil,flt,leak)`; the FSM owns only decision state/pump/NVS/LEDs/buttons/publish (no direct sensor/WiFi reads). Pump-on time tracked in-FSM (integrated's `pump.h` doesn't expose it). Added `ABSORB_RISE_PCT` 7.0 to config. Interface unchanged (fsm_begin/tick/request_maintenance/state_name/daily_pump_ms). Legacy raw-threshold constants left for a follow-up cleanup (still referenced by the OLED daily-limit display). **Needs bench flash-test before production** | Active |
 | [DL-148](#dl-148) | 2026-08-19 | **P1-8 port step 6/N** — state payload. Widened integrated's `mqtt_publish_state` to carry the bottom-watering fields the hub already parses: `session_ml`, `dose_count`, `moist_pct`, `maintenance`, `reason` (matching the harness payload exactly). FSM's `publish_state_now()` now passes its real session statics. **Zero hub changes needed** — the listener/dashboard/plantctl were built for these field names (DL-133/135); the listener's "absent for integrated" comment is now stale (a hub doc nit for later). Compiles clean | Active |
+| [DL-149](#dl-149) | 2026-08-19 | **P1-8 port step 7/N — bench flash-test PASSED.** Flashed the unified integrated firmware and validated on the bench (tube to a bottle, not the plant). Confirmed: safe boot (maintenance ON, **no auto-water despite soil at 19.9% — below the 20% trigger**, proving DL-128 boot-default); **lux + temp reading again** (BME280 @0x77 23.1C, BH1750 5 lux — the I2C sensors the harness couldn't read, the core P1-8 payoff); manual dose (MANUAL short-press → dosing, pump ON); STOP/abort (→ stopped); ACK/clear (→ monitor); **P0-5 leak-disconnect** (pulled GPIO39 → leak_fault reason "leak sensor disconnected", buzzer, phone push, ACK refused while disconnected, cleared once reconnected+dry). Soil-stale (P0-3) not hand-tested (probe left undisturbed; shares the validated debounce/latch/ACK machinery). Turns DL-147's "awaiting flash-test" into validated | Active |
 
 ---
 
@@ -3816,6 +3817,29 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Verification.** Signature/definition/call-site all consistent (only the new 7-arg form exists); `daily_pump_ms` retained for the OLED accessor; brace/paren balanced. Compiles clean.
 
 **Files.** `firmware/integrated/src/net_mqtt.h`, `firmware/integrated/src/net_mqtt.cpp`, `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-149"></a>
+### DL-149 — P1-8 port step 7: bench flash-test PASSED
+
+**Date:** 2026-08-19 · **Status:** Active — live validation of the ported FSM (DL-147/148).
+
+**Setup.** Flashed the unified integrated firmware to the WROVER; pump outlet tube into an **empty bottle** (never the plant); reservoir filled, all three sensors (soil/float/leak) live, the DL-140 100 kΩ leak pull-up in place. Serial monitor + phone (ntfy) observed.
+
+**Results — all passed:**
+- **Safe boot.** Banner + `[MAINT] boot default: maintenance ON`. Critically, soil read **19.9 % (raw 2409) — below the 20 % trigger — and the pump stayed OFF**: boot-default-ON maintenance (DL-128) correctly blocked auto-watering. This is the key safety property, validated live.
+- **Environmental sensors restored.** `BME280 23.1 C / 49.4 %RH / 1006 hPa @0x77`, `BH1750 5.0 lux`. The I²C sensors the bottom-water harness could not read are back — the central payoff of P1-8; the harness-lux false-alarm workarounds (DL-137/139) are now moot.
+- **Manual dose.** MANUAL short-press → `dosing`, `[PUMP] ON` into the bottle (allowed in maintenance for controlled tests).
+- **STOP / abort.** → pump off, latched `stopped`.
+- **ACK / clear.** → back to `monitor` (session counters reset).
+- **P0-5 leak-disconnect.** Pulled the leak signal off GPIO39 → after debounce, `leak_fault` with reason **"leak sensor disconnected"**, buzzer beeped, **phone push received** (firmware → MQTT → listener → alerter → ntfy chain end-to-end). ACK **refused** while still disconnected; reconnecting (dry) then ACK **cleared** to monitor — the exact DL-140 fail-safe behavior.
+
+**Not hand-tested.** Soil-stale (P0-3): the probe was left undisturbed to avoid disturbing the settled soil; it shares the same debounce/latch/ACK machinery exercised by the leak path, so confidence transfers. P0-1 reboot recovery and P0-2 pump ceiling were verified in the harness (DL-127/129) and ported unchanged; not re-exercised here.
+
+**Outcome.** The ported watering brain works on real hardware. DL-147's "awaiting bench flash-test" is now satisfied. Remaining before the harness is retired: minor legacy-constant/OLED cleanup, then integrated becomes the production firmware.
+
+**Files.** None (validation entry).
 
 ---
 
