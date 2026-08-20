@@ -170,6 +170,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-148](#dl-148) | 2026-08-19 | **P1-8 port step 6/N** — state payload. Widened integrated's `mqtt_publish_state` to carry the bottom-watering fields the hub already parses: `session_ml`, `dose_count`, `moist_pct`, `maintenance`, `reason` (matching the harness payload exactly). FSM's `publish_state_now()` now passes its real session statics. **Zero hub changes needed** — the listener/dashboard/plantctl were built for these field names (DL-133/135); the listener's "absent for integrated" comment is now stale (a hub doc nit for later). Compiles clean | Active |
 | [DL-149](#dl-149) | 2026-08-19 | **P1-8 port step 7/N — bench flash-test PASSED.** Flashed the unified integrated firmware and validated on the bench (tube to a bottle, not the plant). Confirmed: safe boot (maintenance ON, **no auto-water despite soil at 19.9% — below the 20% trigger**, proving DL-128 boot-default); **lux + temp reading again** (BME280 @0x77 23.1C, BH1750 5 lux — the I2C sensors the harness couldn't read, the core P1-8 payoff); manual dose (MANUAL short-press → dosing, pump ON); STOP/abort (→ stopped); ACK/clear (→ monitor); **P0-5 leak-disconnect** (pulled GPIO39 → leak_fault reason "leak sensor disconnected", buzzer, phone push, ACK refused while disconnected, cleared once reconnected+dry). Soil-stale (P0-3) not hand-tested (probe left undisturbed; shares the validated debounce/latch/ACK machinery). Turns DL-147's "awaiting flash-test" into validated | Active |
 | [DL-150](#dl-150) | 2026-08-19 | **P1-8 port step 8/N** — dead-constant cleanup. Removed the 7 legacy top-water pulse-FSM constants now unused after the DL-147 FSM port (`SOIL_THRESHOLD_TRIGGER/STOP`, `WATER_PULSE_MS`, `WATER_SETTLE_MS`, `WATER_WATCHDOG_PULSES`, `WATER_RESPONSE_MARGIN`, `DAILY_WINDOW_MS`) plus their stale DL-114 warning comment. Verified zero references remain in src. `MAX_DAILY_PUMP_ML` kept (still feeds the OLED daily-budget row — a cosmetically-stale display now showing 0/N since the new FSM has no daily-limit model; the OLD row refresh is a separate follow-up, Option B). Compiles clean | Active |
+| [DL-151](#dl-151) | 2026-08-19 | **P1-8 COMPLETE — system armed, autonomous watering live.** Moved the pump tube from the flash-test bottle back to the plant tray, filled the reservoir, confirmed sensors connected, and armed via `plant/cmd/maintenance off` (serial: `[MAINT] armed`). The first autonomous cycle ran as designed on the real plant — trigger (<20%) → dose → settle, per the DL-142 strategy. The unified integrated firmware is now the production firmware: reads all sensors (lux/temp restored), runs the hardened DL-142 plateau-gated dosing with all P0 fail-safes, and waters the plant unattended. This first cycle establishes the real draw-down baseline (the prior ~17% was contaminated by a stray DL-129 test dose). Two-firmware split resolved; harness superseded. **Milestone: closed-loop autonomous watering achieved** | Active |
 
 ---
 
@@ -3854,6 +3855,23 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Deliberately kept.** `MAX_DAILY_PUMP_ML` — still passed by `main.cpp` into `oled_render` for the OLED's daily pump-budget row. The new dosing FSM has no daily-limit concept, so that row now shows a cosmetically-stale `0 / N`. Refreshing it (e.g. to show `session_ml`/`dose_count` instead) means an `oled_render` signature change across three files — a small display-design task kept **separate** (Option B, deferred) rather than bundled into this constant sweep. `LED_BLINK_MS` also kept (still used by the FSM tick).
 
 **Files.** `firmware/integrated/src/config.h`.
+
+---
+
+<a id="dl-151"></a>
+### DL-151 — P1-8 COMPLETE: system armed, autonomous watering live
+
+**Date:** 2026-08-19 · **Status:** Active — the milestone.
+
+**What happened.** With the ported firmware flash-validated (DL-149) and tidied (DL-150), the tube was moved from the flash-test bottle back to the plant tray, the reservoir filled, sensors confirmed connected, and the system armed with `plant/cmd/maintenance off` (`[MAINT] armed (auto-watering enabled)`). The first autonomous cycle ran as designed — trigger below 20% → dose → settle — watering the real plant unattended per the DL-142 strategy.
+
+**Significance.** The integrated firmware is now the production firmware and the two-firmware split is resolved. One firmware reads every sensor (BME280 temp/RH/pressure + BH1750 lux restored — the harness could read none of these), runs the hardened plateau-gated volume-dosing loop, and enforces all audit P0 fail-safes (P0-1 reboot-safe transaction, P0-2 pump ceiling, P0-3 soil freshness, P0-5 leak-disconnect). The harness-lux false-alarm workarounds (DL-137/139) are now moot. **Closed-loop autonomous watering is achieved** — the core goal of the testbed.
+
+**Baseline note.** This first cycle establishes the true draw-down baseline; the prior ~17 % reading was contaminated by a stray test dose during DL-129 stop-testing, so the 40 %→20 % descent tracked from here is the first clean water-use dataset for the plant.
+
+**Follow-ups (none blocking).** Deprecate the old harness in its README; optional OLED daily-row refresh (DL-150); then the project's next arc — the vision/greenness phase, P2 hardening (CI/tests first), and the predictive-dosing model built on the accumulating draw-down data.
+
+**Files.** None (milestone/validation entry).
 
 ---
 
