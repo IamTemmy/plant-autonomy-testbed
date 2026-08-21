@@ -140,8 +140,10 @@ def latest_fsm_state():
             "daily_pump_ms": df.iloc[0]["value"]}
 
 def latest_maintenance():
-    """True/False if the harness has reported a maintenance flag, else None
-    (integrated firmware doesn't publish it). DL-128 / P1-7."""
+    """True/False from the most recent maintenance flag reported by the WROVER,
+    else None if none seen. Both firmwares publish it now (harness DL-128,
+    integrated DL-148); it is the authoritative arm/maintenance signal — the FSM
+    state string is NOT (integrated keeps state 'monitor' while the flag is on)."""
     df = query_df(
         """SELECT value FROM system_status
            WHERE device = 'wrover' AND metric = 'maintenance'

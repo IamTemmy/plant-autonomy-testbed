@@ -9,6 +9,7 @@ from streamlit_autorefresh import st_autorefresh
 from dash_common import (
     render_state_banner,
     latest_fsm_state,
+    latest_maintenance,
     _FAULT_STATES,
     send_maintenance_cmd,
     send_dose_cmd,
@@ -21,14 +22,25 @@ st_autorefresh(interval=30_000, key="autorefresh_controls")
 st.markdown("## Controls")
 render_state_banner()
 
+# Maintenance toggle. Uses the authoritative `maintenance` flag (DL-148/162), not
+# the FSM state string — under the integrated firmware the state stays 'monitor'
+# while the maintenance flag is on, so the old state=='maintenance' check was wrong.
 _fsm = latest_fsm_state()
-if _fsm and _fsm["state"] and _fsm["state"] not in _FAULT_STATES:
-    _in_maint = _fsm["state"] == "maintenance"
-    _label = "Resume watering" if _in_maint else "Pause watering (maintenance)"
-    _cmd = "off" if _in_maint else "on"
+_maint = latest_maintenance()
+if _maint is None:
+    st.caption("Maintenance state not yet reported by the controller.")
+elif _fsm and _fsm["state"] in _FAULT_STATES:
+    st.caption("Controller is in a fault state — clear the fault before arming.")
+else:
+    if _maint:
+        st.info("🛠️ In maintenance — auto-watering is **paused**.")
+        _label, _cmd = "Resume watering (arm)", "off"
+    else:
+        st.success("🌱 Armed — auto-watering is **active**.")
+        _label, _cmd = "Pause watering (maintenance)", "on"
     if st.button(_label, key="maint_toggle"):
         if send_maintenance_cmd(_cmd):
-            st.success(f"Sent '{_cmd}'. The banner will update once the device confirms.")
+            st.success(f"Sent '{_cmd}'. The status will update once the device confirms.")
 
 st.markdown("### Bottom-watering session")
 st.caption(

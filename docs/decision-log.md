@@ -181,6 +181,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-159](#dl-159) | 2026-08-20 | **P2-13 Direction B step 1/3** — extract pure watering logic. Added `firmware/integrated/src/water_logic.h`: the DL-142 dosing decisions as free functions of plain values (no Arduino/hardware/globals/side-effects) — `is_soil_stale`, `should_trigger`, `target_reached`, `is_plateau`, `clamp_dose`, `evaluate_decision`. Proven host-compilable (g++ -std=c++11 -Wall -Wextra, Arduino-free). **Additive/behavior-neutral**: no .cpp includes it yet, firmware byte-identical. Stage 2 wires fsm.cpp to call these (identical behavior, reflash); stage 3 adds the host C++ test harness + CI. This is the highest-value test gap — the pump-path decision logic, currently only bench-validated | Active |
 | [DL-160](#dl-160) | 2026-08-20 | **P2-13 Direction B step 2/3** — host C++ tests for the watering logic + CI. Added `tests/firmware/test_water_logic.cpp` (31 assertions, no gtest — a tiny runner so CI needs only g++) covering every `water_logic.h` function: freshness, trigger (incl. maintenance/stale gates + boundary), target, plateau (window + slope + up/down drift), dose clamping (cap vs budget vs zero), and all 5 `evaluate_decision` outcomes. Mutation-checked: flipping the trigger `<=`→`<` fails the boundary check with exit 1. Added a `firmware-logic` CI job (compiles + runs it) alongside `pytest`. Now the pump-path DECISION logic has automated coverage. Step 3/3 (wire fsm.cpp to call these, reflash) remains | Active |
 | [DL-161](#dl-161) | 2026-08-20 | **P2-13 Direction B step 3/3 — wire fsm.cpp to the tested logic.** Replaced all inline watering-decision math in `fsm.cpp` with calls to the `water_logic::` functions covered by DL-160's tests: `is_soil_stale`, `should_trigger`, `target_reached` (×2), `is_plateau`, `clamp_dose`, `evaluate_decision`. **Behavior-identical relocate** — each site verified equivalent (incl. begin_dose's capped-vs-silent-return split, plateau re-arm, uint32 rollover cast); no inline decision math remains. Now **the tested code is the running code** — closing the drift gap. C++ tests still 31/31 green (water_logic.h untouched). **Pump-path change → needs reflash + bench spot-check** (trigger/dose/evaluate unchanged). Closes Direction B | Active |
+| [DL-162](#dl-162) | 2026-08-20 | **Dashboard maintenance toggle — fixed for integrated firmware.** The controls page already had an arm/maintenance button (DL-095) but it derived state from `_fsm['state'] == 'maintenance'` — wrong under the integrated firmware, which keeps state `monitor` while the maintenance *flag* is on. Rewired it to `latest_maintenance()` (the authoritative `maintenance` metric, which integrated now publishes per DL-148 and the listener stores), with a clear armed/paused indicator and correct toggle direction; added fault-state and not-yet-reported guards. Fixed the stale `latest_maintenance()` docstring ('integrated doesn't publish it' — now untrue). Button publishes `off`/`on` to `plant/cmd/maintenance` (same path as the CLI re-arm and the MANUAL long-press). Both files py_compile; needs dashboard restart to deploy | Active |
 
 ---
 
@@ -4079,6 +4080,23 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Verification.** Brace/paren balanced; `water_logic.h` untouched so its C++ tests stay 31/31 green; `isnan` still resolves (math.h via the header). Not compile-tested in authoring — `pio run` on the Mac. **This is the pump path**, so: compile, reflash, re-arm, and spot-check that watering still triggers/doses/plateaus/evaluates as before.
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-162"></a>
+### DL-162 — Dashboard maintenance toggle fixed for the integrated firmware
+
+**Date:** 2026-08-20 · **Status:** Active.
+
+**Context.** Wanting to arm/disarm from the dashboard rather than the CLI. The controls page already had a maintenance toggle (DL-095), but it was written for the harness era: it decided "in maintenance?" from `latest_fsm_state()["state"] == "maintenance"`. Under the integrated firmware that's wrong — maintenance is a **flag**, and the FSM reports state `monitor` (not `"maintenance"`) while the flag is on, so the button would show the wrong label and toggle the wrong way.
+
+**Fix.** Drive the button from `latest_maintenance()` — the authoritative `maintenance` metric that integrated now publishes (DL-148) and the listener records. The control now shows an explicit indicator (🌱 Armed / 🛠️ In maintenance), toggles in the correct direction, and guards the not-yet-reported (`None`) and fault-state cases. Also corrected `latest_maintenance()`'s docstring, which wrongly said the integrated firmware doesn't publish the flag.
+
+**Mechanism (unchanged).** The button calls `send_maintenance_cmd("off"|"on")` → publishes to `plant/cmd/maintenance`, the same topic the CLI re-arm and the MANUAL long-press use; the firmware already handles it (DL-089 + port).
+
+**Verification.** `dash_common.py` and `controls.py` py_compile. Deploys on the next dashboard restart. (Note: `controls.py` also carries the older "Start session / Abort" dose buttons on `plant/cmd/dose`, which the integrated firmware does not subscribe to — DL-145 deferred `cmd/dose`; those remain no-ops under integrated and can be revisited with the dashboard renovation.)
+
+**Files.** `hub/06-dashboard/dash_pages/controls.py`, `hub/06-dashboard/dash_common.py`.
 
 ---
 
