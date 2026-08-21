@@ -184,6 +184,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-162](#dl-162) | 2026-08-20 | **Dashboard maintenance toggle — fixed for integrated firmware.** The controls page already had an arm/maintenance button (DL-095) but it derived state from `_fsm['state'] == 'maintenance'` — wrong under the integrated firmware, which keeps state `monitor` while the maintenance *flag* is on. Rewired it to `latest_maintenance()` (the authoritative `maintenance` metric, which integrated now publishes per DL-148 and the listener stores), with a clear armed/paused indicator and correct toggle direction; added fault-state and not-yet-reported guards. Fixed the stale `latest_maintenance()` docstring ('integrated doesn't publish it' — now untrue). Button publishes `off`/`on` to `plant/cmd/maintenance` (same path as the CLI re-arm and the MANUAL long-press). Both files py_compile; needs dashboard restart to deploy | Active |
 | [DL-163](#dl-163) | 2026-08-20 | **Audit fix F1 — `stop_session()` never set `last_reason`.** Confirmed against HEAD: `stop_session()` called `publish_state_now()` without assigning `last_reason`, so it shipped the stale prior reason (normally `""`) — while `finish_done()` 12 lines up does it correctly. Effect: the three watering-failure outcomes (`capped: target not reached`, `failed: not absorbing`, `reservoir empty`) — all real keys in `_WATERING_ALERTS` — halted the pump but sent **NO phone alert**. Fix: `last_reason = reason;` before publish (one line, matches finish_done). Introduced in the DL-147 port; found by the post-P1-8 audits (Claude Code F1). **Pump-path change → needs reflash + verify each outcome publishes its reason.** First of the audit-remediation series | Active |
 | [DL-164](#dl-164) | 2026-08-20 | **Audit fix #2 — hard-ceiling cutoff lost dose accounting + persistence.** Confirmed at HEAD: the P0-2 pump ceiling set `state=ST_STOPPED` at tick top, but `prev_state` wasn't assigned until later (mid-tick) — so it captured the ALREADY-changed STOPPED, not the entry DOSING. Result when the 165s ceiling fires mid-dose: pump stops (good) BUT (a) `session_ml += dose_delivered_ml()` never runs (`prev_state==ST_DOSING` false) so ~165s of water goes uncounted, and (b) the STOPPED transition isn't NVS-persisted or published (`state!=prev_state` false) — leaving NVS `dosing=true` and telemetry stale, mis-triggering P0-1 recovery on reboot. Fix: capture `prev_state = state` as the FIRST line of `fsm_tick`, before the ceiling; removed the redundant mid-tick assignment. Verified no `prev_state` reads occur between the two positions, so only the ceiling case changes (the bug). From ChatGPT audit #2. **Pump path → batched reflash.** 31 C++ tests green | Active |
+| [DL-165](#dl-165) | 2026-08-20 | **Audit fix #5 — ACK no longer bypasses the plateau/settle gate (Option A).** In production the ACK button could force-advance dosing: an ACK during `ST_SETTLE` called `evaluate()` immediately, skipping the 3h min-settle AND plateau wait (if early rise ≥7% but <40%, it could authorize a supplement before the probe caught up — bypassing the whole safety basis of bottom watering); ACK in `ST_GRACE` similarly force-ended the recovery wait. A harness-era bench accelerator ported verbatim. Removed both force-advance branches — settle now always runs min-time→plateau, grace runs its full timeout. ACK's four legitimate fault-clears (leak/sensor/stopped/recovery_hold) untouched. From ChatGPT audit #5; chose Option A (ACK only clears faults) over gating behind maintenance. **Pump path → batched reflash** (DL-163/164/165 together). 31 C++ tests green | Active |
 
 ---
 
@@ -4137,6 +4138,23 @@ So the ceiling correctly stopped the pump but corrupted the session total and th
 **Provenance / risk.** Introduced in the DL-147 port. Fix is structural but tiny; it cannot start the pump (only affects bookkeeping/persistence timing). `water_logic.h` untouched → 31 C++ tests still green.
 
 **Verification.** Compile + reflash (batched). Ideally fault-inject the ceiling on the bench (force a dose past `MAX_PUMP_ON_MS`) and confirm: pump off, `session_ml` includes the delivered volume, state publishes `stopped` with reason `pump max-runtime exceeded`, and NVS no longer shows `dosing=true`. Alert coverage for that reason string is handled in DL-166 (audit F2).
+
+**Files.** `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-165"></a>
+### DL-165 — Audit fix #5: ACK no longer bypasses the settle/plateau gate
+
+**Date:** 2026-08-20 · **Status:** Active — third audit firmware fix (ChatGPT #5). **Batched reflash with DL-163/164.**
+
+**The issue.** In `ST_SETTLE`, `btn_ack.pressed_edge` called `evaluate()` immediately — skipping both `SETTLE_MIN_MS` (3h) and the plateau confirmation. If the early EMA rise was ≥ `ABSORB_RISE_PCT` (7%) while moisture was still < `TARGET_PCT` (40%), `evaluate_decision` returns `SUPPLEMENT`, so **a single button press could add another dose before the probe had caught up** — defeating the core safety rationale of bottom watering (wait for the soil to equilibrate before adding more). ACK in `ST_GRACE` likewise force-ended the recovery wait. This was a deliberate *bench-calibration accelerator* in the deprecated harness, ported into production verbatim.
+
+**Decision (Option A).** Production ACK should only clear latched faults. Removed the force-advance branch from both `ST_SETTLE` and `ST_GRACE`: settle now always progresses via target-reached / min-time → plateau, and grace runs its full `GRACE_MS` (90 min) timeout. Considered and rejected Option B (gate the accelerator behind maintenance mode) — the accelerator isn't needed now the system runs autonomously, and removal is simpler and safer.
+
+**Untouched.** ACK's four legitimate fault-clears remain exactly as before: `ST_LEAK_FAULT` (clears when dry+connected), `ST_SENSOR_FAULT` (clears when fresh), `ST_STOPPED` (clears + resets session), `ST_RECOVERY_HOLD` (→ stopped). Verified no remaining `btn_ack.pressed_edge` site calls `evaluate()`.
+
+**Verification.** Brace-balanced; `water_logic.h` untouched → 31 C++ tests still green. Pump path → part of the batched reflash. Bench note: after this, you can no longer hurry a settle/grace with ACK — that's intended.
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
 

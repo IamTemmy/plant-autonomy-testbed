@@ -448,8 +448,6 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
             case ST_SETTLE:
                 if (water_logic::target_reached(moist_ema, TARGET_PCT)) {
                     evaluate(now, reservoir_empty);
-                } else if (btn_ack.pressed_edge) {
-                    evaluate(now, reservoir_empty);
                 } else if (now - settle_start_ms >= SETTLE_MIN_MS) {
                     if (!plateau_armed) {
                         plateau_armed   = true;
@@ -471,7 +469,7 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
             case ST_GRACE:
                 if (water_logic::target_reached(moist_ema, TARGET_PCT)) {
                     evaluate(now, reservoir_empty);
-                } else if (btn_ack.pressed_edge || now - grace_start_ms >= GRACE_MS) {
+                } else if (now - grace_start_ms >= GRACE_MS) {
                     if (moist_ema - stall_reading >= ABSORB_RISE_PCT) {
                         Serial.println("[GRACE] recovered — resuming evaluate");
                         evaluate(now, reservoir_empty);
