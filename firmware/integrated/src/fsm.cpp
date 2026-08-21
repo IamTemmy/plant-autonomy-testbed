@@ -328,6 +328,13 @@ void fsm_begin() {
 void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReading& leak) {
     const unsigned long now = millis();
 
+    // Capture the entry state FIRST — before the P0-2 ceiling below can change it —
+    // so dose accounting and the NVS/publish-on-transition checks compare against the
+    // true state at tick entry. (Audit #2 / DL-164: the ceiling used to run before
+    // prev_state was assigned, so a mid-dose cutoff lost the delivered-water accounting
+    // and never persisted/published the STOPPED transition.)
+    prev_state = state;
+
     // P0-2: independent hard pump ceiling, BEFORE anything else. Pure backstop:
     // can only ever turn the pump OFF, whatever the FSM or a stuck path is doing.
     if (pump_is_on() && (uint32_t)(now - pump_on_since_ms) >= MAX_PUMP_ON_MS) {
@@ -358,8 +365,6 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
     if (leak_or_disc) { if (leak_since_ms == 0) leak_since_ms = now; }
     else              { leak_since_ms = 0; }
     const bool leak_confirmed = (leak_since_ms != 0 && now - leak_since_ms >= LEAK_DEBOUNCE_MS);
-
-    prev_state = state;
 
     // Consume inbound maintenance request (MANUAL long-press or MQTT).
     const bool active = (state == ST_DOSING || state == ST_SETTLE || state == ST_GRACE);

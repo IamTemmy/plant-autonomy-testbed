@@ -183,6 +183,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-161](#dl-161) | 2026-08-20 | **P2-13 Direction B step 3/3 — wire fsm.cpp to the tested logic.** Replaced all inline watering-decision math in `fsm.cpp` with calls to the `water_logic::` functions covered by DL-160's tests: `is_soil_stale`, `should_trigger`, `target_reached` (×2), `is_plateau`, `clamp_dose`, `evaluate_decision`. **Behavior-identical relocate** — each site verified equivalent (incl. begin_dose's capped-vs-silent-return split, plateau re-arm, uint32 rollover cast); no inline decision math remains. Now **the tested code is the running code** — closing the drift gap. C++ tests still 31/31 green (water_logic.h untouched). **Pump-path change → needs reflash + bench spot-check** (trigger/dose/evaluate unchanged). Closes Direction B | Active |
 | [DL-162](#dl-162) | 2026-08-20 | **Dashboard maintenance toggle — fixed for integrated firmware.** The controls page already had an arm/maintenance button (DL-095) but it derived state from `_fsm['state'] == 'maintenance'` — wrong under the integrated firmware, which keeps state `monitor` while the maintenance *flag* is on. Rewired it to `latest_maintenance()` (the authoritative `maintenance` metric, which integrated now publishes per DL-148 and the listener stores), with a clear armed/paused indicator and correct toggle direction; added fault-state and not-yet-reported guards. Fixed the stale `latest_maintenance()` docstring ('integrated doesn't publish it' — now untrue). Button publishes `off`/`on` to `plant/cmd/maintenance` (same path as the CLI re-arm and the MANUAL long-press). Both files py_compile; needs dashboard restart to deploy | Active |
 | [DL-163](#dl-163) | 2026-08-20 | **Audit fix F1 — `stop_session()` never set `last_reason`.** Confirmed against HEAD: `stop_session()` called `publish_state_now()` without assigning `last_reason`, so it shipped the stale prior reason (normally `""`) — while `finish_done()` 12 lines up does it correctly. Effect: the three watering-failure outcomes (`capped: target not reached`, `failed: not absorbing`, `reservoir empty`) — all real keys in `_WATERING_ALERTS` — halted the pump but sent **NO phone alert**. Fix: `last_reason = reason;` before publish (one line, matches finish_done). Introduced in the DL-147 port; found by the post-P1-8 audits (Claude Code F1). **Pump-path change → needs reflash + verify each outcome publishes its reason.** First of the audit-remediation series | Active |
+| [DL-164](#dl-164) | 2026-08-20 | **Audit fix #2 — hard-ceiling cutoff lost dose accounting + persistence.** Confirmed at HEAD: the P0-2 pump ceiling set `state=ST_STOPPED` at tick top, but `prev_state` wasn't assigned until later (mid-tick) — so it captured the ALREADY-changed STOPPED, not the entry DOSING. Result when the 165s ceiling fires mid-dose: pump stops (good) BUT (a) `session_ml += dose_delivered_ml()` never runs (`prev_state==ST_DOSING` false) so ~165s of water goes uncounted, and (b) the STOPPED transition isn't NVS-persisted or published (`state!=prev_state` false) — leaving NVS `dosing=true` and telemetry stale, mis-triggering P0-1 recovery on reboot. Fix: capture `prev_state = state` as the FIRST line of `fsm_tick`, before the ceiling; removed the redundant mid-tick assignment. Verified no `prev_state` reads occur between the two positions, so only the ceiling case changes (the bug). From ChatGPT audit #2. **Pump path → batched reflash.** 31 C++ tests green | Active |
 
 ---
 
@@ -4115,6 +4116,27 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Provenance.** Introduced in the DL-147 FSM port; missed by the incremental review and by DL-149's bench test (which exercised leak/abort/manual, not the absorb-stall / cap / mid-dose-reservoir paths). Caught by the post-P1-8 audits (Claude Code F1; corroborated by the general "reason path is inert" comments both audits flagged).
 
 **Verification.** Brace-balanced; `water_logic.h` untouched so its 31 C++ tests still pass. **Pump path → compile, reflash, and confirm each stop outcome now publishes its reason** (and thus fires its alert). A hub-side table-driven test asserting every alert key matches a firmware reason string (audit F15) is the durable guard and is queued.
+
+**Files.** `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-164"></a>
+### DL-164 — Audit fix #2: hard-ceiling cutoff lost dose accounting + persistence
+
+**Date:** 2026-08-20 · **Status:** Active — second audit fix (ChatGPT #2). **Batched reflash with DL-163/166.**
+
+**The bug (confirmed at HEAD).** The P0-2 pump ceiling runs at the top of `fsm_tick` and sets `state = ST_STOPPED`. But `prev_state` was assigned *after* it, mid-tick — so when the ceiling fired it captured the already-changed `ST_STOPPED`, not the `ST_DOSING` the tick entered in. Two end-of-tick checks then misfire:
+- **Accounting** `if (prev_state == ST_DOSING && state != ST_DOSING) session_ml += dose_delivered_ml();` — false, so up to ~165 s of delivered water is **never added to `session_ml`**.
+- **Persist/publish** `if (state != prev_state) { nvs_save_txn(...); publish_state_now(); }` — false (both `ST_STOPPED`), so the STOPPED transition is **neither persisted nor published**. NVS keeps `dosing=true`; on the next reboot P0-1 recovery wrongly thinks a dose was interrupted, and the dashboard never hears about the cutoff.
+
+So the ceiling correctly stopped the pump but corrupted the session total and the persisted/published state — the accounting/persistence "escape" the audit named.
+
+**Fix.** Move `prev_state = state;` to the **first line of `fsm_tick`**, before the ceiling can mutate `state`; removed the now-redundant mid-tick assignment. Verified there are no reads of `prev_state` between the old and new assignment points, so the only behavior that changes is the ceiling-fires case (the bug); every other path is identical.
+
+**Provenance / risk.** Introduced in the DL-147 port. Fix is structural but tiny; it cannot start the pump (only affects bookkeeping/persistence timing). `water_logic.h` untouched → 31 C++ tests still green.
+
+**Verification.** Compile + reflash (batched). Ideally fault-inject the ceiling on the bench (force a dose past `MAX_PUMP_ON_MS`) and confirm: pump off, `session_ml` includes the delivered volume, state publishes `stopped` with reason `pump max-runtime exceeded`, and NVS no longer shows `dosing=true`. Alert coverage for that reason string is handled in DL-166 (audit F2).
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
 
