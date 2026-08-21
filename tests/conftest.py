@@ -14,6 +14,8 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _HUB_DIRS = [
     "hub/10-maintenance",   # retention.py
     "hub/04-listener",      # alerter.py (board-liveness + reboot-classification helpers)
+    "hub/08-grow-light",    # photoperiod.py (desired_on window logic)
+    "hub/12-plantctl",      # plantctl.py (age/format/soil-pct helpers)
 ]
 for _d in _HUB_DIRS:
     _p = os.path.join(_REPO_ROOT, _d)

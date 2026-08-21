@@ -175,6 +175,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-153](#dl-153) | 2026-08-19 | **P2-13 step 2/N** — CI runner. Added `.github/workflows/tests.yml` (GitHub Actions): on every push/PR to main, checks out, sets up Python 3.12, installs pytest, runs the suite. Tested modules are stdlib-only so CI installs just pytest (a `requirements-dev.txt` gets added when coverage reaches modules with third-party imports). This makes the DL-152 host-tests automatic — regressions now caught on every change, with a visible pass/fail on GitHub. Validated: YAML parses, `pytest` from repo root is 9/9 green (the exact CI command) | Active |
 | [DL-154](#dl-154) | 2026-08-20 | **Dose-size tune + first-cycle calibration data.** The first autonomous cycle (DL-151) gave a clean 12-hour draw-down curve: auto-trigger fired at ~03:00 (soil <20%), then a 150 mL dose equilibrated **slowly over ~12h to a ~70% plateau** — well past the 40% target (at the +3h SETTLE_MIN mark it was only ~40%, still climbing; validates why plateau-detection, not a fixed wait, gates supplements). So 150 mL overshoots. Reduced `DOSE1_ML` 150→100 and `SUPPLEMENT_ML` 100→50 for a finer approach to 40%. Caveat: one cycle; the mL→% relation will shift as the plant grows and consumes more — this is a step, not a final calibration. The accumulating descent cycles are the dataset for a future consumption model (regression/ML). Requires a live reflash + re-arm; data on the Pi is unaffected. Constants coherent (both ≤ MAX_DOSE 150; SESSION_CAP 600 > DOSE1 so supplements stay enabled) | Active |
 | [DL-155](#dl-155) | 2026-08-20 | **P2-13 step 3/N** — alerter host-tests. Added 15 tests for `alerter.py`'s query helpers, covering the exact logic we'd had bugs in: `_soil_age_s` board-liveness (DL-139), `_latest_lux`/`_soil_pct`, and the `_reboots_24h`/`_dev_reboots_24h` armed-vs-maintenance reboot classification (DL-138), plus `_presence`. Runs against synthetic in-memory SQLite; `alerter.py` imports clean on host (stdlib only). Mutation-checked: making `_reboots_24h` count dev flashes (the original DL-138 bug) correctly fails a test. Suite now 24/24. Added `hub/04-listener` to the test path | Active |
+| [DL-156](#dl-156) | 2026-08-20 | **P2-13 step 4/N — Direction A complete.** Added test modules for the two remaining stdlib-only hub modules with real pure logic: `test_photoperiod.py` (14 tests for `desired_on` — normal window + the subtle overnight-midnight-wrap branch + full-day coverage) and `test_plantctl.py` (14 tests for `_soil_pct` raw→% clamping on the DL-121 2585/1700 anchors, `_age_s` two-format parsing, `_fmt_age` bucket boundaries). Both mutation-checked (break the overnight-wrap → 5 fail; remove the %-clamp → 2 fail). Suite now **52/52**. `shelly_monitor` left untested (its surface is just poll/record I/O wrappers). Hub-side stdlib logic coverage is now complete; further coverage (listener/dashboard) needs paho/streamlit/pandas dev-deps in CI — a separate step. Firmware logic tests (Direction B) remain the higher-value future frontier | Active |
 
 ---
 
@@ -3953,6 +3954,23 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Suite.** 24/24 green (9 retention + 15 alerter). No hub code changed.
 
 **Files.** `tests/test_alerter.py`, `tests/conftest.py`.
+
+---
+
+<a id="dl-156"></a>
+### DL-156 — P2-13 step 4: Direction A complete (photoperiod + plantctl)
+
+**Date:** 2026-08-20 · **Status:** Active — completes the stdlib-only ("Direction A") host-test coverage.
+
+**This step.** Test modules for the last two stdlib-only hub modules with meaningful pure logic:
+- `test_photoperiod.py` (14) — `desired_on(hour)`: the normal daytime window (inclusive ON / exclusive OFF), the **overnight-wrap** branch (ON > OFF, spanning midnight — the subtle case), and full-day hour-set checks for both. Window patched per-test so it doesn't depend on the deployed 07:00–19:00 schedule.
+- `test_plantctl.py` (14) — `_soil_pct` (raw→% on the DL-121 2585/1700 anchors, incl. clamping past 0/100), `_age_s` (both stored ts formats + unparseable/empty), `_fmt_age` (the s/m/h/d bucket boundaries at 90 s, 5400 s, 172800 s).
+
+**Teeth.** Mutation-checked: flipping `desired_on`'s overnight `or`→`and` fails 5 tests; removing `_soil_pct`'s clamp fails 2.
+
+**Coverage state.** Suite now **52/52** across retention, alerter, photoperiod, plantctl. This is the complete stdlib-only hub logic — the "easy, no-dependency" Direction A. `shelly_monitor` was skipped (its functions are poll/record I/O, no pure logic worth isolating). Two frontiers remain, both bigger: (a) modules needing third-party deps in CI (listener→paho, dashboard→streamlit/pandas); (b) **Direction B — firmware decision-logic tests**, the higher-value gap, which needs the FSM's pure logic refactored to be host-testable.
+
+**Files.** `tests/test_photoperiod.py`, `tests/test_plantctl.py`, `tests/conftest.py`.
 
 ---
 
