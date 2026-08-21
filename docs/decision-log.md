@@ -186,6 +186,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-164](#dl-164) | 2026-08-20 | **Audit fix #2 — hard-ceiling cutoff lost dose accounting + persistence.** Confirmed at HEAD: the P0-2 pump ceiling set `state=ST_STOPPED` at tick top, but `prev_state` wasn't assigned until later (mid-tick) — so it captured the ALREADY-changed STOPPED, not the entry DOSING. Result when the 165s ceiling fires mid-dose: pump stops (good) BUT (a) `session_ml += dose_delivered_ml()` never runs (`prev_state==ST_DOSING` false) so ~165s of water goes uncounted, and (b) the STOPPED transition isn't NVS-persisted or published (`state!=prev_state` false) — leaving NVS `dosing=true` and telemetry stale, mis-triggering P0-1 recovery on reboot. Fix: capture `prev_state = state` as the FIRST line of `fsm_tick`, before the ceiling; removed the redundant mid-tick assignment. Verified no `prev_state` reads occur between the two positions, so only the ceiling case changes (the bug). From ChatGPT audit #2. **Pump path → batched reflash.** 31 C++ tests green | Active |
 | [DL-165](#dl-165) | 2026-08-20 | **Audit fix #5 — ACK no longer bypasses the plateau/settle gate (Option A).** In production the ACK button could force-advance dosing: an ACK during `ST_SETTLE` called `evaluate()` immediately, skipping the 3h min-settle AND plateau wait (if early rise ≥7% but <40%, it could authorize a supplement before the probe caught up — bypassing the whole safety basis of bottom watering); ACK in `ST_GRACE` similarly force-ended the recovery wait. A harness-era bench accelerator ported verbatim. Removed both force-advance branches — settle now always runs min-time→plateau, grace runs its full timeout. ACK's four legitimate fault-clears (leak/sensor/stopped/recovery_hold) untouched. From ChatGPT audit #5; chose Option A (ACK only clears faults) over gating behind maintenance. **Pump path → batched reflash** (DL-163/164/165 together). 31 C++ tests green | Active |
 | [DL-166](#dl-166) | 2026-08-20 | **Audit fixes F3 + F6 (hub, no reflash)** — two more harness-era stale-value bugs, same class as DL-162. **F3:** dashboard `_FAULT_STATES` was hardcoded `{leak_fault, stopped, watering_fault}` — missing integrated's `sensor_fault`/`recovery_hold` (so the arm button was offered during those latched faults) and carrying the dead `watering_fault`. Now derived from `STATE_DISPLAY`'s `fault` tier so the two can't drift. **F6:** `plantctl` `TRIGGER_PCT` defaulted to 30 vs firmware's 20 — cried wolf across the normal 20-40% band; set to 20. Both py_compile; deploy = scp + dashboard restart (plantctl picks up on next run) | Active |
+| [DL-167](#dl-167) | 2026-08-20 | **Audit fixes F2 + F5 (alerter, no reflash)** — restore missing fault alerts + fix leak-disconnect copy. **F2:** three P0 fail-safes fired the pump-off latch but sent NO push. Added `sensor_fault` + `recovery_hold` to state-keyed `FAULT_ALERTS` (dropped dead `watering_fault`); added `"pump max-runtime exceeded"` to reason-keyed `_WATERING_ALERTS`. **F5:** `leak_fault` state alert said "Water detected" for BOTH a real leak and a disconnected sensor (opposite responses). Since `reason` isn't persisted (only flows event-driven via `on_watering_state`), added a distinct `"leak sensor disconnected"` reason alert (check-the-connector copy) and made the reason-blind polled `leak_fault` state alert neutral ("leak or disconnect — check sensor and tray"). Every P0 fail-safe now alerts; leak vs disconnect distinguished. py_compile + 15 alerter tests green; deploy = scp alerter.py + restart plant-listener | Active |
 
 ---
 
@@ -4173,6 +4174,27 @@ So the ceiling correctly stopped the pump but corrupted the session total and th
 **Verification.** Both files py_compile; the derived `_FAULT_STATES` confirmed to include `sensor_fault`+`recovery_hold` and exclude normal states. Deploy: scp both to the Pi, restart the dashboard; plantctl picks up the change on its next invocation.
 
 **Files.** `hub/06-dashboard/dash_common.py`, `hub/12-plantctl/plantctl.py`.
+
+---
+
+<a id="dl-167"></a>
+### DL-167 — Audit fixes F2 + F5: restore missing fault alerts, fix leak-disconnect copy
+
+**Date:** 2026-08-20 · **Status:** Active — alerter-only audit fixes (no reflash).
+
+**F2 — three fail-safes fired silently.** The alerter has two alert dictionaries: `FAULT_ALERTS` (keyed on FSM *state*, polled) and `_WATERING_ALERTS` (keyed on session *reason*, event-driven via `on_watering_state`). Three P0 fail-safes from the reliability sprint had no entry in either, so they latched the pump off with no push:
+- `sensor_fault` (P0-3 soil-stale) — added to `FAULT_ALERTS`.
+- `recovery_hold` (P0-1 reboot-mid-session) — added to `FAULT_ALERTS`.
+- `"pump max-runtime exceeded"` (P0-2 hard ceiling, a reason on `stopped`) — added to `_WATERING_ALERTS`.
+Also dropped the dead `watering_fault` key (no firmware emits it).
+
+**F5 — disconnected leak sensor alerted as "water detected."** Both a real leak (`reason="leak"`) and a disconnected sensor (`reason="leak sensor disconnected"`) latch `ST_LEAK_FAULT`, so the state-keyed alert fired the same "Water detected" body — wrong for a disconnect (which needs "check the connector," not "mop the spill"). Because `reason` is **not persisted** to the DB (it only reaches the alerter through the event-driven `on_watering_state`), the fix works with that path: added a distinct `"leak sensor disconnected"` entry to `_WATERING_ALERTS` (wiring-issue copy), and made the reason-blind polled `FAULT_ALERTS["leak_fault"]` body neutral ("water detected **or** sensor disconnected — check sensor and tray") so it can't assert the wrong cause. The precise instruction now always arrives via the reason-aware path.
+
+**Coverage now complete.** Every firmware fault state has an alert; every stop reason except the intentionally-silent user `abort` has one; leak vs. disconnect are distinguished.
+
+**Verification.** `alerter.py` py_compiles; the 15 alerter host-tests still pass. A table-driven alert-key↔firmware-string contract test (audit F15) is the durable guard and is queued. Deploy: scp `alerter.py` to the Pi, `sudo systemctl restart plant-listener`.
+
+**Files.** `hub/04-listener/alerter.py`.
 
 ---
 

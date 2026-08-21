@@ -66,12 +66,18 @@ CAMERA_STALE_S = int(os.environ.get("CAMERA_STALE_S", "7200"))  # 2h; tolerates 
 # Latched FSM states worth a push, with (title, body, priority, tags).
 FAULT_ALERTS = {
     "leak_fault": (
-        "Leak detected",
-        "Water detected where it shouldn't be — pump stopped. Needs attention and ACK.",
-        "high", ["rotating_light"]),
-    "watering_fault": (
-        "Watering fault",
-        "Soil isn't responding to watering — pump stopped (empty reservoir, clog, or pump issue). Needs ACK.",
+        "Leak fault",
+        "The leak-safety latched and the pump was stopped — either water was detected "
+        "or the leak sensor is disconnected. Check the sensor and the tray; needs ACK.",
+        "urgent", ["rotating_light"]),
+    "sensor_fault": (
+        "Soil sensor fault",
+        "Soil probe went stale/invalid during a session — pump stopped and latched. "
+        "Check the probe wiring; needs ACK once readings return.",
+        "high", ["warning"]),
+    "recovery_hold": (
+        "Recovery hold",
+        "The controller rebooted mid-session — pump held off pending review. Needs ACK.",
         "high", ["warning"]),
     "reservoir_empty": (
         "Reservoir empty",
@@ -146,10 +152,21 @@ _WATERING_ALERTS = {
         "Reservoir empty",
         "Watering blocked — the reservoir float reads empty. Refill to resume.",
         "high", ["warning"]),
+    "pump max-runtime exceeded": (
+        "Pump safety cutoff",
+        "The pump hit its hard max-runtime ceiling and was force-stopped — a dose ran "
+        "longer than allowed. Check for a stuck pump, blockage, or miscalibration.",
+        "urgent", ["rotating_light"]),
     "leak": (
         "Leak detected",
         "Leak sensor tripped — pump cut and latched. Check for spilled water.",
         "urgent", ["rotating_light"]),
+    "leak sensor disconnected": (
+        "Leak sensor disconnected",
+        "The leak sensor reads disconnected (open wire) — pump cut and latched as a "
+        "fail-safe. This is a wiring/connector issue, not a spill. Reconnect the sensor, "
+        "then ACK.",
+        "urgent", ["electric_plug"]),
     "target reached": (
         "Watering complete",
         "Soil reached target — watering session done.", "default", ["white_check_mark"]),
