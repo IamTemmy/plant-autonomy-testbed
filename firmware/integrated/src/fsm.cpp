@@ -7,6 +7,7 @@
 #include "pump.h"
 #include "net_mqtt.h"
 #include "buzzer.h"
+#include "water_logic.h"
 
 // ============================================================================
 // P1-8 (DL-147): the hardened bottom-watering FSM, ported from the calibration
@@ -186,11 +187,14 @@ static float dose_delivered_ml() {
 
 static void begin_dose(int ml, bool reservoir_empty) {
     if (reservoir_empty) { last_reason = "reservoir empty"; state = ST_STOPPED; pump_off(); return; }
-    int budget = SESSION_CAP_ML - (int)session_ml;
-    if (budget <= 0) { last_reason = "capped: target not reached"; state = ST_STOPPED; pump_off(); return; }
-    if (ml > MAX_DOSE_ML) ml = MAX_DOSE_ML;
-    if (ml > budget)      ml = budget;
-    if (ml <= 0) return;
+    ml = water_logic::clamp_dose(ml, (int)session_ml, MAX_DOSE_ML, SESSION_CAP_ML);
+    if (ml <= 0) {
+        // Budget exhausted (or nothing to give): capped -> stop, matching prior behavior.
+        if ((int)session_ml >= SESSION_CAP_ML) {
+            last_reason = "capped: target not reached"; state = ST_STOPPED; pump_off();
+        }
+        return;
+    }
 
     dose_before    = moist_ema;
     dose_ml_target = ml;
@@ -247,25 +251,29 @@ static void evaluate(unsigned long now, bool reservoir_empty) {
     Serial.printf("[EVAL] moist %.1f%% | before %.1f%% | rise %+.1f | session %d mL\n",
                   moist_ema, dose_before, rise, (int)session_ml);
 
-    if (moist_ema >= TARGET_PCT) {
-        finish_done();
-    } else if (rise >= ABSORB_RISE_PCT) {
-        if ((int)session_ml < SESSION_CAP_ML) {
+    switch (water_logic::evaluate_decision(moist_ema, rise, (int)session_ml,
+                                           grace_used, TARGET_PCT, ABSORB_RISE_PCT,
+                                           SESSION_CAP_ML)) {
+        case water_logic::Decision::DONE:
+            finish_done();
+            break;
+        case water_logic::Decision::SUPPLEMENT:
             begin_dose(SUPPLEMENT_ML, reservoir_empty);
-        } else {
+            break;
+        case water_logic::Decision::STOP_CAPPED:
             stop_session("capped: target not reached");
-        }
-    } else {
-        if (!grace_used) {
+            break;
+        case water_logic::Decision::GRACE:
             grace_used     = true;
             stall_reading  = moist_ema;
             grace_start_ms = now;
             state = ST_GRACE;
             publish_state_now();
             Serial.printf("[GRACE] one-time %lus recovery wait\n", GRACE_MS / 1000UL);
-        } else {
+            break;
+        case water_logic::Decision::STOP_FAILED:
             stop_session("failed: not absorbing");
-        }
+            break;
     }
 }
 
@@ -339,8 +347,8 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
                                      : (MOIST_EMA_ALPHA * soil.moisture_pct
                                         + (1.0f - MOIST_EMA_ALPHA) * moist_ema);
     }
-    const bool soil_stale = isnan(moist_ema) ||
-                            (uint32_t)(now - last_valid_soil_ms) > SOIL_STALE_MS;
+    const bool soil_stale = water_logic::is_soil_stale(
+        !isnan(moist_ema), (unsigned long)(now - last_valid_soil_ms), SOIL_STALE_MS);
 
     const bool reservoir_empty = flt.reservoir_empty;
 
@@ -419,7 +427,7 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
                 if (req_start) {
                     if (soil_stale) Serial.println("[SENSOR] manual dose rejected — soil stale");
                     else start_session("button", reservoir_empty);
-                } else if (!maintenance && !soil_stale && moist_ema <= TRIGGER_PCT) {
+                } else if (water_logic::should_trigger(moist_ema, maintenance, soil_stale, TRIGGER_PCT)) {
                     start_session("auto", reservoir_empty);
                 }
                 break;
@@ -432,7 +440,7 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
                 break;
 
             case ST_SETTLE:
-                if (moist_ema >= TARGET_PCT) {
+                if (water_logic::target_reached(moist_ema, TARGET_PCT)) {
                     evaluate(now, reservoir_empty);
                 } else if (btn_ack.pressed_edge) {
                     evaluate(now, reservoir_empty);
@@ -441,19 +449,21 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
                         plateau_armed   = true;
                         plateau_ref_pct = moist_ema;
                         plateau_ref_ms  = now;
+                    } else if (water_logic::is_plateau(
+                                   moist_ema, plateau_ref_pct,
+                                   (unsigned long)(now - plateau_ref_ms),
+                                   PLATEAU_WINDOW_MS, PLATEAU_SLOPE_PCT)) {
+                        evaluate(now, reservoir_empty);
                     } else if (now - plateau_ref_ms >= PLATEAU_WINDOW_MS) {
-                        if (fabsf(moist_ema - plateau_ref_pct) <= PLATEAU_SLOPE_PCT) {
-                            evaluate(now, reservoir_empty);
-                        } else {
-                            plateau_ref_pct = moist_ema;
-                            plateau_ref_ms  = now;
-                        }
+                        // window elapsed but not flat -> re-arm the reference
+                        plateau_ref_pct = moist_ema;
+                        plateau_ref_ms  = now;
                     }
                 }
                 break;
 
             case ST_GRACE:
-                if (moist_ema >= TARGET_PCT) {
+                if (water_logic::target_reached(moist_ema, TARGET_PCT)) {
                     evaluate(now, reservoir_empty);
                 } else if (btn_ack.pressed_edge || now - grace_start_ms >= GRACE_MS) {
                     if (moist_ema - stall_reading >= ABSORB_RISE_PCT) {
