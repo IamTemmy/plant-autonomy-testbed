@@ -176,6 +176,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-154](#dl-154) | 2026-08-20 | **Dose-size tune + first-cycle calibration data.** The first autonomous cycle (DL-151) gave a clean 12-hour draw-down curve: auto-trigger fired at ~03:00 (soil <20%), then a 150 mL dose equilibrated **slowly over ~12h to a ~70% plateau** — well past the 40% target (at the +3h SETTLE_MIN mark it was only ~40%, still climbing; validates why plateau-detection, not a fixed wait, gates supplements). So 150 mL overshoots. Reduced `DOSE1_ML` 150→100 and `SUPPLEMENT_ML` 100→50 for a finer approach to 40%. Caveat: one cycle; the mL→% relation will shift as the plant grows and consumes more — this is a step, not a final calibration. The accumulating descent cycles are the dataset for a future consumption model (regression/ML). Requires a live reflash + re-arm; data on the Pi is unaffected. Constants coherent (both ≤ MAX_DOSE 150; SESSION_CAP 600 > DOSE1 so supplements stay enabled) | Active |
 | [DL-155](#dl-155) | 2026-08-20 | **P2-13 step 3/N** — alerter host-tests. Added 15 tests for `alerter.py`'s query helpers, covering the exact logic we'd had bugs in: `_soil_age_s` board-liveness (DL-139), `_latest_lux`/`_soil_pct`, and the `_reboots_24h`/`_dev_reboots_24h` armed-vs-maintenance reboot classification (DL-138), plus `_presence`. Runs against synthetic in-memory SQLite; `alerter.py` imports clean on host (stdlib only). Mutation-checked: making `_reboots_24h` count dev flashes (the original DL-138 bug) correctly fails a test. Suite now 24/24. Added `hub/04-listener` to the test path | Active |
 | [DL-156](#dl-156) | 2026-08-20 | **P2-13 step 4/N — Direction A complete.** Added test modules for the two remaining stdlib-only hub modules with real pure logic: `test_photoperiod.py` (14 tests for `desired_on` — normal window + the subtle overnight-midnight-wrap branch + full-day coverage) and `test_plantctl.py` (14 tests for `_soil_pct` raw→% clamping on the DL-121 2585/1700 anchors, `_age_s` two-format parsing, `_fmt_age` bucket boundaries). Both mutation-checked (break the overnight-wrap → 5 fail; remove the %-clamp → 2 fail). Suite now **52/52**. `shelly_monitor` left untested (its surface is just poll/record I/O wrappers). Hub-side stdlib logic coverage is now complete; further coverage (listener/dashboard) needs paho/streamlit/pandas dev-deps in CI — a separate step. Firmware logic tests (Direction B) remain the higher-value future frontier | Active |
+| [DL-157](#dl-157) | 2026-08-20 | **P1-8 housekeeping** — post-port doc cleanup. (1) Deprecation banner on the harness README (`firmware/bottom-water-calibration/`): its watering loop graduated into production `integrated/` (P1-8, validated DL-149, armed DL-151); marked superseded, do-not-flash-to-plant (reads no I²C). (2) Fixed the now-untrue `listener.py` comments that said `maintenance`/`session_ml` were 'harness only, absent for integrated' — DL-148 made integrated report them too. Doc/comment-only; listener compiles, 52 tests green | Active |
 
 ---
 
@@ -3971,6 +3972,21 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Coverage state.** Suite now **52/52** across retention, alerter, photoperiod, plantctl. This is the complete stdlib-only hub logic — the "easy, no-dependency" Direction A. `shelly_monitor` was skipped (its functions are poll/record I/O, no pure logic worth isolating). Two frontiers remain, both bigger: (a) modules needing third-party deps in CI (listener→paho, dashboard→streamlit/pandas); (b) **Direction B — firmware decision-logic tests**, the higher-value gap, which needs the FSM's pure logic refactored to be host-testable.
 
 **Files.** `tests/test_photoperiod.py`, `tests/test_plantctl.py`, `tests/conftest.py`.
+
+---
+
+<a id="dl-157"></a>
+### DL-157 — P1-8 housekeeping: harness deprecation + stale listener comments
+
+**Date:** 2026-08-20 · **Status:** Active — closes two loose ends from the port.
+
+**Two doc-level fixes:**
+1. **Harness deprecation banner.** `firmware/bottom-water-calibration/README.md` gets a "SUPERSEDED (DL-147–151)" notice at the top: its plateau-gated dosing loop graduated into the production `firmware/integrated/` build, which additionally reads I²C (BME280 + BH1750). Integrated was flash-validated (DL-149) and armed (DL-151), so it is what the board runs. The harness stays for history / isolated bench calibration, with a **do-not-flash-to-production** warning (it reads no lux/temp, which would re-trigger the DL-137/139 workarounds).
+2. **Stale listener comments.** `hub/04-listener/listener.py` described `maintenance`/`session_ml` as "harness only … absent for integrated" — untrue since DL-148 gave integrated the same state payload. Comments corrected to note both firmwares report them.
+
+**Verification.** Doc/comment-only, no logic change; `listener.py` compiles, host-test suite 52/52.
+
+**Files.** `firmware/bottom-water-calibration/README.md`, `hub/04-listener/listener.py`.
 
 ---
 

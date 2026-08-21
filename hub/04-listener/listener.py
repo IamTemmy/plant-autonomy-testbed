@@ -186,10 +186,10 @@ def route_message(
             state = data.get("state")
             pump = data.get("pump")
             daily = data.get("daily_pump_ms")
-            maint = data.get("maintenance")   # harness only (DL-128); absent for integrated
+            maint = data.get("maintenance")   # reported by both firmwares (harness DL-128, integrated DL-148)
             if maint is not None:
                 _last_maint[device] = bool(maint)   # DL-138: for reboot classification
-            session_ml = data.get("session_ml")  # harness reports delivered volume by mL (P1-6)
+            session_ml = data.get("session_ml")  # delivered volume in mL (harness P1-6; integrated DL-148)
             dose_count = data.get("dose_count")
             if state is not None:
                 conn.execute(

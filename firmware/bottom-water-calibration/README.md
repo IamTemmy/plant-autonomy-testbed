@@ -1,5 +1,15 @@
 # Bottom-Watering Control Loop (Phase 5 prototype)
 
+> ⚠️ **SUPERSEDED (DL-147–151, 2026-08-19).** This prototype's watering loop has
+> graduated into the production `firmware/integrated/` firmware (P1-8), which now
+> runs the same hardened DL-142 plateau-gated dosing **plus** full I²C sensing
+> (BME280 temp/RH/pressure + BH1750 lux) that this standalone harness never had.
+> The integrated build was flash-validated (DL-149) and armed on the plant
+> (DL-151); it is the firmware the board runs. This directory is kept for history
+> and as the calibration rig of record — **do not flash it to the production plant**
+> (it reads no I²C, so lux/temp go dark and the DL-137/139 workarounds would be
+> needed again). Use it only for isolated bench calibration if ever required.
+
 A **standalone** firmware, separate from `firmware/integrated/`. It runs the
 **autonomous** bottom/tray-watering loop from DL-104–107: trigger at a low
 moisture %, dose a measured volume, wait a long settle + plateau, evaluate the
