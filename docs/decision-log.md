@@ -185,6 +185,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-163](#dl-163) | 2026-08-20 | **Audit fix F1 — `stop_session()` never set `last_reason`.** Confirmed against HEAD: `stop_session()` called `publish_state_now()` without assigning `last_reason`, so it shipped the stale prior reason (normally `""`) — while `finish_done()` 12 lines up does it correctly. Effect: the three watering-failure outcomes (`capped: target not reached`, `failed: not absorbing`, `reservoir empty`) — all real keys in `_WATERING_ALERTS` — halted the pump but sent **NO phone alert**. Fix: `last_reason = reason;` before publish (one line, matches finish_done). Introduced in the DL-147 port; found by the post-P1-8 audits (Claude Code F1). **Pump-path change → needs reflash + verify each outcome publishes its reason.** First of the audit-remediation series | Active |
 | [DL-164](#dl-164) | 2026-08-20 | **Audit fix #2 — hard-ceiling cutoff lost dose accounting + persistence.** Confirmed at HEAD: the P0-2 pump ceiling set `state=ST_STOPPED` at tick top, but `prev_state` wasn't assigned until later (mid-tick) — so it captured the ALREADY-changed STOPPED, not the entry DOSING. Result when the 165s ceiling fires mid-dose: pump stops (good) BUT (a) `session_ml += dose_delivered_ml()` never runs (`prev_state==ST_DOSING` false) so ~165s of water goes uncounted, and (b) the STOPPED transition isn't NVS-persisted or published (`state!=prev_state` false) — leaving NVS `dosing=true` and telemetry stale, mis-triggering P0-1 recovery on reboot. Fix: capture `prev_state = state` as the FIRST line of `fsm_tick`, before the ceiling; removed the redundant mid-tick assignment. Verified no `prev_state` reads occur between the two positions, so only the ceiling case changes (the bug). From ChatGPT audit #2. **Pump path → batched reflash.** 31 C++ tests green | Active |
 | [DL-165](#dl-165) | 2026-08-20 | **Audit fix #5 — ACK no longer bypasses the plateau/settle gate (Option A).** In production the ACK button could force-advance dosing: an ACK during `ST_SETTLE` called `evaluate()` immediately, skipping the 3h min-settle AND plateau wait (if early rise ≥7% but <40%, it could authorize a supplement before the probe caught up — bypassing the whole safety basis of bottom watering); ACK in `ST_GRACE` similarly force-ended the recovery wait. A harness-era bench accelerator ported verbatim. Removed both force-advance branches — settle now always runs min-time→plateau, grace runs its full timeout. ACK's four legitimate fault-clears (leak/sensor/stopped/recovery_hold) untouched. From ChatGPT audit #5; chose Option A (ACK only clears faults) over gating behind maintenance. **Pump path → batched reflash** (DL-163/164/165 together). 31 C++ tests green | Active |
+| [DL-166](#dl-166) | 2026-08-20 | **Audit fixes F3 + F6 (hub, no reflash)** — two more harness-era stale-value bugs, same class as DL-162. **F3:** dashboard `_FAULT_STATES` was hardcoded `{leak_fault, stopped, watering_fault}` — missing integrated's `sensor_fault`/`recovery_hold` (so the arm button was offered during those latched faults) and carrying the dead `watering_fault`. Now derived from `STATE_DISPLAY`'s `fault` tier so the two can't drift. **F6:** `plantctl` `TRIGGER_PCT` defaulted to 30 vs firmware's 20 — cried wolf across the normal 20-40% band; set to 20. Both py_compile; deploy = scp + dashboard restart (plantctl picks up on next run) | Active |
 
 ---
 
@@ -4157,6 +4158,21 @@ So the ceiling correctly stopped the pump but corrupted the session total and th
 **Verification.** Brace-balanced; `water_logic.h` untouched → 31 C++ tests still green. Pump path → part of the batched reflash. Bench note: after this, you can no longer hurry a settle/grace with ACK — that's intended.
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-166"></a>
+### DL-166 — Audit fixes F3 + F6: dashboard fault-guard + plantctl trigger
+
+**Date:** 2026-08-20 · **Status:** Active — hub-only audit fixes (no reflash). Same harness-vs-integrated stale-value class as DL-162.
+
+**F3 — arm button offered during a latched fault.** `dash_common._FAULT_STATES` was the hardcoded harness-era set `{leak_fault, stopped, watering_fault}`. It missed the integrated firmware's two new fault states (`sensor_fault`, `recovery_hold`) and carried the dead `watering_fault`. `controls.py` uses `_FAULT_STATES` to suppress the arm toggle during a fault — so in `sensor_fault`/`recovery_hold` the dashboard offered "Resume watering (arm)" and would publish `maintenance off`. The firmware's safety chain still holds the pump and demands an ACK (so no pump starts), but it silently flips the arm flag — the opposite of the guard's purpose. Fixed by **deriving `_FAULT_STATES` from `STATE_DISPLAY`'s `"fault"` tier**, so it always matches the display's own classification and can't drift again.
+
+**F6 — plantctl trigger mismatch.** `plantctl.TRIGGER_PCT` defaulted to 30 while the firmware triggers at 20 (`config.h`). plantctl warned "at/below 30% — would water" across the 20–30% band, which under DL-142 is the normal working range — crying wolf on the most operationally-loaded number it prints. Set default to 20 to match. (This is the third copy of the constant — firmware/alerter/plantctl; a shared source-of-truth remains the durable fix, deferred.)
+
+**Verification.** Both files py_compile; the derived `_FAULT_STATES` confirmed to include `sensor_fault`+`recovery_hold` and exclude normal states. Deploy: scp both to the Pi, restart the dashboard; plantctl picks up the change on its next invocation.
+
+**Files.** `hub/06-dashboard/dash_common.py`, `hub/12-plantctl/plantctl.py`.
 
 ---
 

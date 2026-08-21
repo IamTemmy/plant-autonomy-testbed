@@ -77,7 +77,11 @@ _BANNER_PALETTE = {
 MAINT_CMD_TOPIC = "plant/cmd/maintenance"
 DOSE_CMD_TOPIC = "plant/cmd/dose"   # bottom-watering harness: "start" | "abort" (DL-110)
 
-_FAULT_STATES = {"leak_fault", "stopped", "watering_fault"}
+# F3 (DL-166): derive the fault set from STATE_DISPLAY's "fault" tier so the two
+# can't drift. The old hardcoded {leak_fault, stopped, watering_fault} was missing
+# the integrated firmware's sensor_fault and recovery_hold (so the arm button was
+# offered during those latched faults) and carried the dead watering_fault.
+_FAULT_STATES = {name for name, (_lbl, tier, _desc) in STATE_DISPLAY.items() if tier == "fault"}
 
 
 # --- helpers ---------------------------------------------------------

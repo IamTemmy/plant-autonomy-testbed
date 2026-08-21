@@ -40,7 +40,7 @@ ISO = "%Y-%m-%dT%H:%M:%SZ"  # stored ts format (UTC)
 # --- calibration (keep in sync with firmware config.h on each recalibration) ---
 SOIL_RAW_DRY = int(os.environ.get("SOIL_RAW_DRY", "2585"))   # 0%
 SOIL_RAW_WET = int(os.environ.get("SOIL_RAW_WET", "1700"))   # 100% (DL-121)
-TRIGGER_PCT  = float(os.environ.get("TRIGGER_PCT", "30"))    # DL-124 (was 20); finalize source-of-truth in shared config
+TRIGGER_PCT  = float(os.environ.get("TRIGGER_PCT", "20"))    # F6 (DL-166): match firmware config.h TRIGGER_PCT=20; was 30 (stale) — cried wolf across the normal 20-40% band
 
 GROW_ON_HOUR = int(os.environ.get("GROW_ON_HOUR", "7"))
 GROW_OFF_HOUR = int(os.environ.get("GROW_OFF_HOUR", "19"))
