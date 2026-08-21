@@ -178,6 +178,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-156](#dl-156) | 2026-08-20 | **P2-13 step 4/N — Direction A complete.** Added test modules for the two remaining stdlib-only hub modules with real pure logic: `test_photoperiod.py` (14 tests for `desired_on` — normal window + the subtle overnight-midnight-wrap branch + full-day coverage) and `test_plantctl.py` (14 tests for `_soil_pct` raw→% clamping on the DL-121 2585/1700 anchors, `_age_s` two-format parsing, `_fmt_age` bucket boundaries). Both mutation-checked (break the overnight-wrap → 5 fail; remove the %-clamp → 2 fail). Suite now **52/52**. `shelly_monitor` left untested (its surface is just poll/record I/O wrappers). Hub-side stdlib logic coverage is now complete; further coverage (listener/dashboard) needs paho/streamlit/pandas dev-deps in CI — a separate step. Firmware logic tests (Direction B) remain the higher-value future frontier | Active |
 | [DL-157](#dl-157) | 2026-08-20 | **P1-8 housekeeping** — post-port doc cleanup. (1) Deprecation banner on the harness README (`firmware/bottom-water-calibration/`): its watering loop graduated into production `integrated/` (P1-8, validated DL-149, armed DL-151); marked superseded, do-not-flash-to-plant (reads no I²C). (2) Fixed the now-untrue `listener.py` comments that said `maintenance`/`session_ml` were 'harness only, absent for integrated' — DL-148 made integrated report them too. Doc/comment-only; listener compiles, 52 tests green | Active |
 | [DL-158](#dl-158) | 2026-08-20 | **OLED daily-row refresh** (last P1-8 small bit). The OLED row 6 showed a dead 'Daily: 0/Ns' pump-budget line left from the retired daily-limit model; replaced with the live 'Session: <ml>mL/<n>d' — the current/last watering session's delivered volume + dose count, the data the new FSM actually produces. Added `fsm_session_ml()`/`fsm_dose_count()` accessors (retired the dead `fsm_daily_pump_ms()`), updated `oled_render` signature + body + the main.cpp call site, and finally removed the now-fully-dead `MAX_DAILY_PUMP_ML` (completing the DL-150 cleanup). 5 files, signatures consistent, braces balanced. **Needs a reflash** to take effect on the display | Active |
+| [DL-159](#dl-159) | 2026-08-20 | **P2-13 Direction B step 1/3** — extract pure watering logic. Added `firmware/integrated/src/water_logic.h`: the DL-142 dosing decisions as free functions of plain values (no Arduino/hardware/globals/side-effects) — `is_soil_stale`, `should_trigger`, `target_reached`, `is_plateau`, `clamp_dose`, `evaluate_decision`. Proven host-compilable (g++ -std=c++11 -Wall -Wextra, Arduino-free). **Additive/behavior-neutral**: no .cpp includes it yet, firmware byte-identical. Stage 2 wires fsm.cpp to call these (identical behavior, reflash); stage 3 adds the host C++ test harness + CI. This is the highest-value test gap — the pump-path decision logic, currently only bench-validated | Active |
 
 ---
 
@@ -4007,6 +4008,29 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Verification.** `oled_render` signature matches across header/impl/call-site; FSM accessor decls match defs; no dangling `daily_pump_ms`/`cap_ms`/`MAX_DAILY_PUMP_ML` anywhere; braces balanced. Needs a **reflash** to change the display; behavior otherwise unchanged.
 
 **Files.** `firmware/integrated/src/{fsm.cpp,fsm.h,oled.cpp,oled.h,main.cpp,config.h}`.
+
+---
+
+<a id="dl-159"></a>
+### DL-159 — P2-13 Direction B step 1: extract pure watering logic
+
+**Date:** 2026-08-20 · **Status:** Active — first of three steps giving the pump-path decision logic host-tests.
+
+**Motivation.** CI covers the hub Python (52 tests), but the firmware's *watering decision logic* — the thing that could actually mis-dose — has no automated tests; its only net is manual bench validation (DL-149). Direction B closes that by separating the decision *policy* (pure, testable) from the *mechanism* (timers, pump, NVS, MQTT — hardware-bound).
+
+**This step.** New `firmware/integrated/src/water_logic.h` holds the DL-142 decisions as free functions of plain values — no Arduino types, no globals, no side effects, only `<math.h>`:
+- `is_soil_stale(has_reading, age_ms, stale_ms)` — P0-3 freshness.
+- `should_trigger(moist, maintenance, soil_stale, trigger_pct)` — MONITOR auto-start.
+- `target_reached(moist, target_pct)`.
+- `is_plateau(cur, ref, elapsed_ms, window_ms, slope_pct)` — SETTLE plateau.
+- `clamp_dose(requested, session_ml, max_dose, session_cap)` — begin_dose budget clamp (returns 0 when none may flow).
+- `evaluate_decision(...) -> Decision{DONE,SUPPLEMENT,STOP_CAPPED,GRACE,STOP_FAILED}` — the post-settle outcome, mirroring `evaluate()`.
+
+**Behavior-neutral.** Purely additive — no `.cpp` includes it yet, so the firmware is byte-identical and still compiles. Proven host-compilable/runnable with `g++ -std=c++11 -Wall -Wextra` (Arduino-free), which is the whole point: this logic can now be unit-tested off-target.
+
+**Next.** Step 2: refactor `fsm.cpp` to *call* these (identical behavior — a "relocate the math" change — then reflash + spot-check). Step 3: a host C++ test harness for `water_logic.h`, wired into CI alongside pytest.
+
+**Files.** `firmware/integrated/src/water_logic.h`.
 
 ---
 
