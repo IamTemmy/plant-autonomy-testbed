@@ -182,6 +182,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-160](#dl-160) | 2026-08-20 | **P2-13 Direction B step 2/3** — host C++ tests for the watering logic + CI. Added `tests/firmware/test_water_logic.cpp` (31 assertions, no gtest — a tiny runner so CI needs only g++) covering every `water_logic.h` function: freshness, trigger (incl. maintenance/stale gates + boundary), target, plateau (window + slope + up/down drift), dose clamping (cap vs budget vs zero), and all 5 `evaluate_decision` outcomes. Mutation-checked: flipping the trigger `<=`→`<` fails the boundary check with exit 1. Added a `firmware-logic` CI job (compiles + runs it) alongside `pytest`. Now the pump-path DECISION logic has automated coverage. Step 3/3 (wire fsm.cpp to call these, reflash) remains | Active |
 | [DL-161](#dl-161) | 2026-08-20 | **P2-13 Direction B step 3/3 — wire fsm.cpp to the tested logic.** Replaced all inline watering-decision math in `fsm.cpp` with calls to the `water_logic::` functions covered by DL-160's tests: `is_soil_stale`, `should_trigger`, `target_reached` (×2), `is_plateau`, `clamp_dose`, `evaluate_decision`. **Behavior-identical relocate** — each site verified equivalent (incl. begin_dose's capped-vs-silent-return split, plateau re-arm, uint32 rollover cast); no inline decision math remains. Now **the tested code is the running code** — closing the drift gap. C++ tests still 31/31 green (water_logic.h untouched). **Pump-path change → needs reflash + bench spot-check** (trigger/dose/evaluate unchanged). Closes Direction B | Active |
 | [DL-162](#dl-162) | 2026-08-20 | **Dashboard maintenance toggle — fixed for integrated firmware.** The controls page already had an arm/maintenance button (DL-095) but it derived state from `_fsm['state'] == 'maintenance'` — wrong under the integrated firmware, which keeps state `monitor` while the maintenance *flag* is on. Rewired it to `latest_maintenance()` (the authoritative `maintenance` metric, which integrated now publishes per DL-148 and the listener stores), with a clear armed/paused indicator and correct toggle direction; added fault-state and not-yet-reported guards. Fixed the stale `latest_maintenance()` docstring ('integrated doesn't publish it' — now untrue). Button publishes `off`/`on` to `plant/cmd/maintenance` (same path as the CLI re-arm and the MANUAL long-press). Both files py_compile; needs dashboard restart to deploy | Active |
+| [DL-163](#dl-163) | 2026-08-20 | **Audit fix F1 — `stop_session()` never set `last_reason`.** Confirmed against HEAD: `stop_session()` called `publish_state_now()` without assigning `last_reason`, so it shipped the stale prior reason (normally `""`) — while `finish_done()` 12 lines up does it correctly. Effect: the three watering-failure outcomes (`capped: target not reached`, `failed: not absorbing`, `reservoir empty`) — all real keys in `_WATERING_ALERTS` — halted the pump but sent **NO phone alert**. Fix: `last_reason = reason;` before publish (one line, matches finish_done). Introduced in the DL-147 port; found by the post-P1-8 audits (Claude Code F1). **Pump-path change → needs reflash + verify each outcome publishes its reason.** First of the audit-remediation series | Active |
 
 ---
 
@@ -4097,6 +4098,25 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Verification.** `dash_common.py` and `controls.py` py_compile. Deploys on the next dashboard restart. (Note: `controls.py` also carries the older "Start session / Abort" dose buttons on `plant/cmd/dose`, which the integrated firmware does not subscribe to — DL-145 deferred `cmd/dose`; those remain no-ops under integrated and can be revisited with the dashboard renovation.)
 
 **Files.** `hub/06-dashboard/dash_pages/controls.py`, `hub/06-dashboard/dash_common.py`.
+
+---
+
+<a id="dl-163"></a>
+### DL-163 — Audit fix F1: stop_session() never set last_reason
+
+**Date:** 2026-08-20 · **Status:** Active — first fix from the post-P1-8 bug audits. **Awaiting reflash.**
+
+**The bug (confirmed at HEAD).** `stop_session(reason)` in `fsm.cpp` called `publish_state_now()` **without** first assigning `last_reason = reason`. Since `publish_state_now()` sends `last_reason`, every stop shipped the *stale* previous value (normally `""` from `start_session()`), and the `reason` argument reached only the serial log. `finish_done()` twelve lines above does it correctly (`last_reason = "target reached"` before publish) — `stop_session` was the one exit path that forgot.
+
+**Impact.** The three watering-failure outcomes routed through `stop_session` — `"capped: target not reached"`, `"failed: not absorbing"` (grace-exhausted, two call sites), `"reservoir empty"` — are all real keys in the alerter's `_WATERING_ALERTS` (each a high-priority push). Because the reason never got published, all three **halted the pump silently, with no phone notification**. A session that stalls, hits the 600 mL cap, or finds the reservoir empty mid-dose would stop and say nothing.
+
+**Fix.** One line: `last_reason = reason;` before `publish_state_now()`. Behavior otherwise unchanged.
+
+**Provenance.** Introduced in the DL-147 FSM port; missed by the incremental review and by DL-149's bench test (which exercised leak/abort/manual, not the absorb-stall / cap / mid-dose-reservoir paths). Caught by the post-P1-8 audits (Claude Code F1; corroborated by the general "reason path is inert" comments both audits flagged).
+
+**Verification.** Brace-balanced; `water_logic.h` untouched so its 31 C++ tests still pass. **Pump path → compile, reflash, and confirm each stop outcome now publishes its reason** (and thus fires its alert). A hub-side table-driven test asserting every alert key matches a firmware reason string (audit F15) is the durable guard and is queued.
+
+**Files.** `firmware/integrated/src/fsm.cpp`.
 
 ---
 

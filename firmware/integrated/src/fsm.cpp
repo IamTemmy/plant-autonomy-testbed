@@ -240,7 +240,8 @@ static void finish_done() {
 
 static void stop_session(const char* reason) {
     pump_off();
-    state = ST_STOPPED;
+    last_reason = reason;          // F1 (DL-163): must set BEFORE publish, else the
+    state = ST_STOPPED;            // stale prior reason ships and the alert never fires
     publish_state_now();
     Serial.printf("[SESSION] STOPPED: %s | %.1f%% | %d mL\n",
                   reason, moist_ema, (int)session_ml);
