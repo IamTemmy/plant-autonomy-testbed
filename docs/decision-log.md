@@ -187,6 +187,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-165](#dl-165) | 2026-08-20 | **Audit fix #5 — ACK no longer bypasses the plateau/settle gate (Option A).** In production the ACK button could force-advance dosing: an ACK during `ST_SETTLE` called `evaluate()` immediately, skipping the 3h min-settle AND plateau wait (if early rise ≥7% but <40%, it could authorize a supplement before the probe caught up — bypassing the whole safety basis of bottom watering); ACK in `ST_GRACE` similarly force-ended the recovery wait. A harness-era bench accelerator ported verbatim. Removed both force-advance branches — settle now always runs min-time→plateau, grace runs its full timeout. ACK's four legitimate fault-clears (leak/sensor/stopped/recovery_hold) untouched. From ChatGPT audit #5; chose Option A (ACK only clears faults) over gating behind maintenance. **Pump path → batched reflash** (DL-163/164/165 together). 31 C++ tests green | Active |
 | [DL-166](#dl-166) | 2026-08-20 | **Audit fixes F3 + F6 (hub, no reflash)** — two more harness-era stale-value bugs, same class as DL-162. **F3:** dashboard `_FAULT_STATES` was hardcoded `{leak_fault, stopped, watering_fault}` — missing integrated's `sensor_fault`/`recovery_hold` (so the arm button was offered during those latched faults) and carrying the dead `watering_fault`. Now derived from `STATE_DISPLAY`'s `fault` tier so the two can't drift. **F6:** `plantctl` `TRIGGER_PCT` defaulted to 30 vs firmware's 20 — cried wolf across the normal 20-40% band; set to 20. Both py_compile; deploy = scp + dashboard restart (plantctl picks up on next run) | Active |
 | [DL-167](#dl-167) | 2026-08-20 | **Audit fixes F2 + F5 (alerter, no reflash)** — restore missing fault alerts + fix leak-disconnect copy. **F2:** three P0 fail-safes fired the pump-off latch but sent NO push. Added `sensor_fault` + `recovery_hold` to state-keyed `FAULT_ALERTS` (dropped dead `watering_fault`); added `"pump max-runtime exceeded"` to reason-keyed `_WATERING_ALERTS`. **F5:** `leak_fault` state alert said "Water detected" for BOTH a real leak and a disconnected sensor (opposite responses). Since `reason` isn't persisted (only flows event-driven via `on_watering_state`), added a distinct `"leak sensor disconnected"` reason alert (check-the-connector copy) and made the reason-blind polled `leak_fault` state alert neutral ("leak or disconnect — check sensor and tray"). Every P0 fail-safe now alerts; leak vs disconnect distinguished. py_compile + 15 alerter tests green; deploy = scp alerter.py + restart plant-listener | Active |
+| [DL-168](#dl-168) | 2026-08-20 | **Audit fix F4 (dashboard, no reflash)** — removed the dead/lying dose buttons. The controls page's Start/Abort buttons published to `plant/cmd/dose`, which the integrated (production) firmware doesn't subscribe to — so `send_dose_cmd` returned True and the UI reported "the pump will stop and the session will end" while nothing happened: a dangerous false safety affordance during an emergency. Replaced both with an honest note (remote dose/abort not yet available; use the maintenance toggle to pause remotely, or MANUAL at the plant to dose); dropped the now-unused `send_dose_cmd` import (helper kept in dash_common for the planned real implementation). This is the interim fix; **Option 2 — actually implementing remote dose/abort in the firmware — is the follow-up feature.** py_compile OK; deploy = scp controls.py + dashboard restart | Active |
 
 ---
 
@@ -4195,6 +4196,23 @@ Also dropped the dead `watering_fault` key (no firmware emits it).
 **Verification.** `alerter.py` py_compiles; the 15 alerter host-tests still pass. A table-driven alert-key↔firmware-string contract test (audit F15) is the durable guard and is queued. Deploy: scp `alerter.py` to the Pi, `sudo systemctl restart plant-listener`.
 
 **Files.** `hub/04-listener/alerter.py`.
+
+---
+
+<a id="dl-168"></a>
+### DL-168 — Audit fix F4: remove the dead/lying dose buttons
+
+**Date:** 2026-08-20 · **Status:** Active — dashboard-only audit fix (no reflash). Interim fix; real remote dose/abort is the planned Option 2 follow-up.
+
+**The hazard.** The controls page had "Start session" and "Abort watering" buttons that called `send_dose_cmd("start"|"abort")`, publishing to `plant/cmd/dose`. The integrated production firmware **does not subscribe to that topic** (DL-145 deferred `cmd/dose`), so the publish succeeded, `send_dose_cmd` returned True, and the UI confirmed — "Abort" even reported *"the pump will stop and the session will end."* An operator trying to stop a runaway dose would trust a button that does nothing. A false safety affordance is worse than no button.
+
+**Fix (interim).** Removed both buttons; replaced with an honest note: remote dose/abort isn't available yet; to pause watering remotely use the maintenance toggle (which works), and to force a dose use the MANUAL button at the plant. Dropped the now-unused `send_dose_cmd` import; the helper stays in `dash_common.py` for the real implementation.
+
+**Follow-up (Option 2, planned).** Actually implement remote dose/abort: subscribe the integrated firmware to `plant/cmd/dose` (`start` → manual session, `abort` → stop like the STOP button), then restore truthful dashboard buttons. That's a firmware feature (FSM + reflash + bench test of remote start *and* abort), tracked separately.
+
+**Verification.** `controls.py` py_compiles; no `send_dose_cmd` call or "pump will stop" copy remains. Deploy: scp `controls.py`, restart the dashboard.
+
+**Files.** `hub/06-dashboard/dash_pages/controls.py`.
 
 ---
 

@@ -12,7 +12,6 @@ from dash_common import (
     latest_maintenance,
     _FAULT_STATES,
     send_maintenance_cmd,
-    send_dose_cmd,
 )
 
 
@@ -43,17 +42,14 @@ else:
             st.success(f"Sent '{_cmd}'. The status will update once the device confirms.")
 
 st.markdown("### Bottom-watering session")
+# F4 (DL-168): the Start/Abort dose buttons published to plant/cmd/dose, which the
+# integrated (production) firmware does NOT subscribe to — so "Abort" would report
+# "the pump will stop" while nothing happened: a dangerous false safety affordance.
+# Removed until remote dose/abort is actually implemented in the firmware (planned).
+# In the meantime, arming/maintenance above is the working remote control, and a
+# real dose can be started at the plant with the MANUAL button.
 st.caption(
-    "Commands the bottom-watering harness (`plant/cmd/dose`). No effect unless the "
-    "harness firmware is running. **Start** forces a full session immediately "
-    "(a real dose) \u2014 use only when supervised."
+    "Remote start/abort of a watering dose isn't available yet — the production "
+    "firmware doesn't accept dose commands. To pause watering remotely, use the "
+    "maintenance toggle above; to force a dose, use the MANUAL button at the plant."
 )
-_c1, _c2 = st.columns(2)
-with _c1:
-    if st.button("Start session", key="dose_start"):
-        if send_dose_cmd("start"):
-            st.success("Sent 'start'. Watch the state banner and your phone for progress.")
-with _c2:
-    if st.button("Abort watering", key="dose_abort"):
-        if send_dose_cmd("abort"):
-            st.warning("Sent 'abort'. The pump will stop and the session will end.")
