@@ -1,10 +1,12 @@
 name: tests
 
-# Host-side unit tests for the hub logic (P2-13). Runs on every push and PR so
-# regressions in the Python/SQL logic are caught automatically -- the firmware is
-# validated on-device separately. The tested modules currently use only the Python
-# standard library, so CI installs just pytest; when coverage grows to modules with
-# third-party imports (streamlit, paho-mqtt, ...), add a requirements-dev.txt here.
+# Host-side unit tests (P2-13). Two jobs, both run on every push/PR to main:
+#   * pytest          -- the hub Python/SQL logic (stdlib-only modules).
+#   * firmware-logic  -- the pure watering decision logic (water_logic.h) compiled
+#                        and run on the host with g++ (no Arduino). The on-device
+#                        firmware is still validated by flash-test separately; this
+#                        covers the pump-path DECISION math that used to have no
+#                        automated coverage at all.
 
 on:
   push:
@@ -29,3 +31,17 @@ jobs:
 
       - name: Run host-tests
         run: pytest
+
+  firmware-logic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Compile + run water_logic host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra \
+            -Ifirmware/integrated/src \
+            tests/firmware/test_water_logic.cpp -o /tmp/test_water_logic
+          /tmp/test_water_logic
+

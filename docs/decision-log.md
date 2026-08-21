@@ -179,6 +179,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-157](#dl-157) | 2026-08-20 | **P1-8 housekeeping** — post-port doc cleanup. (1) Deprecation banner on the harness README (`firmware/bottom-water-calibration/`): its watering loop graduated into production `integrated/` (P1-8, validated DL-149, armed DL-151); marked superseded, do-not-flash-to-plant (reads no I²C). (2) Fixed the now-untrue `listener.py` comments that said `maintenance`/`session_ml` were 'harness only, absent for integrated' — DL-148 made integrated report them too. Doc/comment-only; listener compiles, 52 tests green | Active |
 | [DL-158](#dl-158) | 2026-08-20 | **OLED daily-row refresh** (last P1-8 small bit). The OLED row 6 showed a dead 'Daily: 0/Ns' pump-budget line left from the retired daily-limit model; replaced with the live 'Session: <ml>mL/<n>d' — the current/last watering session's delivered volume + dose count, the data the new FSM actually produces. Added `fsm_session_ml()`/`fsm_dose_count()` accessors (retired the dead `fsm_daily_pump_ms()`), updated `oled_render` signature + body + the main.cpp call site, and finally removed the now-fully-dead `MAX_DAILY_PUMP_ML` (completing the DL-150 cleanup). 5 files, signatures consistent, braces balanced. **Needs a reflash** to take effect on the display | Active |
 | [DL-159](#dl-159) | 2026-08-20 | **P2-13 Direction B step 1/3** — extract pure watering logic. Added `firmware/integrated/src/water_logic.h`: the DL-142 dosing decisions as free functions of plain values (no Arduino/hardware/globals/side-effects) — `is_soil_stale`, `should_trigger`, `target_reached`, `is_plateau`, `clamp_dose`, `evaluate_decision`. Proven host-compilable (g++ -std=c++11 -Wall -Wextra, Arduino-free). **Additive/behavior-neutral**: no .cpp includes it yet, firmware byte-identical. Stage 2 wires fsm.cpp to call these (identical behavior, reflash); stage 3 adds the host C++ test harness + CI. This is the highest-value test gap — the pump-path decision logic, currently only bench-validated | Active |
+| [DL-160](#dl-160) | 2026-08-20 | **P2-13 Direction B step 2/3** — host C++ tests for the watering logic + CI. Added `tests/firmware/test_water_logic.cpp` (31 assertions, no gtest — a tiny runner so CI needs only g++) covering every `water_logic.h` function: freshness, trigger (incl. maintenance/stale gates + boundary), target, plateau (window + slope + up/down drift), dose clamping (cap vs budget vs zero), and all 5 `evaluate_decision` outcomes. Mutation-checked: flipping the trigger `<=`→`<` fails the boundary check with exit 1. Added a `firmware-logic` CI job (compiles + runs it) alongside `pytest`. Now the pump-path DECISION logic has automated coverage. Step 3/3 (wire fsm.cpp to call these, reflash) remains | Active |
 
 ---
 
@@ -4031,6 +4032,31 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Next.** Step 2: refactor `fsm.cpp` to *call* these (identical behavior — a "relocate the math" change — then reflash + spot-check). Step 3: a host C++ test harness for `water_logic.h`, wired into CI alongside pytest.
 
 **Files.** `firmware/integrated/src/water_logic.h`.
+
+---
+
+<a id="dl-160"></a>
+### DL-160 — P2-13 Direction B step 2: host C++ tests for watering logic + CI
+
+**Date:** 2026-08-20 · **Status:** Active — the pump-path decision logic now has automated coverage.
+
+**This step.** `tests/firmware/test_water_logic.cpp` — 31 assertions over every function in `water_logic.h`, written in plain C++ with a tiny `CHECK` macro (no gtest, so CI needs only g++):
+- `is_soil_stale` — no-reading, in-window, at-boundary, past-window.
+- `should_trigger` — armed+fresh+dry yes, at-boundary yes, above no, maintenance no, stale no.
+- `target_reached` — inclusive boundary.
+- `is_plateau` — window-not-elapsed, flat-within-slope, still-climbing, at-slope-bound, downward drift.
+- `clamp_dose` — normal, over-cap, near-budget, cap-reached (0), over-both (min wins), non-positive, never-negative.
+- `evaluate_decision` — DONE / SUPPLEMENT / STOP_CAPPED / GRACE / STOP_FAILED + target-precedence + absorb boundary.
+
+**CI.** New `firmware-logic` job in `.github/workflows/tests.yml` compiles and runs it (`g++ -std=c++11 -Wall -Wextra`), alongside the existing `pytest` job — two independent status checks. The test binary returns non-zero on any failure, failing the job.
+
+**Teeth.** Mutation check: flipping `should_trigger`'s `<=`→`<` fails the boundary assertion and exits 1.
+
+**Coverage.** 31 C++ checks + 52 Python tests. The firmware's watering *decision* math is now covered by CI — the highest-value gap identified for Direction B. (The remaining hardware-bound parts — timers, pump GPIO, NVS, MQTT — stay covered by on-device flash-tests.)
+
+**Next.** Step 3/3: refactor `fsm.cpp` to call `water_logic::` instead of inlining the math (behavior-identical relocate), then reflash + bench spot-check — so the tested functions are the ones actually running.
+
+**Files.** `tests/firmware/test_water_logic.cpp`, `.github/workflows/tests.yml`.
 
 ---
 
