@@ -55,7 +55,6 @@ static constexpr uint32_t BUTTON_DEBOUNCE_MS  = 50;     // pushbutton debounce
 static constexpr uint32_t BTN_LONGPRESS_MS    = 2000;   // hold MANUAL this long to toggle maintenance mode (DL-089)
 static constexpr uint32_t LEAK_DEBOUNCE_MS    = 3000;   // leak must persist this long to latch
 static constexpr float    PUMP_ML_PER_SEC     = 1.0f;        // measured pump flow rate (DL-048)
-static constexpr float    MAX_DAILY_PUMP_ML   = 200.0f;      // daily water cap in mL (DL-048/058); raise to 250-300 if soil dries too fast
 // Time sync for the calendar-midnight daily reset (DL-058). POSIX TZ string carries DST rules.
 static constexpr const char* NTP_SERVER_1 = "pool.ntp.org";
 static constexpr const char* NTP_SERVER_2 = "time.nist.gov";

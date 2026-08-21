@@ -28,7 +28,7 @@ void oled_begin() {
 
 void oled_render(const char* state, const Bme280Reading& air, const SoilReading& soil,
                  const FloatReading& flt, const LeakReading& leak,
-                 bool pump_on, unsigned long daily_pump_ms, unsigned long cap_ms) {
+                 bool pump_on, int session_ml, int dose_count) {
     if (!ok) {
         return;
     }
@@ -79,13 +79,13 @@ void oled_render(const char* state, const Bme280Reading& air, const SoilReading&
         display.print(F("Air: --"));
     }
 
-    // Row 6 (y=48): daily pump-time budget (seconds)
+    // Row 6 (y=48): current/last watering session — mL delivered + dose count
     display.setCursor(0, 48);
-    display.print(F("Daily: "));
-    display.print(daily_pump_ms / 1000);
-    display.print(F("/"));
-    display.print(cap_ms / 1000);
-    display.print(F("s"));
+    display.print(F("Session: "));
+    display.print(session_ml);
+    display.print(F("mL/"));
+    display.print(dose_count);
+    display.print(F("d"));
 
     display.display();
 }

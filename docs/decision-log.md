@@ -177,6 +177,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-155](#dl-155) | 2026-08-20 | **P2-13 step 3/N** — alerter host-tests. Added 15 tests for `alerter.py`'s query helpers, covering the exact logic we'd had bugs in: `_soil_age_s` board-liveness (DL-139), `_latest_lux`/`_soil_pct`, and the `_reboots_24h`/`_dev_reboots_24h` armed-vs-maintenance reboot classification (DL-138), plus `_presence`. Runs against synthetic in-memory SQLite; `alerter.py` imports clean on host (stdlib only). Mutation-checked: making `_reboots_24h` count dev flashes (the original DL-138 bug) correctly fails a test. Suite now 24/24. Added `hub/04-listener` to the test path | Active |
 | [DL-156](#dl-156) | 2026-08-20 | **P2-13 step 4/N — Direction A complete.** Added test modules for the two remaining stdlib-only hub modules with real pure logic: `test_photoperiod.py` (14 tests for `desired_on` — normal window + the subtle overnight-midnight-wrap branch + full-day coverage) and `test_plantctl.py` (14 tests for `_soil_pct` raw→% clamping on the DL-121 2585/1700 anchors, `_age_s` two-format parsing, `_fmt_age` bucket boundaries). Both mutation-checked (break the overnight-wrap → 5 fail; remove the %-clamp → 2 fail). Suite now **52/52**. `shelly_monitor` left untested (its surface is just poll/record I/O wrappers). Hub-side stdlib logic coverage is now complete; further coverage (listener/dashboard) needs paho/streamlit/pandas dev-deps in CI — a separate step. Firmware logic tests (Direction B) remain the higher-value future frontier | Active |
 | [DL-157](#dl-157) | 2026-08-20 | **P1-8 housekeeping** — post-port doc cleanup. (1) Deprecation banner on the harness README (`firmware/bottom-water-calibration/`): its watering loop graduated into production `integrated/` (P1-8, validated DL-149, armed DL-151); marked superseded, do-not-flash-to-plant (reads no I²C). (2) Fixed the now-untrue `listener.py` comments that said `maintenance`/`session_ml` were 'harness only, absent for integrated' — DL-148 made integrated report them too. Doc/comment-only; listener compiles, 52 tests green | Active |
+| [DL-158](#dl-158) | 2026-08-20 | **OLED daily-row refresh** (last P1-8 small bit). The OLED row 6 showed a dead 'Daily: 0/Ns' pump-budget line left from the retired daily-limit model; replaced with the live 'Session: <ml>mL/<n>d' — the current/last watering session's delivered volume + dose count, the data the new FSM actually produces. Added `fsm_session_ml()`/`fsm_dose_count()` accessors (retired the dead `fsm_daily_pump_ms()`), updated `oled_render` signature + body + the main.cpp call site, and finally removed the now-fully-dead `MAX_DAILY_PUMP_ML` (completing the DL-150 cleanup). 5 files, signatures consistent, braces balanced. **Needs a reflash** to take effect on the display | Active |
 
 ---
 
@@ -3987,6 +3988,25 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 **Verification.** Doc/comment-only, no logic change; `listener.py` compiles, host-test suite 52/52.
 
 **Files.** `firmware/bottom-water-calibration/README.md`, `hub/04-listener/listener.py`.
+
+---
+
+<a id="dl-158"></a>
+### DL-158 — OLED daily-row refresh (last P1-8 small bit)
+
+**Date:** 2026-08-20 · **Status:** Active — closes the OLED loose end left by DL-150.
+
+**Problem.** After the FSM port (DL-147) removed the daily-limit model, the OLED's row 6 still rendered `Daily: <daily_pump_ms/1000>/<cap_ms/1000>s` — which showed a meaningless `0/200s` since `fsm_daily_pump_ms()` always returned 0 and `cap_ms` derived from the retired `MAX_DAILY_PUMP_ML`.
+
+**Change.** Row 6 now shows the live watering session: `Session: <ml>mL/<n>d` (delivered volume + dose count of the current/last cycle). Coordinated across five files:
+- `fsm.cpp`/`fsm.h`: added `fsm_session_ml()` and `fsm_dose_count()`, retired the dead `fsm_daily_pump_ms()` and its unused `daily_pump_ms` static.
+- `oled.h`/`oled.cpp`: `oled_render` now takes `int session_ml, int dose_count` instead of the two daily/cap args; row 6 rewritten.
+- `main.cpp`: call site passes `fsm_session_ml()`, `fsm_dose_count()`.
+- `config.h`: removed `MAX_DAILY_PUMP_ML` — now fully unreferenced, completing the constant cleanup DL-150 had to defer because the OLED still used it.
+
+**Verification.** `oled_render` signature matches across header/impl/call-site; FSM accessor decls match defs; no dangling `daily_pump_ms`/`cap_ms`/`MAX_DAILY_PUMP_ML` anywhere; braces balanced. Needs a **reflash** to change the display; behavior otherwise unchanged.
+
+**Files.** `firmware/integrated/src/{fsm.cpp,fsm.h,oled.cpp,oled.h,main.cpp,config.h}`.
 
 ---
 

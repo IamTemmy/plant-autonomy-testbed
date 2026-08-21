@@ -14,4 +14,4 @@ void oled_begin();
 // Draw the status screen. Call on a throttled cadence from loop().
 void oled_render(const char* state, const Bme280Reading& air, const SoilReading& soil,
                  const FloatReading& flt, const LeakReading& leak,
-                 bool pump_on, unsigned long daily_pump_ms, unsigned long cap_ms);
+                 bool pump_on, int session_ml, int dose_count);

@@ -117,9 +117,6 @@ static unsigned long leak_since_ms = 0;
 static bool          blink_on      = false;
 static unsigned long blink_last_ms = 0;
 
-// ---- daily pump accounting (kept for the OLED/telemetry accessor) ---------
-static unsigned long daily_pump_ms  = 0;
-
 // ---- state publish cadence ------------------------------------------------
 static unsigned long state_pub_next_ms = 0;
 
@@ -498,4 +495,5 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
 
 // ---- accessors ------------------------------------------------------------
 const char* fsm_state_name() { return state_name(state); }
-unsigned long fsm_daily_pump_ms() { return daily_pump_ms; }
+int fsm_session_ml()  { return (int)session_ml; }
+int fsm_dose_count()  { return dose_count; }

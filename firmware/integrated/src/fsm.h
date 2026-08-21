@@ -29,4 +29,5 @@ void fsm_request_maintenance(bool on);
 
 // Accessors for the display layer.
 const char* fsm_state_name();
-unsigned long fsm_daily_pump_ms();
+int fsm_session_ml();   // mL delivered in the current/last session (for the OLED)
+int fsm_dose_count();   // doses in the current/last session
