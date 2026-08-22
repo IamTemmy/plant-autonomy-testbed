@@ -1,9 +1,13 @@
-# Host-test dependencies (P2-13 / DL-181). Installed by CI before running pytest.
-# Runtime deps for the Pi services are managed separately on-device; this file is
-# only what the host-side unit tests need to import the modules under test.
+# Host-test dependencies (P2-13 / DL-181; pinned DL-184). Installed by CI before
+# running pytest. Runtime deps for the Pi services are managed separately on-device;
+# this file is only what the host-side unit tests need to import the modules under test.
 #
-# pytest        -- test runner.
-# paho-mqtt     -- listener.py imports paho.mqtt.client at module top, so the
-#                  route_message tests can only import listener with it present.
-pytest>=8.0
-paho-mqtt>=1.6,<3.0
+# Pinned to exact versions so CI is reproducible: a future pip install can't silently
+# pull a newer pytest/paho whose behaviour differs from what these tests were written
+# and validated against. Bump deliberately (and re-run the suite) rather than drifting.
+#
+# pytest     -- test runner.
+# paho-mqtt  -- listener.py imports paho.mqtt.client at module top, so the
+#               route_message tests can only import listener with it present.
+pytest==9.1.1
+paho-mqtt==2.1.0

@@ -203,6 +203,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-181](#dl-181) | 2026-08-20 | **CI dev-deps + listener.route_message tests** (closes the last audit test-infra gap, F15's other half). Added `requirements-dev.txt` (pytest + paho-mqtt) and switched the CI pytest job to install from it — previously CI installed only pytest, so any test importing `listener.py` (which imports `paho.mqtt.client` at module top) couldn't run. New `tests/test_listener.py` (10 tests) drives `route_message` against the real `schema.sql` on an in-memory DB (no hardware/network — alerter no-ops without NTFY_TOPIC): sensor fan-out + per-device storage, non-JSON rejection, null-field skipping, and the state-message fields the audits touched — **F11 moist_ema stored + -1 sentinel skipped**, session_ml/dose_count, maintenance, pump. Mutation-verified (forcing the moist_ema guard false / breaking fan-out fails the right tests). Suite now 72 Python + 31 C++ | Active |
 | [DL-182](#dl-182) | 2026-08-20 | **Option 2b — remote start (firmware).** Integrated now handles `plant/cmd/dose` payload `"start"` → `fsm_request_start()`, a latching one-shot ORed into the existing `req_start` signal (same path as the MANUAL short-press) — so it inherits every gate: acts only in `ST_MONITOR`, rejected on stale soil, blocked by leak/abort/reservoir safety (which override before the switch), dose clamped by the session cap. **Unlike the MANUAL button, remote start RESPECTS maintenance** — the one-shot is always consumed but only fires when armed (`!maintenance`); in maintenance it logs "ignored — arm first" and does nothing, so an unattended command can't override a deliberate pause (the agreed conservative design). Triggers the normal plateau-gated session (`start_session`, DOSE1_ML→supplements); sessions log "remote" vs "button". Added `fsm_request_start()` (fsm.h/.cpp), the cmd/dose start branch (net_mqtt.cpp). Braces balanced, 31 C++ tests green. **Reflash + verify: remote start doses when armed, is ignored in maintenance. Dashboard Start button is the DL-183 follow-up** | Active |
 | [DL-183](#dl-183) | 2026-08-20 | **Option 2b UI — dashboard Start button (remote-control feature complete).** With remote start verified on hardware (DL-182), added a truthful "Start watering session" button to the controls page, shown ONLY when armed + `monitor` (idle, ready) — exactly the state the firmware honours. Rewrote the session-control area to map every FSM state to one truthful control: active session→Abort, armed+monitor→Start, maintenance→"arm first" caption, fault→"clear fault" caption, else neutral caption. Simulated all state×maintenance combos for exclusivity/coverage. Publishes `start` to `plant/cmd/dose` via `send_dose_cmd`. Completes the remote-control arc: DL-168 (removed lying buttons)→169/170 (abort)→182/183 (start). py_compile OK; dashboard-only deploy | Active |
+| [DL-184](#dl-184) | 2026-08-20 | **Pin CI test deps for reproducible builds** (P2 hygiene). `requirements-dev.txt` used `>=` ranges, so a future `pip install` could pull a newer pytest/paho whose behaviour differs from what the suite was validated against. Pinned to the exact known-good versions (`pytest==9.1.1`, `paho-mqtt==2.1.0`) — bumps become deliberate + re-tested rather than silent drift. CI GitHub Actions (checkout@v4, setup-python@v5, python 3.12) were already appropriately pinned. Verified install resolves + 72 tests pass under the pins | Active |
 
 ---
 
@@ -4517,6 +4518,23 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Arc complete.** Remote control end-to-end: DL-168 removed the lying dose buttons → DL-169/170 built + exposed remote abort → DL-182/183 built + exposed remote start (maintenance-respecting). The dashboard now offers exactly the remote controls that work: maintenance toggle, Start (when idle+armed), Abort (during a session).
 
 **Files.** `hub/06-dashboard/dash_pages/controls.py`.
+
+---
+
+<a id="dl-184"></a>
+### DL-184 — Pin CI test dependencies for reproducible builds
+
+**Date:** 2026-08-20 · **Status:** Active — P2 hygiene (the one P2 item worth doing regardless of threat model).
+
+**Why.** `requirements-dev.txt` declared `pytest>=8.0` / `paho-mqtt>=1.6,<3.0`. Ranges mean a future CI run (or a fresh local `pip install`) could resolve a newer version whose behaviour differs from what the tests were written and validated against — a silent-drift source that turns "CI was green last month" into a non-reproducible claim.
+
+**Change.** Pinned to the exact versions the suite is known-good on: `pytest==9.1.1`, `paho-mqtt==2.1.0`. Version bumps are now a deliberate edit (re-run the suite, then commit the new pin) rather than passive drift. The GitHub Actions themselves were already pinned appropriately (`actions/checkout@v4`, `actions/setup-python@v5`, `python-version: "3.12"`).
+
+**Scope note.** This is test/CI reproducibility only; it does not touch the Pi runtime deps (managed on-device).
+
+**Verification.** `pip install -r requirements-dev.txt` resolves to the pinned versions; full suite (72 Python + 31 C++) green under them.
+
+**Files.** `requirements-dev.txt`.
 
 ---
 
