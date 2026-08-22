@@ -97,6 +97,8 @@ _st = {
     "gl_alerted": None,          # mismatch kind we've alerted on (for recovery)
     "gl_stale_since": None,      # monotonic time lux went stale during lit hours (DL-122)
     "gl_unverifiable_alerted": False,  # sustained-stale-lux alert currently firing (recovery)
+    "lux_dead_since": None,      # F7 (DL-173): monotonic time a lux-capable board stopped reporting lux
+    "lux_dead_alerted": False,   # dead-light-sensor alert currently firing (recovery)
     "ext_water_alerted": False,  # external-watering event currently alerted (debounce)
     "cam_window_since": None,    # monotonic time we entered the lit window (re-armed daily)
     "cam_alerted": False,        # silent-camera alert currently firing (for recovery)
@@ -277,6 +279,17 @@ def _latest_lux(conn):
         age = None
     return (row[0], age)
 
+def _lux_ever_seen(conn):
+    """True if this deployment has EVER recorded a lux reading. F7 (DL-173): used to
+    tell a genuinely lux-less firmware (old harness — no I2C, stay quiet) from a
+    lux-capable one whose sensor has since died (integrated with a dead/disconnected
+    BH1750 — that IS an alertable fault). A board that once reported lux and stopped,
+    while otherwise alive, has a real light-sensor failure."""
+    row = conn.execute(
+        "SELECT 1 FROM sensor_readings WHERE sensor='lux' LIMIT 1").fetchone()
+    return row is not None
+
+
 def _soil_age_s(conn):
     """Age in seconds of the most recent soil reading, or None. Used as a board-liveness
     signal (DL-139): fresh soil means the WROVER is up even when lux is absent (the
@@ -342,10 +355,28 @@ def _check_grow_light(conn, now_mono):
                        "the grow light's state can't be confirmed -- please check.",
                        "default", ["mag"])
                 _st["gl_unverifiable_alerted"] = True
+        elif expected_on and board_alive and _lux_ever_seen(conn):
+            # F7 (DL-173): the board is demonstrably up (fresh soil) but has stopped
+            # reporting lux during lit hours, AND it has reported lux before -> this is
+            # a lux-capable firmware whose BH1750 has died/disconnected (or the lux
+            # telemetry path broke), NOT a lux-less harness. The old carve-out treated
+            # this as benign and silently masked a real sensor failure. Alert on it.
+            if _st["lux_dead_since"] is None:
+                _st["lux_dead_since"] = now_mono
+            if (now_mono - _st["lux_dead_since"] >= GROW_LUX_UNVERIFIABLE_S
+                    and not _st["lux_dead_alerted"]):
+                notify("Light sensor not reporting",
+                       "The controller is up (soil data is fresh) but the light sensor "
+                       "(BH1750) has sent nothing for 30+ min during the daytime "
+                       "photoperiod. The sensor may be dead or disconnected -- grow-light "
+                       "verification is lost until it's fixed.",
+                       "default", ["bulb"])
+                _st["lux_dead_alerted"] = True
         else:
-            # Either outside lit hours, or the board is alive but this firmware doesn't
-            # read lux (harness). Neither is actionable as an outage; reset the timer.
+            # Outside lit hours, or a board that has never reported lux (a genuinely
+            # lux-less firmware). Neither is actionable; reset the timers.
             _st["gl_stale_since"] = None
+            _st["lux_dead_since"] = None
         # Can't evaluate a mismatch without lux; clear those trackers.
         _st["gl_mismatch_since"] = None
         _st["gl_mismatch_kind"] = None
@@ -357,7 +388,13 @@ def _check_grow_light(conn, now_mono):
                "Light-sensor data is flowing again; the grow light can be verified.",
                "default", ["white_check_mark"])
         _st["gl_unverifiable_alerted"] = False
+    if _st["lux_dead_alerted"]:
+        notify("Light sensor recovered",
+               "The light sensor (BH1750) is reporting again.",
+               "default", ["white_check_mark"])
+        _st["lux_dead_alerted"] = False
     _st["gl_stale_since"] = None
+    _st["lux_dead_since"] = None
 
     lit = lux > GROW_LUX_THRESHOLD
     if expected_on and not lit:

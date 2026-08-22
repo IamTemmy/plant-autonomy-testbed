@@ -192,6 +192,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-170](#dl-170) | 2026-08-20 | **Option 2a — restore truthful dashboard Abort button.** With remote abort verified on hardware (DL-169), restored a real Abort button on the controls page — now honest, since the firmware actually stops the session. Shown **only while a session is active** (`dosing`/`settle`/`grace`) so it never implies control when there's nothing to stop; otherwise an honest caption. Publishes `abort` to `plant/cmd/dose` via `send_dose_cmd`. Remote **start** still NOT offered (deferred riskier half — dose via MANUAL at the plant). Fixed the stale `send_dose_cmd` docstring. Closes the F4 loop properly (interim removal DL-168 → real capability DL-169 → truthful UI DL-170). py_compile OK; deploy = scp controls.py + dash_common.py + dashboard restart | Active |
 | [DL-171](#dl-171) | 2026-08-20 | **Audit fix F15 — alert-contract test** (the durable guard against F1/F2/F5). New `tests/test_alert_contract.py` (7 tests) parses the actual state/reason strings out of `fsm.cpp` and asserts them against the alerter's two dicts: every fault STATE has a `FAULT_ALERTS` entry; every stop/fault REASON is in `_WATERING_ALERTS`, covered by its state alert, or on an explicit intentional-silence allowlist (`abort`/`maintenance`/`recovery cleared`/`target reached`/`soil sensor stale`); no dead alert keys the firmware never emits; plus explicit P0 guards + the F5 leak/disconnect distinction. Parses firmware directly so it tracks reality, not a hand-copy. Mutation-verified: re-removing `sensor_fault` or the pump-max-runtime reason fails it. Suite now 59 Python + 31 C++. Would have caught all three of F1/F2/F5 | Active |
 | [DL-172](#dl-172) | 2026-08-20 | **Audit fix F11 — store moist_pct (the FSM decision variable).** The firmware publishes `moist_pct` (the smoothed EMA the watering logic actually acts on) in the state payload (DL-148), but the listener parsed every other field and silently dropped it — so the exact variable that drives dosing decisions was never persisted, unrecoverable for the future consumption model. Now stored in `system_status` as metric `moist_ema` (distinct from the raw `soil_raw`/`moisture` in sensor_readings — this is what the FSM *believed*, not the instantaneous probe), skipping the firmware's `-1` no-reading sentinel. listener.py py_compiles; hub-only, deploy = scp + restart plant-listener. Follow-up: a `listener.route_message` test (audit F15) needs paho in CI (requirements-dev.txt) — deferred | Active |
+| [DL-173](#dl-173) | 2026-08-20 | **Audit fix F7 — lux carve-out no longer masks a dead BH1750.** The DL-137/139 board-liveness gate treated "board alive (soil fresh) but no lux" as benign — correct for the harness (no I2C, never any lux) but wrong for integrated, which reads lux: a died/disconnected BH1750 during daytime went completely unreported. Fix: added `_lux_ever_seen()` and split the carve-out — if the board is up, lux is absent 30+ min during lit hours, AND lux was ever recorded (lux-capable firmware), alert "Light sensor not reporting" (dead/disconnected BH1750); a board that never reported lux (true harness) stays silent as before. Added recovery notification + `lux_dead_since`/`lux_dead_alerted` trackers. +3 tests for `_lux_ever_seen` (mutation-verified). Same harness-era-assumption class as DL-162/172; hub-only, deploy = scp + restart plant-listener | Active |
 
 ---
 
@@ -4290,6 +4291,27 @@ Also dropped the dead `watering_fault` key (no firmware emits it).
 **Verification.** `listener.py` py_compiles. Deploy: scp to the Pi, `sudo systemctl restart plant-listener`. A `listener.route_message` unit test (audit F15's other half) needs paho-mqtt in CI (a `requirements-dev.txt` step), deferred to its own change.
 
 **Files.** `hub/04-listener/listener.py`.
+
+---
+
+<a id="dl-173"></a>
+### DL-173 — Audit fix F7: lux carve-out no longer masks a dead BH1750
+
+**Date:** 2026-08-20 · **Status:** Active — hub-only. Another harness-era assumption now wrong under integrated.
+
+**The bug.** The grow-light verifier's "no fresh lux" branch used a board-liveness gate (DL-137/139): if soil is fresh the WROVER is up, so "no lux" was assumed to be the harness (which reads no I²C) and treated as benign — the `else` branch just reset the timer and stayed silent. Integrated *does* read lux, so under it, "board alive but no lux for 30+ min during daytime" means the **BH1750 has died/disconnected** (or the lux path broke) — a real fault that was being silently masked by the very carve-out meant to suppress a harness false alarm.
+
+**Fix.** Added `_lux_ever_seen(conn)` — has this deployment ever recorded a lux reading? Split the carve-out three ways:
+- board **not** alive + lit hours → existing "controller may be offline" alert (unchanged).
+- board alive + no lux + lit hours + **has ever seen lux** → **new** "Light sensor not reporting" alert (dead/disconnected BH1750), 30-min sustained, edge-triggered with a recovery notice.
+- board alive + no lux but **never** seen lux (a genuinely lux-less firmware), or outside lit hours → silent, as before.
+Added `lux_dead_since` / `lux_dead_alerted` state trackers and a "Light sensor recovered" notice when lux returns.
+
+**Why the "ever seen lux" signal.** It cleanly separates a lux-capable board whose sensor failed (alert) from one that structurally never reports lux (stay quiet), without hardcoding a firmware assumption — and it's robust to the harness being retired.
+
+**Verification.** py_compile; alerter + contract suites green; +3 `_lux_ever_seen` tests, mutation-verified (forcing it True fails the never-seen cases). Hub-only; deploy = scp `alerter.py`, restart `plant-listener`.
+
+**Files.** `hub/04-listener/alerter.py`, `tests/test_alerter.py`.
 
 ---
 
