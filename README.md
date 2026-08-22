@@ -88,7 +88,7 @@ A single 12 V supply feeds the actuators directly and an LM2596 buck converter f
 
 ```
 firmware/
-  test-sketches/   Phase 1 — one standalone PlatformIO sketch per component (01–14), each with a README
+  test-sketches/   Phase 1 — one standalone PlatformIO sketch per component (01–16), each with a README; includes later bench diagnostics (15 i2c-scanner, 16 supervised float-divider — an explored, not-adopted, sensing approach)
   integrated/      Phase 2 — the integrated WROVER firmware (state machine, sensors, MQTT)
   camera-node/     Phase 4 — vision node (XIAO ESP32-S3 Sense): capture + HTTP POST to the Pi receiver
   bottom-water-calibration/   Phase 5 — the standalone prototype harness for soil recalibration + the bottom-watering loop; retired (DL-157, do-not-flash) once the loop was ported into integrated, kept for history
