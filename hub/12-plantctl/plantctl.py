@@ -48,7 +48,10 @@ GROW_LUX_THRESHOLD = float(os.environ.get("GROW_LUX_THRESHOLD", "30"))
 SHELLY_HOST = os.environ.get("SHELLY_HOST", "10.6.17.32")
 
 # Freshness expectations (seconds) — how old a reading may be before "stale".
-WROVER_HEARTBEAT_STALE_S = 300     # heartbeats ~ every 5 s; 5 min = offline
+WROVER_SILENCE_S = 120             # F10 (DL-187): "no telemetry this long -> offline". Aligned with
+                                   # the listener watchdog's 90s (WATCHDOG_TIMEOUT_S) plus margin for the
+                                   # 30s state-publish cadence + DB lag; replaces the old 300s that
+                                   # disagreed with the watchdog/dashboard/alerter.
 SENSOR_STALE_S = 600               # WROVER sensors publish frequently
 SERVICES = ["plant-listener", "plant-dashboard",
             "plant-photoperiod.timer", "plant-shelly-monitor.timer"]
@@ -142,18 +145,35 @@ def _check_services():
 
 def _check_wrover(conn):
     _hdr("WROVER")
-    row = _latest(conn, "system_status", "device='wrover' AND metric='fsm_state'")
     st = conn.execute(
         "SELECT status, ts FROM system_status WHERE device='wrover' AND metric='fsm_state' "
         "ORDER BY id DESC LIMIT 1").fetchone()
-    hb = _latest(conn, "system_status", "device='wrover' AND status='online'")
-    hb_age = _age_s(hb[0]) if hb else None
-    if hb_age is None:
-        _c(WARN, "heartbeat", "no online record found")
-    elif hb_age > WROVER_HEARTBEAT_STALE_S:
-        _c(FAIL, "heartbeat", f"last seen {_fmt_age(hb_age)} — WROVER may be offline / unheard")
+    # F10 (DL-187): report presence the way the watchdog/dashboard/alerter do.
+    # (1) Read the LATEST presence row (online/offline; stored with metric IS NULL), not
+    #     merely the newest 'online' row — the old query aged the last 'online' and ignored
+    #     a newer 'offline', so it could print "online" while every other component said down.
+    # (2) Age the freshest telemetry from ANY wrover signal (sensors publish every ~2 s,
+    #     state every 30 s) — the same "any publish" liveness the listener watchdog uses —
+    #     rather than the sparse fsm_state alone, and against a timeout aligned with it.
+    pres = conn.execute(
+        "SELECT status FROM system_status WHERE device='wrover' AND metric IS NULL "
+        "ORDER BY id DESC LIMIT 1").fetchone()
+    pres_status = pres[0] if pres else None
+    newest_sensor = conn.execute(
+        "SELECT MAX(ts) FROM sensor_readings WHERE device IN ('wrover','soil','bh1750','bme280')"
+    ).fetchone()[0]
+    newest_state = st[1] if st else None
+    cands = [t for t in (newest_sensor, newest_state) if t]
+    tel_age = min((_age_s(t) for t in cands), default=None)
+
+    if pres_status == "offline":
+        _c(FAIL, "heartbeat", "offline (last-will / watchdog marked it down)")
+    elif tel_age is None:
+        _c(WARN, "heartbeat", "no telemetry on record")
+    elif tel_age > WROVER_SILENCE_S:
+        _c(FAIL, "heartbeat", f"silent {_fmt_age(tel_age)} — WROVER offline / unheard")
     else:
-        _c(OK, "heartbeat", f"online, {_fmt_age(hb_age)}")
+        _c(OK, "heartbeat", f"online, last heard {_fmt_age(tel_age)} ago")
     if st:
         _c(INFO, "fsm state", f"{st[0]} (as of {_local(st[1])})")
 

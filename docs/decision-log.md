@@ -206,6 +206,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-184](#dl-184) | 2026-08-20 | **Pin CI test deps for reproducible builds** (P2 hygiene). `requirements-dev.txt` used `>=` ranges, so a future `pip install` could pull a newer pytest/paho whose behaviour differs from what the suite was validated against. Pinned to the exact known-good versions (`pytest==9.1.1`, `paho-mqtt==2.1.0`) — bumps become deliberate + re-tested rather than silent drift. CI GitHub Actions (checkout@v4, setup-python@v5, python 3.12) were already appropriately pinned. Verified install resolves + 72 tests pass under the pins | Active |
 | [DL-185](#dl-185) | 2026-08-20 | **SECURITY.md — threat model + deliberate hardening deferrals.** Documented the security model rather than adding controls for their own sake: single-operator, single-plant, nothing internet-exposed, remote access only via a private Tailscale tailnet limited to the operator's own devices; authenticated MQTT (no anon), git-ignored secrets, on-device EnvironmentFile creds. Explicitly records MQTT per-topic ACLs and camera-node auth as **deliberately deferred** — they defend against a broker-reachable-but-limited party, which the network model doesn't have (anyone who can reach the broker is already the operator) — with the exact revisit conditions and intended role model for if the deployment ever broadens. Notes the real watering safety lives in firmware fail-safes, not the network layer. Linked from the README roadmap. Closes the P2 'security hardening' item as a reasoned decision, not a checkbox | Active |
 | [DL-186](#dl-186) | 2026-08-20 | **Audit R1 — remote abort no longer strands the system from idle.** DL-169 ORed remote abort into the *unconditional* `req_abort` path (same as the physical STOP). Fine for STOP (operator present at the ACK button), but dangerous for remote: the dashboard's 30s-refresh Abort button can linger ~30s after a session ends, so a click from `ST_MONITOR` latched `ST_STOPPED` — which clears ONLY via physical ACK, killing auto-watering until someone's at the bench (breaks the unattended premise). A regression introduced by DL-169, caught by the post-remote-control audit. Fix: gate `remote_abort` on the existing `active` predicate (`dosing`/`settle`/`grace`) — from idle it's consumed but ignored (logs "no active session"), no STOPPED latch. **Physical STOP stays unconditional** (emergency stop); no remote ACK added (keeping ACK physical is a deliberate safety property). Braces balanced, 31 C++ tests green. **Firmware → batches reflash with any further firmware fixes** | Active |
+| [DL-187](#dl-187) | 2026-08-20 | **Audit F10 — plantctl online/offline now agrees with the rest of the hub.** Two real bugs in `_check_wrover`: (1) it aged the newest `status='online'` row and ignored whether a newer `offline` row superseded it — so `plantctl health` could print ✓online while the watchdog/dashboard/alerter said offline; (2) its 300s staleness threshold disagreed with the listener watchdog's 90s. Fix mirrors `alerter._presence`: read the LATEST presence row (`metric IS NULL`, online|offline) and treat `offline` as down; otherwise age the freshest telemetry from ANY wrover signal (sensors ~2s / state 30s — the same 'any publish' liveness the watchdog uses) against a new `WROVER_SILENCE_S=120` aligned with the watchdog's 90s + margin. Also removed the dead `row = _latest(...)` assignment (F10-minor, plantctl:145). py_compile + 72 tests green; `_check_wrover` is a console-print fn (no direct test, consistent with existing design — helpers it uses are tested). Hub-only, no reflash | Active |
 
 ---
 
@@ -4572,6 +4573,25 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Verification.** `btn_stop.pressed_edge` still unconditional in `req_abort`; `remote_abort` now `active`-gated; braces balanced; `water_logic.h` untouched → 31 C++ tests green. **Reflash, then verify: remote abort during a session stops it (unchanged); remote abort from `monitor` is ignored (serial logs it, state stays monitor, auto-watering continues); physical STOP still stops from any state.**
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-187"></a>
+### DL-187 — Audit F10: plantctl presence agrees with the rest of the hub
+
+**Date:** 2026-08-20 · **Status:** Active — hub-only; the one prior-audit item that was never actually addressed (mistakenly folded into F6 earlier).
+
+**Two bugs in `plantctl._check_wrover`.**
+1. **Ignored a newer `offline` row.** It found the most recent `status='online'` row and aged it, never asking whether a *newer* `offline` row (written by the firmware Last-Will or the listener watchdog) had superseded it. So after the device went down, the last `online` row could still be recent enough that `plantctl health` printed "✓ heartbeat online" while the dashboard, alerter, and watchdog all correctly reported offline.
+2. **Threshold mismatch.** plantctl used 300 s; the listener watchdog marks offline at 90 s (`WATCHDOG_TIMEOUT_S`). Even without bug 1, the two disagreed for anything in the 90–300 s window.
+
+**Fix (mirrors `alerter._presence`).** Read the **latest presence row** (`metric IS NULL`, which holds `online`/`offline`) and report offline if that's what it says. Otherwise age the **freshest telemetry from any wrover signal** — sensors publish ~every 2 s, state every 30 s — which is the same "any publish" liveness the watchdog tracks, rather than the sparse `fsm_state` alone. Replaced `WROVER_HEARTBEAT_STALE_S=300` with `WROVER_SILENCE_S=120`, aligned with the watchdog's 90 s plus margin for the 30 s state cadence and DB-write lag, so plantctl and the watchdog now agree on "offline."
+
+**Bonus.** Removed the dead `row = _latest(...)` assignment (the F10-minor finding) that was computed and never used.
+
+**Verification.** py_compile; full suite (72 Python + 31 C++) green. `_check_wrover` is a console-printing function (uses `_c()`), so — consistent with the existing plantctl test design — it has no direct unit test; the pure helpers it relies on (`_age_s`, `_fmt_age`) are tested. Deploy: scp `plantctl.py`; picks up on next run (no restart).
+
+**Files.** `hub/12-plantctl/plantctl.py`.
 
 ---
 
