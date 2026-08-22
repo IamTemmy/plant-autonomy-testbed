@@ -190,6 +190,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-168](#dl-168) | 2026-08-20 | **Audit fix F4 (dashboard, no reflash)** — removed the dead/lying dose buttons. The controls page's Start/Abort buttons published to `plant/cmd/dose`, which the integrated (production) firmware doesn't subscribe to — so `send_dose_cmd` returned True and the UI reported "the pump will stop and the session will end" while nothing happened: a dangerous false safety affordance during an emergency. Replaced both with an honest note (remote dose/abort not yet available; use the maintenance toggle to pause remotely, or MANUAL at the plant to dose); dropped the now-unused `send_dose_cmd` import (helper kept in dash_common for the planned real implementation). This is the interim fix; **Option 2 — actually implementing remote dose/abort in the firmware — is the follow-up feature.** py_compile OK; deploy = scp controls.py + dashboard restart | Active |
 | [DL-169](#dl-169) | 2026-08-20 | **Option 2a — remote abort (firmware).** Integrated now subscribes to `plant/cmd/dose` and handles payload `"abort"` → `fsm_request_abort()`, a latching one-shot ORed into the same `req_abort` path as the physical STOP button (→ pump off, `stopped`, reason "abort"). Mirrors the `cmd/maintenance` request pattern exactly. **Safe by construction: can only STOP a session, never start one** — `"start"` is explicitly ignored for now (remote start is the riskier, later half). Added `fsm_request_abort()` (fsm.h/.cpp), `MQTT_TOPIC_CMD_DOSE` (config.h), and the handler+subscribe (net_mqtt.cpp). Braces balanced, 31 C++ tests green. **Needs reflash + verify remote abort stops an active dose.** Dashboard Abort button restored in a follow-up once verified | Active |
 | [DL-170](#dl-170) | 2026-08-20 | **Option 2a — restore truthful dashboard Abort button.** With remote abort verified on hardware (DL-169), restored a real Abort button on the controls page — now honest, since the firmware actually stops the session. Shown **only while a session is active** (`dosing`/`settle`/`grace`) so it never implies control when there's nothing to stop; otherwise an honest caption. Publishes `abort` to `plant/cmd/dose` via `send_dose_cmd`. Remote **start** still NOT offered (deferred riskier half — dose via MANUAL at the plant). Fixed the stale `send_dose_cmd` docstring. Closes the F4 loop properly (interim removal DL-168 → real capability DL-169 → truthful UI DL-170). py_compile OK; deploy = scp controls.py + dash_common.py + dashboard restart | Active |
+| [DL-171](#dl-171) | 2026-08-20 | **Audit fix F15 — alert-contract test** (the durable guard against F1/F2/F5). New `tests/test_alert_contract.py` (7 tests) parses the actual state/reason strings out of `fsm.cpp` and asserts them against the alerter's two dicts: every fault STATE has a `FAULT_ALERTS` entry; every stop/fault REASON is in `_WATERING_ALERTS`, covered by its state alert, or on an explicit intentional-silence allowlist (`abort`/`maintenance`/`recovery cleared`/`target reached`/`soil sensor stale`); no dead alert keys the firmware never emits; plus explicit P0 guards + the F5 leak/disconnect distinction. Parses firmware directly so it tracks reality, not a hand-copy. Mutation-verified: re-removing `sensor_fault` or the pump-max-runtime reason fails it. Suite now 59 Python + 31 C++. Would have caught all three of F1/F2/F5 | Active |
 
 ---
 
@@ -4249,6 +4250,28 @@ Also dropped the dead `watering_fault` key (no firmware emits it).
 **Verification.** Both files py_compile. Deploy: scp `controls.py` + `dash_common.py` to the Pi, restart the dashboard. To see the button live, it must be viewed while a session is active (e.g. during a manual dose).
 
 **Files.** `hub/06-dashboard/dash_pages/controls.py`, `hub/06-dashboard/dash_common.py`.
+
+---
+
+<a id="dl-171"></a>
+### DL-171 — Audit fix F15: alert-contract test
+
+**Date:** 2026-08-20 · **Status:** Active — the durable guard for the F1/F2/F5 bug class.
+
+**Why.** F1 (stop reasons never published), F2 (fault states with no alert), and F5 (wrong leak copy) were all one shape: a firmware string with no matching — or the wrong — alerter key, so a real fault latched the pump silently. Fixing the instances (DL-163/167) doesn't stop the *next* one. A contract test does.
+
+**What.** `tests/test_alert_contract.py` (7 tests) parses the real strings out of `firmware/integrated/src/fsm.cpp` — `state_name()` returns and every `last_reason =` assignment incl. the leak ternary — so it tracks the actual firmware rather than a hand-copied list, then checks them against the alerter's `FAULT_ALERTS` (state-keyed) and `_WATERING_ALERTS` (reason-keyed):
+1. every firmware fault state (`leak_fault`, `sensor_fault`, `recovery_hold`, `reservoir_empty`) has a `FAULT_ALERTS` entry;
+2. every stop/fault reason is in `_WATERING_ALERTS`, or covered by its state alert, or on an explicit intentional-silence allowlist (`abort`, `maintenance`, `recovery cleared`, `target reached`, `soil sensor stale`);
+3. no `FAULT_ALERTS` key references a state the firmware never emits (catches dead keys like the old `watering_fault`);
+4. the allowlist itself only names reasons the firmware still emits (so it can't hide a real gap);
+5. explicit guards for the four P0 reasons and the F5 leak-vs-disconnect distinction.
+
+**Teeth.** Mutation-verified: re-removing `sensor_fault` fails rule 1; re-removing the pump-max-runtime reason fails rules 2 and 5. So a reintroduced F1/F2/F5-class bug fails CI immediately.
+
+**Suite.** 59 Python (52 + 7) + 31 C++. No code changed — additive test only.
+
+**Files.** `tests/test_alert_contract.py`.
 
 ---
 
