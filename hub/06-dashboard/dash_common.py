@@ -340,7 +340,7 @@ def latest_camera():
     with get_conn() as conn:
         return conn.execute(
             "SELECT ts, path, greenness, green_area, green_ratio "
-            "FROM camera_readings ORDER BY ts DESC LIMIT 1"
+            "FROM camera_readings ORDER BY id DESC LIMIT 1"
         ).fetchone()
 
 def load_camera_image(path: str, max_width: int = 800):

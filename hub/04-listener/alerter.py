@@ -265,7 +265,7 @@ def _latest_lux(conn):
     """Most recent lux reading as (value, age_seconds), or (None, None)."""
     row = conn.execute(
         "SELECT value, ts FROM sensor_readings WHERE sensor='lux' "
-        "ORDER BY id DESC LIMIT 1").fetchone()
+        "AND device='bh1750' ORDER BY id DESC LIMIT 1").fetchone()
     if not row or row[0] is None:
         return (None, None)
     try:
@@ -282,7 +282,8 @@ def _lux_ever_seen(conn):
     BH1750 — that IS an alertable fault). A board that once reported lux and stopped,
     while otherwise alive, has a real light-sensor failure."""
     row = conn.execute(
-        "SELECT 1 FROM sensor_readings WHERE sensor='lux' LIMIT 1").fetchone()
+        "SELECT 1 FROM sensor_readings WHERE sensor='lux' AND device='bh1750' "
+        "LIMIT 1").fetchone()
     return row is not None
 
 
@@ -442,7 +443,7 @@ def _pump_ran_recently(conn, minutes):
     direct actuator signal (water actually dispensed), so an aborted watering that
     never ran the pump correctly does NOT suppress external-watering detection."""
     n = conn.execute(
-        "SELECT COUNT(*) FROM system_status WHERE metric='pump' AND status='on' "
+        "SELECT COUNT(*) FROM system_status WHERE device='wrover' AND metric='pump' AND status='on' "
         f"AND ts >= {_TS_CUTOFF}",
         (f"-{minutes} minutes",)).fetchone()[0]
     return bool(n)
@@ -452,7 +453,7 @@ def _soil_avg(conn, older_min, newer_min):
     """Average soil moisture for readings between older_min and newer_min ago
     (newer_min=None means up to the present)."""
     sql = ("SELECT AVG(value) FROM sensor_readings WHERE sensor='moisture' "
-           f"AND ts >= {_TS_CUTOFF}")
+           f"AND device='soil' AND ts >= {_TS_CUTOFF}")
     params = [f"-{older_min} minutes"]
     if newer_min is not None:
         sql += f" AND ts < {_TS_CUTOFF}"

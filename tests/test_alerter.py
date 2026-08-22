@@ -107,7 +107,7 @@ def test_latest_lux_none_when_absent():
 
 def test_latest_lux_returns_value_and_age():
     c = _conn()
-    _add_reading(c, "lux", 42.0, age_s=15)
+    _add_reading(c, "lux", 42.0, age_s=15, device="bh1750")
     val, age = alerter._latest_lux(c)
     assert val == 42.0
     assert age is not None and 0 <= age < 120
@@ -115,8 +115,8 @@ def test_latest_lux_returns_value_and_age():
 
 def test_latest_lux_takes_most_recent():
     c = _conn()
-    _add_reading(c, "lux", 10.0, age_s=600)
-    _add_reading(c, "lux", 99.0, age_s=5)
+    _add_reading(c, "lux", 10.0, age_s=600, device="bh1750")
+    _add_reading(c, "lux", 99.0, age_s=5, device="bh1750")
     val, _ = alerter._latest_lux(c)
     assert val == 99.0
 
@@ -187,7 +187,7 @@ def test_lux_ever_seen_false_when_none():
 def test_lux_ever_seen_true_after_any_lux():
     # A lux-capable board that has reported lux at least once — even long ago.
     c = _conn()
-    _add_reading(c, "lux", 42.0, age_s=99999)
+    _add_reading(c, "lux", 42.0, age_s=99999, device="bh1750")
     assert alerter._lux_ever_seen(c) is True
 
 

@@ -108,8 +108,11 @@ def _local(ts_str):
     return t.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M %Z")
 
 def _latest(conn, table, where, params=()):
+    # F12 (DL-177): order by id, not ts. ts is 1-second-resolution text, so rows can
+    # share a ts; ORDER BY ts then picks an arbitrary member of the tie. id is a
+    # unique monotonic rowid, so ORDER BY id DESC always returns the true latest row.
     row = conn.execute(
-        f"SELECT ts, value FROM {table} WHERE {where} ORDER BY ts DESC LIMIT 1",
+        f"SELECT ts, value FROM {table} WHERE {where} ORDER BY id DESC LIMIT 1",
         params).fetchone()
     return row  # (ts, value) or None
 
@@ -142,7 +145,7 @@ def _check_wrover(conn):
     row = _latest(conn, "system_status", "device='wrover' AND metric='fsm_state'")
     st = conn.execute(
         "SELECT status, ts FROM system_status WHERE device='wrover' AND metric='fsm_state' "
-        "ORDER BY ts DESC LIMIT 1").fetchone()
+        "ORDER BY id DESC LIMIT 1").fetchone()
     hb = _latest(conn, "system_status", "device='wrover' AND status='online'")
     hb_age = _age_s(hb[0]) if hb else None
     if hb_age is None:
@@ -158,20 +161,20 @@ def _check_pump(conn):
     _hdr("Pump / watering")
     st = conn.execute(
         "SELECT status, ts FROM system_status WHERE device='wrover' AND metric='fsm_state' "
-        "ORDER BY ts DESC LIMIT 1").fetchone()
+        "ORDER BY id DESC LIMIT 1").fetchone()
     fsm = st[0] if st else "unknown"
     # Maintenance is a separate flag (DL-128/DL-133), not a state string — read the metric.
     mrow = conn.execute(
         "SELECT value FROM system_status WHERE device='wrover' AND metric='maintenance' "
-        "ORDER BY ts DESC LIMIT 1").fetchone()
+        "ORDER BY id DESC LIMIT 1").fetchone()
     maint = bool(mrow[0]) if mrow and mrow[0] is not None else False
     if maint:
         _c(OK, "mode", f"maintenance — auto-watering disabled (state: {fsm})")
     else:
         _c(INFO, "mode", f"armed (state: {fsm})")
     on = conn.execute(
-        "SELECT ts FROM system_status WHERE metric='pump' AND value>0 "
-        "ORDER BY ts DESC LIMIT 1").fetchone()
+        "SELECT ts FROM system_status WHERE device='wrover' AND metric='pump' AND value>0 "
+        "ORDER BY id DESC LIMIT 1").fetchone()
     if on:
         _c(INFO, "last pump-on", _local(on[0]))
     else:
