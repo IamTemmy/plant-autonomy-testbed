@@ -276,18 +276,6 @@ def _latest_lux(conn):
         age = None
     return (row[0], age)
 
-def _lux_ever_seen(conn):
-    """True if this deployment has EVER recorded a lux reading. F7 (DL-173): used to
-    tell a genuinely lux-less firmware (old harness — no I2C, stay quiet) from a
-    lux-capable one whose sensor has since died (integrated with a dead/disconnected
-    BH1750 — that IS an alertable fault). A board that once reported lux and stopped,
-    while otherwise alive, has a real light-sensor failure."""
-    row = conn.execute(
-        "SELECT 1 FROM sensor_readings WHERE sensor='lux' AND device='bh1750' "
-        "LIMIT 1").fetchone()
-    return row is not None
-
-
 def _soil_age_s(conn):
     """Age in seconds of the most recent soil reading, or None. Used as a board-liveness
     signal (DL-139): fresh soil means the WROVER is up even when lux is absent (the
@@ -353,12 +341,16 @@ def _check_grow_light(conn, now_mono):
                        "the grow light's state can't be confirmed -- please check.",
                        "default", ["mag"])
                 _st["gl_unverifiable_alerted"] = True
-        elif expected_on and board_alive and _lux_ever_seen(conn):
-            # F7 (DL-173): the board is demonstrably up (fresh soil) but has stopped
-            # reporting lux during lit hours, AND it has reported lux before -> this is
-            # a lux-capable firmware whose BH1750 has died/disconnected (or the lux
-            # telemetry path broke), NOT a lux-less harness. The old carve-out treated
-            # this as benign and silently masked a real sensor failure. Alert on it.
+        elif expected_on and board_alive:
+            # F7 (DL-173; guard dropped DL-188): the board is demonstrably up (fresh soil)
+            # but has stopped reporting lux during lit hours -> its BH1750 has died/
+            # disconnected (or the lux telemetry path broke). Grow-light verification is
+            # lost, so alert. The earlier `_lux_ever_seen` carve-out (stay quiet if the
+            # board had never reported lux, to spare the lux-less calibration harness) was
+            # removed: that harness is retired (DL-157, do-not-flash) so the only board is
+            # the lux-capable integrated firmware, and a BH1750 that never worked is itself
+            # a real fault worth surfacing. It was also retention-bound (the marker aged out
+            # of sensor_readings after 30 days, silently restoring the mask).
             if _st["lux_dead_since"] is None:
                 _st["lux_dead_since"] = now_mono
             if (now_mono - _st["lux_dead_since"] >= GROW_LUX_UNVERIFIABLE_S

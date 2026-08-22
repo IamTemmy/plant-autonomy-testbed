@@ -175,24 +175,3 @@ def test_presence_returns_latest():
     assert alerter._presence(c) == "offline"
 
 
-# --------------------------------------------------------------------------- #
-# _lux_ever_seen -- F7: dead-sensor vs never-had-lux distinction               #
-# --------------------------------------------------------------------------- #
-
-def test_lux_ever_seen_false_when_none():
-    # A board that has never reported lux (a genuinely lux-less firmware).
-    assert alerter._lux_ever_seen(_conn()) is False
-
-
-def test_lux_ever_seen_true_after_any_lux():
-    # A lux-capable board that has reported lux at least once — even long ago.
-    c = _conn()
-    _add_reading(c, "lux", 42.0, age_s=99999, device="bh1750")
-    assert alerter._lux_ever_seen(c) is True
-
-
-def test_lux_ever_seen_ignores_other_sensors():
-    # Soil readings must not count as "lux ever seen".
-    c = _conn()
-    _add_reading(c, "soil_raw", 2400, age_s=10, device="soil")
-    assert alerter._lux_ever_seen(c) is False
