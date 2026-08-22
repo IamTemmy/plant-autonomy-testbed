@@ -198,6 +198,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-176](#dl-176) | 2026-08-20 | **Audit fix F8 — revive the watering-page episode overlay.** `watering_episodes` keyed off retired states (`watering`/`manual`) and computed volume from the retired `daily_pump_ms` delta — so under integrated it detected zero episodes and the soil chart never shaded a watering bout. Rewrote it to derive episodes from integrated data: an episode is a contiguous span in an active state (`dosing`/`settle`/`grace`), and delivered volume is the **peak `session_ml`** reached during the span (real data, DL-148/172). Also retired the now-unread misleading `daily_pump_ms` key from `latest_fsm_state` (→ `value`), completing the F9 coupling. Trigger labeled 'Auto' (integrated state history doesn't distinguish manual). py_compile OK, 62+31 tests green; dashboard-only deploy | Active |
 | [DL-177](#dl-177) | 2026-08-20 | **Audit fixes F12 + F13 — query correctness across the hub.** **F12 (same-second tie ordering):** `ts` is 1-second-resolution text, so `ORDER BY ts DESC LIMIT 1` picks an arbitrary row among same-second ties instead of the newest. Converted all latest-row queries to `ORDER BY id DESC` (unique monotonic rowid): plantctl `_latest` helper + 4 inline queries, and the dash_common camera-readings query. **F13 (missing device predicates):** EAV queries that filtered only on sensor/metric could mix devices if a name ever overlapped. Pinned each to its verified device (sensors publish on per-sensor topics → lux=`bh1750`, moisture/soil=`soil`, air=`bme280`): plantctl pump-on query (+`device='wrover'`), alerter `_latest_lux`/`_lux_ever_seen` (+`device='bh1750'`), alerter external-water pump-count (+`device='wrover'`), alerter `_soil_avg` (+`device='soil'`). Updated 3 F7 lux tests to the bh1750 device. 62 Python + 31 C++ green; hub-only deploy | Active |
 | [DL-178](#dl-178) | 2026-08-20 | **Audit fix F14 — stale-comment sweep** (documentation only, zero behavior change). Removed post-P1-8 comments that now contradict the code: alerter + listener both claimed "the integrated firmware sends no reason, so only the harness triggers these" / "no-op for integrated" — false since the port (integrated publishes reasons; F1/DL-163 restored the stop ones and the alerts are load-bearing). Fixed the `DOSE_CMD_TOPIC` comment ("harness start|abort" → integrated handles abort, start deferred, DL-169). Clarified the plantctl lux-stale comment (integrated DOES read lux, so sustained stale lux can mean a dead BH1750 per DL-173 — plantctl reports INFO as a point-in-time check). Left accurate historical notes intact. Verified diff is comments-only; 62+31 tests green | Active |
+| [DL-179](#dl-179) | 2026-08-20 | **Audit fix #6 — last rollover-unsafe timer.** Inventory of fsm.cpp time comparisons found all timers already use the rollover-safe `(uint32_t)(now - last_ms) >= interval` form EXCEPT one: the periodic state-publish used `if (now >= state_pub_next_ms)` — an absolute deadline that misfires once every ~49.7 days when `millis()` wraps (would spuriously publish then stop republishing until the next wrap). Converted to elapsed-since form (`state_pub_next_ms` → `state_pub_last_ms`), mirroring the existing `blink_last_ms` pattern. Telemetry-only timer (not pump-path), low risk. Braces balanced, 31 C++ tests green. **Batches with #3 for one final firmware reflash** | Active |
 
 ---
 
@@ -4405,6 +4406,23 @@ Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, int
 **Verification.** Diff confirmed comments-only (the one flagged code line was an unchanged assignment with a changed trailing comment); all four files py_compile; full suite (62 Python + 31 C++) green. Deploy with the next hub push; no restart strictly required for comments, but scp on next convenient deploy.
 
 **Files.** `hub/04-listener/alerter.py`, `hub/04-listener/listener.py`, `hub/06-dashboard/dash_common.py`, `hub/12-plantctl/plantctl.py`.
+
+---
+
+<a id="dl-179"></a>
+### DL-179 — Audit fix #6: last rollover-unsafe timer
+
+**Date:** 2026-08-20 · **Status:** Active — firmware; batches with #3 for the final reflash.
+
+**Context.** DL-131 (reliability sprint) converted the FSM cadence timers from absolute-deadline (`now >= next_ms`) to elapsed-since (`(uint32_t)(now - last_ms) >= interval`), which is correct across the ~49.7-day `millis()` wrap. A full re-inventory of `fsm.cpp` for the audit found every time comparison already in the safe form — buttons, dose/settle/grace/plateau, pump ceiling, soil freshness, leak debounce, LED blink — **except one**: the periodic retained-state publish still used `if (now >= state_pub_next_ms)`.
+
+**Impact.** At the millis rollover that single check misfires: `now` wraps to near 0 while `state_pub_next_ms` is still large, so `now >= next` is false for a long stretch (or fires once spuriously), disturbing the retained-state refresh cadence for one wrap window every ~49.7 days of uptime. Minor and self-correcting, but it's the same defect class DL-131 fixed everywhere else.
+
+**Fix.** Converted to the elapsed-since form (`state_pub_next_ms` → `state_pub_last_ms`; `(uint32_t)(now - state_pub_last_ms) >= MQTT_PUBLISH_INTERVAL_MS`), matching the neighbouring `blink_last_ms` timer. Telemetry cadence only — no pump-path effect.
+
+**Verification.** No `state_pub_next_ms` or absolute `now >=` deadline remains in `fsm.cpp`; braces balanced; 31 C++ tests green. Reflash (batched with #3). Not bench-observable without a 49.7-day uptime; logic-verified.
+
+**Files.** `firmware/integrated/src/fsm.cpp`.
 
 ---
 

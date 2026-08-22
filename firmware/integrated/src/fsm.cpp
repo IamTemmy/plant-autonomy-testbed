@@ -125,7 +125,7 @@ static bool          blink_on      = false;
 static unsigned long blink_last_ms = 0;
 
 // ---- state publish cadence ------------------------------------------------
-static unsigned long state_pub_next_ms = 0;
+static unsigned long state_pub_last_ms = 0;   // #6 (DL-179): elapsed-since form, rollover-safe
 
 // ---- buttons (integrated infra; STOP<->abort, ACK, MANUAL<->dose) ----------
 struct Button {
@@ -526,10 +526,12 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
         publish_state_now();
     }
 
-    // Periodic retained state refresh.
-    if (now >= state_pub_next_ms) {
+    // Periodic retained state refresh. Rollover-safe elapsed form (#6/DL-179):
+    // the old `now >= next_ms` deadline check misfires once every ~49.7 days when
+    // millis() wraps; `(now - last) >= interval` is correct across the wrap.
+    if ((uint32_t)(now - state_pub_last_ms) >= MQTT_PUBLISH_INTERVAL_MS) {
         publish_state_now();
-        state_pub_next_ms = now + MQTT_PUBLISH_INTERVAL_MS;
+        state_pub_last_ms = now;
     }
 }
 
