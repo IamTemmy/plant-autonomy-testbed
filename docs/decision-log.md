@@ -209,6 +209,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-187](#dl-187) | 2026-08-20 | **Audit F10 — plantctl online/offline now agrees with the rest of the hub.** Two real bugs in `_check_wrover`: (1) it aged the newest `status='online'` row and ignored whether a newer `offline` row superseded it — so `plantctl health` could print ✓online while the watchdog/dashboard/alerter said offline; (2) its 300s staleness threshold disagreed with the listener watchdog's 90s. Fix mirrors `alerter._presence`: read the LATEST presence row (`metric IS NULL`, online|offline) and treat `offline` as down; otherwise age the freshest telemetry from ANY wrover signal (sensors ~2s / state 30s — the same 'any publish' liveness the watchdog uses) against a new `WROVER_SILENCE_S=120` aligned with the watchdog's 90s + margin. Also removed the dead `row = _latest(...)` assignment (F10-minor, plantctl:145). py_compile + 72 tests green; `_check_wrover` is a console-print fn (no direct test, consistent with existing design — helpers it uses are tested). Hub-only, no reflash | Active |
 | [DL-188](#dl-188) | 2026-08-20 | **Audit follow-up — drop the retention-bound `_lux_ever_seen` guard (F7 hardening).** The DL-173 guard distinguished a lux-less calibration harness (stay quiet) from a lux-capable board whose BH1750 died (alert), by checking whether lux had EVER been recorded. But it queried only `sensor_readings`, which is pruned at 30 days — so a BH1750 dead longer than 30 days aged out its last lux row, `_lux_ever_seen` flipped to False, and F7's mask silently returned (a dead sensor stopped alerting). Fix (Option 2, chosen over adding a durable marker table): remove the guard entirely. The harness is retired (DL-157, do-not-flash) so the only board is the lux-capable integrated firmware, and a BH1750 that never worked is itself a real fault worth surfacing — so F7 now alerts whenever the board is alive (fresh soil) + no lux for 30 min during lit hours, with no history dependency and no retention hole. Removed the helper + its 3 tests; updated the branch comment. py_compile + 69 Python + 31 C++ green. Hub-only, no reflash. (A future genuinely lux-less node would be re-gated then — harnesses remain buildable anytime) | Active |
 | [DL-189](#dl-189) | 2026-08-20 | **Post-audit cleanup sweep** (hub + docs; the audit's minor tier). (1) **Retained-message guard:** the dashboard's `send_maintenance_cmd`/`send_dose_cmd` relied on paho's default `retain=False`; made it explicit + commented, so a command can never be accidentally retained (which would replay to the WROVER on every reconnect, re-dosing/re-toggling). (2) **Stale comments from DL-182/183:** `DOSE_CMD_TOPIC` comment and `send_dose_cmd` docstring both said `"start" deferred/not handled` — false since DL-182; corrected. (3) **listener state-payload:** comment claimed the WROVER publishes `daily_pump_ms` (it doesn't since the P1-8 port); removed the permanently-None `daily = data.get(...)` read and now write the `fsm_state` row's numeric value as explicit `None` (behaviour-preserving — it was always NULL via `daily`), with an accurate comment. (4) **DL-186 validation record** added from the 2026-08-22 hardware test. py_compile + 69 Python + 31 C++ green; hub deploy (dashboard + listener) | Active |
+| [DL-190](#dl-190) | 2026-08-20 | **README currency pass** — the README still described the pre-P1-8-port world (bottom-watering as a separate prototype harness, watering "rework in progress"). Updated to reflect reality: status badge "watering rework in progress" → "autonomous watering live"; status intro reframed (rework done, volume-metered loop ported to production + hardware-validated + remote control); Phase 5 🚧→✅ Complete; "Next" row now Vision + adaptive lighting (security hardening moved to documented-in-SECURITY.md); the "Autonomous watering" bullet rewritten from "paused pending rework/prototype" to the production bottom-watering FSM (volume-metered, reboot-safe, remote-controllable), with an honest note that auto-triggering is implemented+unit-tested and the loop has run end-to-end on hardware; repo-layout note that the calibration harness is retired (DL-157); roadmap's bottom-watering item reframed to remaining refinement (consumption model); and stale "daily-limit" → per-session volume cap. Docs only; no test/behavior change | Active |
 
 ---
 
@@ -4630,6 +4631,31 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Verification.** No `daily` references remain; py_compile clean; full suite 69 Python + 31 C++ green, including the `route_message` state-payload tests (confirming the NULL-value change didn't alter parsing). Deploy: scp `dash_common.py` + `listener.py`; restart `plant-dashboard` + `plant-listener`.
 
 **Files.** `hub/06-dashboard/dash_common.py`, `hub/04-listener/listener.py`, `docs/decision-log.md`.
+
+---
+
+<a id="dl-190"></a>
+### DL-190 — README currency pass
+
+**Date:** 2026-08-20 · **Status:** Active — documentation only; brings the README in line with the post-audit, post-remote-control reality.
+
+**Why.** The README's watering narrative still described the world before the P1-8 port: bottom-watering as a standalone prototype harness, the rework "in progress," the top-water logic "paused." In fact the bottom-watering loop is now the production integrated firmware — volume-metered, reboot-safe (DL-180), hardware-validated (the reflash serial showed a full `[SESSION] DONE … 100 mL over 1 dose(s)` cycle through settle→plateau→DONE), and controllable remotely (start DL-182 / abort DL-186) as well as at the plant.
+
+**Edits.**
+- Status badge: "watering rework in progress" → "autonomous watering live".
+- Status intro: reframed to "sensing, telemetry, dashboard, camera, lighting, and autonomous watering all live," rework described as done.
+- Phase 5 row: 🚧 In progress → ✅ Complete, description updated to volume-metered loop ported + validated + remote/dashboard control.
+- "Next" row: was "Adaptive lighting, security hardening" → "Vision analysis, adaptive lighting" (security hardening is now a settled, documented decision in SECURITY.md, not pending work).
+- "Autonomous watering" bullet: rewritten from paused/prototype framing to the production FSM, with an honest boundary — auto-triggering on a natural dry-down is implemented and unit-tested; the loop itself has run end-to-end on hardware (a fully autonomous soil-triggered cycle awaits a natural dry-down, not an engineering gap).
+- Repo layout: `bottom-water-calibration/` noted as the retired prototype harness (DL-157, do-not-flash), kept for history.
+- Roadmap: the "autonomous bottom watering" item (now shipped) reframed to "watering refinement" — the remaining work is the data-driven consumption model + more plateau-timing tuning, not core build.
+- Safety-states bullet: stale "daily-limit handling" → "per-session volume-cap handling" (the bottom-watering regime caps per session; there is no daily-limit state in the current FSM).
+
+**Not overclaimed.** The narrative deliberately stops short of "fully autonomous soil-triggered cycle observed in production" — that awaits a natural dry-down to ~20%. Everything stated is validated.
+
+**Follow-up noted (not in this commit).** Two stale *firmware* doc-comments remain (`fsm.h:6` and `fsm.cpp:15` still list the old `DAILY_LIMIT`/top-water states) — comment-only, no runtime effect; a candidate for a tiny future firmware-comment sweep.
+
+**Files.** `README.md`.
 
 ---
 

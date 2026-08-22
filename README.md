@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-ESP32--WROVER-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
-[![Status](https://img.shields.io/badge/Status-Operational%20%C2%B7%20watering%20rework%20in%20progress-brightgreen.svg)](#project-status)
+[![Status](https://img.shields.io/badge/Status-Operational%20%C2%B7%20autonomous%20watering%20live-brightgreen.svg)](#project-status)
 
 ## Overview
 
@@ -14,7 +14,7 @@ It originated from an engineering interview question — *"how would you design 
 
 ## Project status
 
-The system is **operational** — sensing, telemetry, dashboard, camera, and lighting are live; autonomous watering is being reworked for a root/bottom-watering regime (prototype validated, production port pending). Development has run in phases:
+The system is **operational** — sensing, telemetry, dashboard, camera, lighting, and autonomous watering are all live. The watering control loop was reworked to a root/bottom-watering regime with volume-metered dosing, ported into the production firmware, and validated on hardware, with remote start/abort control. Development has run in phases:
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -22,8 +22,8 @@ The system is **operational** — sensing, telemetry, dashboard, camera, and lig
 | **Phase 2** | Integrated ESP32-WROVER firmware — sensing, the watering state machine, dosing, fault detection | ✅ Complete |
 | **Phase 3** | Raspberry Pi telemetry hub — MQTT broker, database, live dashboard | ✅ Complete |
 | **Phase 4** | Camera vision node — XIAO ESP32-S3 Sense capture, Pi-side greenness metrics, dashboard panel | ✅ Complete |
-| **Phase 5** | Root/bottom watering — probe recalibration, an autonomous dose→settle→evaluate control loop (prototype validated), phone alerts + dashboard control | 🚧 In progress |
-| **Next** | Adaptive lighting, security hardening | 🔜 Roadmap |
+| **Phase 5** | Root/bottom watering — probe recalibration, volume-metered dose→settle→evaluate loop ported to the production firmware and hardware-validated, phone alerts, dashboard + remote start/abort control | ✅ Complete |
+| **Next** | Vision analysis (greenness → growth/health), adaptive lighting | 🔜 Roadmap |
 
 ## Engineering framing
 
@@ -49,9 +49,9 @@ Four functional layers:
 
 ## What it does now
 
-- **Autonomous watering** — the ESP32 waters from a `millis()`-based state machine: dosing when soil crosses the dry threshold, verifying the effect, and bounding total water with a daily cap. This original top-water logic is currently **paused (maintenance mode) pending a rework** to a root/bottom-watering regime — a bottom-watering control loop that has been prototyped and validated on real hardware, though its first live cycle showed a large sensor-vs-actuator lag that is driving a move to volume-metered dosing (Phase 5; DL-104–117).
+- **Autonomous watering** — the ESP32 waters from a `millis()`-based state machine: when soil crosses the dry threshold it doses a precisely metered volume, settles, and evaluates the effect against a moisture-plateau, supplementing toward target and bounding total water with a per-session cap. This root/bottom-watering loop (a rework of the original top-water logic, which showed large sensor-vs-actuator lag) is now the production firmware — volume-metered, reboot-safe, and controllable remotely (start/abort) as well as at the plant (Phase 5; DL-104–188). Auto-triggering on a natural dry-down is implemented and unit-tested; the loop itself has run end-to-end on hardware.
 - **Closed-loop watering watchdog** — detects watering that isn't moving soil moisture and latches a `watering_fault` instead of running dry (catches an empty reservoir, dead pump, clog, or disconnected float).
-- **Safety states** — leak detection, emergency stop, reservoir-empty, and daily-limit handling, surfaced on status LEDs, an OLED, and a buzzer.
+- **Safety states** — leak detection, emergency stop, reservoir-empty, sensor-fault, and per-session volume-cap handling, surfaced on status LEDs, an OLED, and a buzzer.
 - **Scheduled grow light** — a fixed daily photoperiod (07:00–19:00) enforced from the always-on Pi every ~2 min over local RPC, self-healing a plug reboot within one tick; the smart plug's onboard schedule is kept as a fallback so the light still cycles if the Pi is down (DL-074).
 - **Live remote dashboard** — current state, sensor readings, a soil-moisture trend with watering episodes overlaid, and power telemetry.
 - **Device-presence awareness** — if the controller drops offline, the dashboard detects it — via the MQTT Last-Will, and via a hub-side timeout watchdog that also catches a device hung but still TCP-connected — greys stale readings, and flags exactly when contact was lost. Controller reboots are detected from uptime resets and surfaced, with a warning if they start flapping.
@@ -91,7 +91,7 @@ firmware/
   test-sketches/   Phase 1 — one standalone PlatformIO sketch per component (01–14), each with a README
   integrated/      Phase 2 — the integrated WROVER firmware (state machine, sensors, MQTT)
   camera-node/     Phase 4 — vision node (XIAO ESP32-S3 Sense): capture + HTTP POST to the Pi receiver
-  bottom-water-calibration/   Phase 5 — standalone harness: soil recalibration + the autonomous bottom-watering control loop
+  bottom-water-calibration/   Phase 5 — the standalone prototype harness for soil recalibration + the bottom-watering loop; retired (DL-157, do-not-flash) once the loop was ported into integrated, kept for history
 hub/
   01-pi-setup … 11-shelly-monitor   Phases 3–4 — Pi hub: broker, listener, dashboard, camera receiver, grow-light, retention, monitors
 docs/
@@ -114,7 +114,7 @@ This project was built with AI assistance (Anthropic's Claude), used as a design
 
 ## Roadmap
 
-- **Autonomous bottom watering** — the sense → dose → settle → evaluate loop is built and logic-validated in a standalone harness (DL-104–110), with recalibrated moisture anchors, ntfy alerts, and dashboard start/abort control. What remains: one real supervised watering cycle (to tune plateau-detection timing against real, hours-long wicking) and then porting the loop into the integrated firmware as the production watering FSM, retiring the top-water pulse logic.
+- **Watering refinement** — the sense → dose → settle → evaluate loop is built, ported into the production firmware, and hardware-validated, with recalibrated moisture anchors, ntfy alerts, and dashboard + remote start/abort control (DL-104–188). What remains is refinement rather than core work: gathering real dose→response data to build a consumption model (regression first, ML later) so dose sizing adapts as the plant grows, and tuning plateau-detection timing against more real, hours-long wicking cycles.
 - **Vision analysis** — the Seeed XIAO ESP32-S3 Sense node (replacing the original ESP32-CAM, DL-034) and Pi-side greenness metrics are live (DL-076–090); what remains is turning the greenness trend into growth/health analysis beyond foliage-area-in-frame.
 - **Adaptive lighting** — supplement the photoperiod from the BH1750 against a daily-light-integral target, rather than a fixed schedule.
 - **Security hardening** — the threat model and the deliberate deferral of MQTT ACLs / camera auth (the system is single-operator, private-tailnet, no internet exposure) are documented in [SECURITY.md](SECURITY.md). Future work if the deployment ever broadens: dashboard authentication and MQTT over TLS.
