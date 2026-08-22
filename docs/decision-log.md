@@ -199,6 +199,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-177](#dl-177) | 2026-08-20 | **Audit fixes F12 + F13 — query correctness across the hub.** **F12 (same-second tie ordering):** `ts` is 1-second-resolution text, so `ORDER BY ts DESC LIMIT 1` picks an arbitrary row among same-second ties instead of the newest. Converted all latest-row queries to `ORDER BY id DESC` (unique monotonic rowid): plantctl `_latest` helper + 4 inline queries, and the dash_common camera-readings query. **F13 (missing device predicates):** EAV queries that filtered only on sensor/metric could mix devices if a name ever overlapped. Pinned each to its verified device (sensors publish on per-sensor topics → lux=`bh1750`, moisture/soil=`soil`, air=`bme280`): plantctl pump-on query (+`device='wrover'`), alerter `_latest_lux`/`_lux_ever_seen` (+`device='bh1750'`), alerter external-water pump-count (+`device='wrover'`), alerter `_soil_avg` (+`device='soil'`). Updated 3 F7 lux tests to the bh1750 device. 62 Python + 31 C++ green; hub-only deploy | Active |
 | [DL-178](#dl-178) | 2026-08-20 | **Audit fix F14 — stale-comment sweep** (documentation only, zero behavior change). Removed post-P1-8 comments that now contradict the code: alerter + listener both claimed "the integrated firmware sends no reason, so only the harness triggers these" / "no-op for integrated" — false since the port (integrated publishes reasons; F1/DL-163 restored the stop ones and the alerts are load-bearing). Fixed the `DOSE_CMD_TOPIC` comment ("harness start|abort" → integrated handles abort, start deferred, DL-169). Clarified the plantctl lux-stale comment (integrated DOES read lux, so sustained stale lux can mean a dead BH1750 per DL-173 — plantctl reports INFO as a point-in-time check). Left accurate historical notes intact. Verified diff is comments-only; 62+31 tests green | Active |
 | [DL-179](#dl-179) | 2026-08-20 | **Audit fix #6 — last rollover-unsafe timer.** Inventory of fsm.cpp time comparisons found all timers already use the rollover-safe `(uint32_t)(now - last_ms) >= interval` form EXCEPT one: the periodic state-publish used `if (now >= state_pub_next_ms)` — an absolute deadline that misfires once every ~49.7 days when `millis()` wraps (would spuriously publish then stop republishing until the next wrap). Converted to elapsed-since form (`state_pub_next_ms` → `state_pub_last_ms`), mirroring the existing `blink_last_ms` pattern. Telemetry-only timer (not pump-path), low risk. Braces balanced, 31 C++ tests green. **Batches with #3 for one final firmware reflash** | Active |
+| [DL-180](#dl-180) | 2026-08-20 | **Audit fix #3 — reboot-safe dose reservation (Option A: reserve-then-reconcile).** Before, `begin_dose` saved `session_ml` to NVS *before* the dose but the delivered volume was only added *after* the dose completed — so a reboot mid-dose lost up to one dose's water from the session total, letting the 600mL `SESSION_CAP_ML` be under-budgeted on resume. Fix: `begin_dose` now RESERVES the full intended dose into `session_ml` and persists it to NVS before the pump starts; when leaving DOSING the accounting RECONCILES down to actually-delivered (returns the unused remainder on abort/fault/short dose). A clean dose nets ~0 correction; a mid-dose reboot never reaches the reconcile, so the reserved (conservative) count stands — the cap can only be over-, never under-counted. clamp_dose still runs pre-reserve (no double-count). Braces balanced, 31 C++ tests green. **Last substantive firmware item; reflash batches DL-179+DL-180 (and DL-174 if not yet flashed)** | Active |
 
 ---
 
@@ -4421,6 +4422,26 @@ Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, int
 **Fix.** Converted to the elapsed-since form (`state_pub_next_ms` → `state_pub_last_ms`; `(uint32_t)(now - state_pub_last_ms) >= MQTT_PUBLISH_INTERVAL_MS`), matching the neighbouring `blink_last_ms` timer. Telemetry cadence only — no pump-path effect.
 
 **Verification.** No `state_pub_next_ms` or absolute `now >=` deadline remains in `fsm.cpp`; braces balanced; 31 C++ tests green. Reflash (batched with #3). Not bench-observable without a 49.7-day uptime; logic-verified.
+
+**Files.** `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-180"></a>
+### DL-180 — Audit fix #3: reboot-safe dose reservation (reserve-then-reconcile)
+
+**Date:** 2026-08-20 · **Status:** Active — last substantive firmware fix. **Awaiting reflash (batch with DL-179, and DL-174 if not yet flashed).**
+
+**The gap.** `begin_dose` persisted `session_ml` to NVS *before* starting the pump, but `session_ml` was only incremented by the delivered volume *after* the dose finished (the accounting step on leaving DOSING). So the NVS snapshot during a dose held the *pre-dose* total. A reboot mid-dose therefore recovered a `session_ml` that omitted the water already delivered in the interrupted dose — up to one full dose (≤150 mL) uncounted. On resume, the `SESSION_CAP_ML` (600 mL) budget is computed against that undercount, so a session spanning a reboot could deliver more than the cap intends. Bounded (narrow mid-dose reboot window; per-dose 150 mL cap and leak sensor still active) but a real flaw in the transaction model.
+
+**Fix — Option A (reserve-then-reconcile), chosen over periodic-save (flash wear) and accept-and-document.**
+- `begin_dose`: after clamping the dose against the current `session_ml`, **reserve** the full intended dose (`session_ml += ml`) and persist via `nvs_save_txn(true)` *before* the pump starts. NVS now reflects the full dose as if delivered.
+- Leaving DOSING (accounting step): **reconcile** — return the portion not actually delivered (`unused = dose_ml_target − dose_delivered_ml()`, subtract if positive, floor at 0). A clean full dose corrects by ~0; an aborted/fault-cut dose returns the unused remainder, so normal accounting stays precise.
+- A mid-dose **reboot** never reaches the reconcile, so the reserved (conservative) total stands in NVS → the cap can only ever be over-counted, never under — errs toward *less* water. Exactly the safe direction.
+
+**Correctness trace.** `clamp_dose` runs on `session_ml` *before* the reserve (no double-count); multi-dose sessions clamp each dose against the reconciled running total; the ceiling case caps `dose_delivered_ml()` at target so unused=0 (keeps the reserve, fine for a fault path). Verified against all DOSING-exit paths (normal→settle, abort→stopped, fault, ceiling).
+
+**Verification.** Braces balanced; `water_logic.h` untouched → 31 C++ tests green. **Reflash; verify a normal dose still accounts correctly (session_ml tracks delivered) and a mid-dose abort leaves the actual delivered amount.** The reboot path is logic-verified (hard to bench without cutting power mid-dose).
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
 

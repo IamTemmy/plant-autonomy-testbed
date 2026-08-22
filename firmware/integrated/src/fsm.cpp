@@ -207,12 +207,15 @@ static void begin_dose(int ml, bool reservoir_empty) {
     dose_target_ms = (unsigned long)((float)ml / PUMP_ML_PER_SEC * 1000.0f);
     dose_start_ms  = millis();
     dose_count++;
+    session_ml    += ml;    // #3 (DL-180): RESERVE the full dose up-front, so a reboot
+                            // mid-dose counts it (conservative — cap can't be under-budgeted);
+                            // reconciled down to actually-delivered when we leave DOSING.
     state = ST_DOSING;
-    nvs_save_txn(true);     // P0-1: record "dosing" in NVS BEFORE any water flows
+    nvs_save_txn(true);     // P0-1: persist the reserved total + "dosing" BEFORE any water flows
     pump_on_tracked();
     Serial.printf("[DOSE] #%d: %d mL (%lu ms) | before %.1f%% | session -> %d/%d mL\n",
                   dose_count, ml, dose_target_ms, dose_before,
-                  (int)session_ml + ml, SESSION_CAP_ML);
+                  (int)session_ml, SESSION_CAP_ML);
     publish_state_now();
 }
 
@@ -509,9 +512,15 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
         }
     }
 
-    // Account water delivered whenever we leave DOSING.
+    // Reconcile the reserved dose whenever we leave DOSING (#3 / DL-180). begin_dose
+    // added the FULL intended dose to session_ml up-front (reboot-safety); here we
+    // return the portion that wasn't actually delivered (e.g. an abort or fault cut
+    // the dose short). A clean, full dose returns ~0; a mid-dose reboot never reaches
+    // this line, so its reserved (conservative) count stands in NVS.
     if (prev_state == ST_DOSING && state != ST_DOSING) {
-        session_ml += dose_delivered_ml();
+        float unused = (float)dose_ml_target - dose_delivered_ml();
+        if (unused > 0.0f) session_ml -= unused;
+        if (session_ml < 0.0f) session_ml = 0.0f;
     }
 
     // Blink phase for any blinking LED states (none blink in this port, but keep the tick).
