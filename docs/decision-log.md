@@ -191,6 +191,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-169](#dl-169) | 2026-08-20 | **Option 2a — remote abort (firmware).** Integrated now subscribes to `plant/cmd/dose` and handles payload `"abort"` → `fsm_request_abort()`, a latching one-shot ORed into the same `req_abort` path as the physical STOP button (→ pump off, `stopped`, reason "abort"). Mirrors the `cmd/maintenance` request pattern exactly. **Safe by construction: can only STOP a session, never start one** — `"start"` is explicitly ignored for now (remote start is the riskier, later half). Added `fsm_request_abort()` (fsm.h/.cpp), `MQTT_TOPIC_CMD_DOSE` (config.h), and the handler+subscribe (net_mqtt.cpp). Braces balanced, 31 C++ tests green. **Needs reflash + verify remote abort stops an active dose.** Dashboard Abort button restored in a follow-up once verified | Active |
 | [DL-170](#dl-170) | 2026-08-20 | **Option 2a — restore truthful dashboard Abort button.** With remote abort verified on hardware (DL-169), restored a real Abort button on the controls page — now honest, since the firmware actually stops the session. Shown **only while a session is active** (`dosing`/`settle`/`grace`) so it never implies control when there's nothing to stop; otherwise an honest caption. Publishes `abort` to `plant/cmd/dose` via `send_dose_cmd`. Remote **start** still NOT offered (deferred riskier half — dose via MANUAL at the plant). Fixed the stale `send_dose_cmd` docstring. Closes the F4 loop properly (interim removal DL-168 → real capability DL-169 → truthful UI DL-170). py_compile OK; deploy = scp controls.py + dash_common.py + dashboard restart | Active |
 | [DL-171](#dl-171) | 2026-08-20 | **Audit fix F15 — alert-contract test** (the durable guard against F1/F2/F5). New `tests/test_alert_contract.py` (7 tests) parses the actual state/reason strings out of `fsm.cpp` and asserts them against the alerter's two dicts: every fault STATE has a `FAULT_ALERTS` entry; every stop/fault REASON is in `_WATERING_ALERTS`, covered by its state alert, or on an explicit intentional-silence allowlist (`abort`/`maintenance`/`recovery cleared`/`target reached`/`soil sensor stale`); no dead alert keys the firmware never emits; plus explicit P0 guards + the F5 leak/disconnect distinction. Parses firmware directly so it tracks reality, not a hand-copy. Mutation-verified: re-removing `sensor_fault` or the pump-max-runtime reason fails it. Suite now 59 Python + 31 C++. Would have caught all three of F1/F2/F5 | Active |
+| [DL-172](#dl-172) | 2026-08-20 | **Audit fix F11 — store moist_pct (the FSM decision variable).** The firmware publishes `moist_pct` (the smoothed EMA the watering logic actually acts on) in the state payload (DL-148), but the listener parsed every other field and silently dropped it — so the exact variable that drives dosing decisions was never persisted, unrecoverable for the future consumption model. Now stored in `system_status` as metric `moist_ema` (distinct from the raw `soil_raw`/`moisture` in sensor_readings — this is what the FSM *believed*, not the instantaneous probe), skipping the firmware's `-1` no-reading sentinel. listener.py py_compiles; hub-only, deploy = scp + restart plant-listener. Follow-up: a `listener.route_message` test (audit F15) needs paho in CI (requirements-dev.txt) — deferred | Active |
 
 ---
 
@@ -4272,6 +4273,23 @@ Also dropped the dead `watering_fault` key (no firmware emits it).
 **Suite.** 59 Python (52 + 7) + 31 C++. No code changed — additive test only.
 
 **Files.** `tests/test_alert_contract.py`.
+
+---
+
+<a id="dl-172"></a>
+### DL-172 — Audit fix F11: store moist_pct (the FSM decision variable)
+
+**Date:** 2026-08-20 · **Status:** Active — hub-only; recovers a data stream that was being silently discarded.
+
+**The bug.** Since DL-148 the integrated firmware publishes `moist_pct` in the state payload — the **smoothed EMA** that the watering FSM actually keys its decisions on (`should_trigger`, plateau, evaluate). But the listener's state handler read `state`/`pump`/`daily`/`maintenance`/`session_ml`/`dose_count` and never `moist_pct`, so it was parsed-adjacent and dropped. The single most decision-relevant number in the system was not being stored — and unlike raw telemetry, once a cycle passes it can't be recovered. This directly starves the future consumption/dosing model (the whole point of collecting draw-down cycles).
+
+**Fix.** Store `moist_pct` in `system_status` under metric `moist_ema`, alongside the other state fields. Deliberately named to distinguish it from the raw probe values in `sensor_readings` (`soil_raw` adc, `moisture` %): those are the instantaneous sensor; `moist_ema` is what the FSM *believed and acted on*. The firmware sends `-1` when its EMA is still NaN (pre-first-reading); those sentinels are skipped so the series holds only real values.
+
+**Why it matters now.** Every armed cycle that passes without this is decision-variable data lost for good — so it's the most time-sensitive of the remaining audit items.
+
+**Verification.** `listener.py` py_compiles. Deploy: scp to the Pi, `sudo systemctl restart plant-listener`. A `listener.route_message` unit test (audit F15's other half) needs paho-mqtt in CI (a `requirements-dev.txt` step), deferred to its own change.
+
+**Files.** `hub/04-listener/listener.py`.
 
 ---
 

@@ -191,6 +191,9 @@ def route_message(
                 _last_maint[device] = bool(maint)   # DL-138: for reboot classification
             session_ml = data.get("session_ml")  # delivered volume in mL (harness P1-6; integrated DL-148)
             dose_count = data.get("dose_count")
+            moist_ema = data.get("moist_pct")     # F11 (DL-172): the FSM's smoothed EMA — the decision
+                                                  # variable the watering logic acts on (distinct from the raw
+                                                  # soil probe in sensor_readings). -1 means "no reading yet".
             if state is not None:
                 conn.execute(
                     """INSERT INTO system_status
@@ -214,6 +217,16 @@ def route_message(
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (ts, message_id, run_id, device, state or "", "dose_count",
                      float(dose_count)),
+                )
+            # F11 (DL-172): store the FSM's smoothed moisture (decision variable).
+            # Skip the -1 sentinel the firmware sends before it has a valid reading.
+            if moist_ema is not None and float(moist_ema) >= 0:
+                conn.execute(
+                    """INSERT INTO system_status
+                       (ts, message_id, run_id, device, status, metric, value)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (ts, message_id, run_id, device, state or "", "moist_ema",
+                     float(moist_ema)),
                 )
             if maint is not None:
                 conn.execute(
