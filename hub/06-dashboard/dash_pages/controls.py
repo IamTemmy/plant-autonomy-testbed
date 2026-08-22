@@ -43,22 +43,33 @@ else:
             st.success(f"Sent '{_cmd}'. The status will update once the device confirms.")
 
 st.markdown("### Bottom-watering session")
-# DL-170: remote abort is now real — the integrated firmware handles
-# plant/cmd/dose "abort" (DL-169), routing it into the STOP-button path. The Abort
-# button is shown only while a session is actually active, so it never falsely
-# implies control when there's nothing to stop. Remote "start" is NOT offered yet
-# (deferred, riskier half) — a dose is still started at the plant via MANUAL.
+# DL-183: the firmware now handles both remote commands on plant/cmd/dose — "abort"
+# (DL-169) and "start" (DL-182, which respects maintenance). The controls here mirror
+# exactly what the firmware will honour, so no button ever implies control it lacks:
+#   * active session (dosing/settle/grace)  -> Abort
+#   * armed + monitor (idle, ready)          -> Start
+#   * maintenance / fault / reservoir-empty  -> honest caption (nothing offered)
 _ACTIVE_STATES = {"dosing", "settle", "grace"}
-_active = bool(_fsm) and _fsm["state"] in _ACTIVE_STATES
+_state = _fsm["state"] if _fsm else None
+_active = _state in _ACTIVE_STATES
+_in_fault = _state in _FAULT_STATES
+
 if _active:
-    st.warning(f"A watering session is active (**{_fsm['state']}**).")
+    st.warning(f"A watering session is active (**{_state}**).")
     if st.button("Abort watering now", key="dose_abort"):
         if send_dose_cmd("abort"):
             st.success("Sent 'abort'. The pump will stop and the session will end; "
                        "the state will update to 'stopped' once the device confirms.")
+elif _maint:
+    st.caption("In maintenance — remote start is disabled (arm above first). "
+               "A dose can still be started at the plant with the MANUAL button.")
+elif _in_fault:
+    st.caption("Controller is in a fault state — clear it before starting a session.")
+elif _state == "monitor":
+    st.caption("Armed and idle. Start a full plateau-gated watering session now:")
+    if st.button("Start watering session", key="dose_start"):
+        if send_dose_cmd("start"):
+            st.success("Sent 'start'. The controller will begin a session if soil is "
+                       "fresh and the reservoir isn't empty; watch the state and your phone.")
 else:
-    st.caption(
-        "No active watering session to abort. Remote *start* isn't available yet — "
-        "to force a dose, use the MANUAL button at the plant. To pause auto-watering "
-        "remotely, use the maintenance toggle above."
-    )
+    st.caption("Session controls unavailable in the current state.")
