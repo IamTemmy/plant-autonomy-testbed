@@ -26,6 +26,7 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
 // next fsm_tick() through the same safety-ordered path as the MANUAL long-press
 // (faults still override; entering pauses the pump).
 void fsm_request_maintenance(bool on);
+void fsm_request_abort();   // remote abort (DL-169): stop the current session; STOP-button equivalent
 
 // Accessors for the display layer.
 const char* fsm_state_name();

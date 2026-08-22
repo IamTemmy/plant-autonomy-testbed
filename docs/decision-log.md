@@ -188,6 +188,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-166](#dl-166) | 2026-08-20 | **Audit fixes F3 + F6 (hub, no reflash)** — two more harness-era stale-value bugs, same class as DL-162. **F3:** dashboard `_FAULT_STATES` was hardcoded `{leak_fault, stopped, watering_fault}` — missing integrated's `sensor_fault`/`recovery_hold` (so the arm button was offered during those latched faults) and carrying the dead `watering_fault`. Now derived from `STATE_DISPLAY`'s `fault` tier so the two can't drift. **F6:** `plantctl` `TRIGGER_PCT` defaulted to 30 vs firmware's 20 — cried wolf across the normal 20-40% band; set to 20. Both py_compile; deploy = scp + dashboard restart (plantctl picks up on next run) | Active |
 | [DL-167](#dl-167) | 2026-08-20 | **Audit fixes F2 + F5 (alerter, no reflash)** — restore missing fault alerts + fix leak-disconnect copy. **F2:** three P0 fail-safes fired the pump-off latch but sent NO push. Added `sensor_fault` + `recovery_hold` to state-keyed `FAULT_ALERTS` (dropped dead `watering_fault`); added `"pump max-runtime exceeded"` to reason-keyed `_WATERING_ALERTS`. **F5:** `leak_fault` state alert said "Water detected" for BOTH a real leak and a disconnected sensor (opposite responses). Since `reason` isn't persisted (only flows event-driven via `on_watering_state`), added a distinct `"leak sensor disconnected"` reason alert (check-the-connector copy) and made the reason-blind polled `leak_fault` state alert neutral ("leak or disconnect — check sensor and tray"). Every P0 fail-safe now alerts; leak vs disconnect distinguished. py_compile + 15 alerter tests green; deploy = scp alerter.py + restart plant-listener | Active |
 | [DL-168](#dl-168) | 2026-08-20 | **Audit fix F4 (dashboard, no reflash)** — removed the dead/lying dose buttons. The controls page's Start/Abort buttons published to `plant/cmd/dose`, which the integrated (production) firmware doesn't subscribe to — so `send_dose_cmd` returned True and the UI reported "the pump will stop and the session will end" while nothing happened: a dangerous false safety affordance during an emergency. Replaced both with an honest note (remote dose/abort not yet available; use the maintenance toggle to pause remotely, or MANUAL at the plant to dose); dropped the now-unused `send_dose_cmd` import (helper kept in dash_common for the planned real implementation). This is the interim fix; **Option 2 — actually implementing remote dose/abort in the firmware — is the follow-up feature.** py_compile OK; deploy = scp controls.py + dashboard restart | Active |
+| [DL-169](#dl-169) | 2026-08-20 | **Option 2a — remote abort (firmware).** Integrated now subscribes to `plant/cmd/dose` and handles payload `"abort"` → `fsm_request_abort()`, a latching one-shot ORed into the same `req_abort` path as the physical STOP button (→ pump off, `stopped`, reason "abort"). Mirrors the `cmd/maintenance` request pattern exactly. **Safe by construction: can only STOP a session, never start one** — `"start"` is explicitly ignored for now (remote start is the riskier, later half). Added `fsm_request_abort()` (fsm.h/.cpp), `MQTT_TOPIC_CMD_DOSE` (config.h), and the handler+subscribe (net_mqtt.cpp). Braces balanced, 31 C++ tests green. **Needs reflash + verify remote abort stops an active dose.** Dashboard Abort button restored in a follow-up once verified | Active |
 
 ---
 
@@ -4213,6 +4214,23 @@ Also dropped the dead `watering_fault` key (no firmware emits it).
 **Verification.** `controls.py` py_compiles; no `send_dose_cmd` call or "pump will stop" copy remains. Deploy: scp `controls.py`, restart the dashboard.
 
 **Files.** `hub/06-dashboard/dash_pages/controls.py`.
+
+---
+
+<a id="dl-169"></a>
+### DL-169 — Option 2a: remote abort (firmware)
+
+**Date:** 2026-08-20 · **Status:** Active — first half of the real remote dose/abort feature (the truthful replacement for the DL-168 buttons). **Awaiting reflash.**
+
+**What.** The integrated firmware now subscribes to `plant/cmd/dose` and acts on payload `"abort"`: it calls `fsm_request_abort()`, a latching one-shot (mirroring `fsm_request_maintenance`) consumed once per tick and ORed into the existing `req_abort` signal — the exact path the physical STOP button uses. Effect: pump off, state `stopped`, reason `"abort"`, needs ACK to clear. Identical to a bench STOP press, now triggerable remotely.
+
+**Safe by construction.** Remote abort can only *stop* a session; it can never start the pump. Payload `"start"` is explicitly **not** handled (logged and ignored) — remote start is the riskier half, deferred to a later, deliberate step. So this commit adds a safety capability with no new way to energise the pump.
+
+**Pieces.** `fsm_request_abort()` decl (`fsm.h`) + def/consume (`fsm.cpp`); `MQTT_TOPIC_CMD_DOSE` (`config.h`); the two-topic message handler + `cmd/dose` subscribe (`net_mqtt.cpp`). `fsm.h` already included in `net_mqtt.cpp`.
+
+**Verification.** Braces/parens balanced across changed files; symbol declared/defined/consumed/called; `water_logic.h` untouched → 31 C++ tests green. **Reflash, then verify:** start a manual dose (bottle), publish `mosquitto_pub -t plant/cmd/dose -m abort`, confirm the pump stops and state → `stopped`/`abort`. The dashboard Abort button is restored in the follow-up (DL-170) once this is confirmed on hardware.
+
+**Files.** `firmware/integrated/src/{fsm.cpp,fsm.h,config.h,net_mqtt.cpp}`.
 
 ---
 

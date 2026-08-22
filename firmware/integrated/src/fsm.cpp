@@ -99,6 +99,12 @@ static volatile bool maint_req_pending = false;
 static volatile bool maint_req_on      = false;
 void fsm_request_maintenance(bool on) { maint_req_on = on; maint_req_pending = true; }
 
+// Remote abort (DL-169): a latching one-shot consumed in the tick, ORed into the
+// same abort path as the physical STOP button. Can only STOP a session, never start
+// one — safe by construction.
+static volatile bool abort_req_pending = false;
+void fsm_request_abort() { abort_req_pending = true; }
+
 // ---- P0-1: reboot-safe watering transaction (NVS) -------------------------
 static Preferences   nvs;
 static const char*   NVS_NS = "water";
@@ -385,7 +391,9 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
     // Manual dose intent: MANUAL short-press (release without a long-press) or... (MQTT 'start'
     // is not wired in integrated yet; DL-145 deferred cmd/dose — MANUAL button is the manual path).
     const bool req_start = (btn_manual.released_edge && !btn_manual.long_fired);
-    const bool req_abort = (btn_stop.pressed_edge);
+    bool remote_abort = false;
+    if (abort_req_pending) { remote_abort = true; abort_req_pending = false; }
+    const bool req_abort = (btn_stop.pressed_edge || remote_abort);
 
     // ---- safety first: overrides everything, every tick ----
     if (leak_confirmed) {

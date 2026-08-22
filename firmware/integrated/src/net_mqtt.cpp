@@ -25,21 +25,34 @@ static unsigned long mqtt_next_attempt_ms = 0;
 // reflects the device as offline without us having to send anything.
 static const char MQTT_WILL_PAYLOAD[] = "{\"online\":false}";
 
-// Inbound message handler. We subscribe to exactly one command topic
-// (plant/cmd/maintenance), so the only action possible is toggling the
-// intentional maintenance pause -- never the pump. Payload is "on" or "off".
+// Inbound message handler. We subscribe to two command topics:
+//   plant/cmd/maintenance -- "on"|"off", toggles the intentional pause.
+//   plant/cmd/dose        -- "abort", stops the current session (STOP-button
+//                            equivalent). "start" is intentionally NOT handled yet
+//                            (DL-169: abort-only; remote start is a later, riskier
+//                            feature). Neither topic can start the pump.
 static void mqtt_on_message(char* topic, byte* payload, unsigned int length) {
-    if (strcmp(topic, MQTT_TOPIC_CMD_MAINT) != 0) {
+    if (strcmp(topic, MQTT_TOPIC_CMD_MAINT) == 0) {
+        if (length == 2 && strncmp((const char*)payload, "on", 2) == 0) {
+            fsm_request_maintenance(true);
+            Serial.println("MQTT: remote maintenance ON");
+        } else if (length == 3 && strncmp((const char*)payload, "off", 3) == 0) {
+            fsm_request_maintenance(false);
+            Serial.println("MQTT: remote maintenance OFF");
+        } else {
+            Serial.println("MQTT: cmd/maintenance ignored (expected on|off)");
+        }
         return;
     }
-    if (length == 2 && strncmp((const char*)payload, "on", 2) == 0) {
-        fsm_request_maintenance(true);
-        Serial.println("MQTT: remote maintenance ON");
-    } else if (length == 3 && strncmp((const char*)payload, "off", 3) == 0) {
-        fsm_request_maintenance(false);
-        Serial.println("MQTT: remote maintenance OFF");
-    } else {
-        Serial.println("MQTT: cmd/maintenance ignored (expected on|off)");
+    if (strcmp(topic, MQTT_TOPIC_CMD_DOSE) == 0) {
+        if (length == 5 && strncmp((const char*)payload, "abort", 5) == 0) {
+            fsm_request_abort();
+            Serial.println("MQTT: remote abort");
+        } else {
+            // "start" and anything else are ignored (abort-only for now).
+            Serial.println("MQTT: cmd/dose ignored (only 'abort' supported)");
+        }
+        return;
     }
 }
 
@@ -163,6 +176,8 @@ void mqtt_tick() {
         mqtt_publish_status(0);  // announce online immediately (retained)
         mqtt.subscribe(MQTT_TOPIC_CMD_MAINT);  // inbound maintenance on|off
         Serial.println("MQTT: subscribed to cmd/maintenance");
+        mqtt.subscribe(MQTT_TOPIC_CMD_DOSE);   // inbound dose abort (DL-169)
+        Serial.println("MQTT: subscribed to cmd/dose");
     } else {
         Serial.print("failed, rc=");
         Serial.println(mqtt.state());
