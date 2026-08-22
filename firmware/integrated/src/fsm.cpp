@@ -426,8 +426,18 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
         else Serial.println("MQTT: remote start ignored — in maintenance (arm first)");
     }
     const bool req_start = (btn_manual.released_edge && !btn_manual.long_fired) || remote_start;
+    // Remote abort (DL-186 / audit R1): only honoured while a session is ACTIVE
+    // (dosing/settle/grace). From an idle state a remote abort would otherwise latch
+    // ST_STOPPED, which clears only via the physical ACK button — stranding auto-watering
+    // until someone is at the bench, defeating unattended operation. The one-shot is always
+    // consumed. The physical STOP button stays UNCONDITIONAL (emergency stop; the operator
+    // is present to ACK).
     bool remote_abort = false;
-    if (abort_req_pending) { remote_abort = true; abort_req_pending = false; }
+    if (abort_req_pending) {
+        abort_req_pending = false;   // always consume
+        if (active) remote_abort = true;
+        else Serial.println("MQTT: remote abort ignored — no active session");
+    }
     const bool req_abort = (btn_stop.pressed_edge || remote_abort);
 
     // ---- safety first: overrides everything, every tick ----

@@ -205,6 +205,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-183](#dl-183) | 2026-08-20 | **Option 2b UI — dashboard Start button (remote-control feature complete).** With remote start verified on hardware (DL-182), added a truthful "Start watering session" button to the controls page, shown ONLY when armed + `monitor` (idle, ready) — exactly the state the firmware honours. Rewrote the session-control area to map every FSM state to one truthful control: active session→Abort, armed+monitor→Start, maintenance→"arm first" caption, fault→"clear fault" caption, else neutral caption. Simulated all state×maintenance combos for exclusivity/coverage. Publishes `start` to `plant/cmd/dose` via `send_dose_cmd`. Completes the remote-control arc: DL-168 (removed lying buttons)→169/170 (abort)→182/183 (start). py_compile OK; dashboard-only deploy | Active |
 | [DL-184](#dl-184) | 2026-08-20 | **Pin CI test deps for reproducible builds** (P2 hygiene). `requirements-dev.txt` used `>=` ranges, so a future `pip install` could pull a newer pytest/paho whose behaviour differs from what the suite was validated against. Pinned to the exact known-good versions (`pytest==9.1.1`, `paho-mqtt==2.1.0`) — bumps become deliberate + re-tested rather than silent drift. CI GitHub Actions (checkout@v4, setup-python@v5, python 3.12) were already appropriately pinned. Verified install resolves + 72 tests pass under the pins | Active |
 | [DL-185](#dl-185) | 2026-08-20 | **SECURITY.md — threat model + deliberate hardening deferrals.** Documented the security model rather than adding controls for their own sake: single-operator, single-plant, nothing internet-exposed, remote access only via a private Tailscale tailnet limited to the operator's own devices; authenticated MQTT (no anon), git-ignored secrets, on-device EnvironmentFile creds. Explicitly records MQTT per-topic ACLs and camera-node auth as **deliberately deferred** — they defend against a broker-reachable-but-limited party, which the network model doesn't have (anyone who can reach the broker is already the operator) — with the exact revisit conditions and intended role model for if the deployment ever broadens. Notes the real watering safety lives in firmware fail-safes, not the network layer. Linked from the README roadmap. Closes the P2 'security hardening' item as a reasoned decision, not a checkbox | Active |
+| [DL-186](#dl-186) | 2026-08-20 | **Audit R1 — remote abort no longer strands the system from idle.** DL-169 ORed remote abort into the *unconditional* `req_abort` path (same as the physical STOP). Fine for STOP (operator present at the ACK button), but dangerous for remote: the dashboard's 30s-refresh Abort button can linger ~30s after a session ends, so a click from `ST_MONITOR` latched `ST_STOPPED` — which clears ONLY via physical ACK, killing auto-watering until someone's at the bench (breaks the unattended premise). A regression introduced by DL-169, caught by the post-remote-control audit. Fix: gate `remote_abort` on the existing `active` predicate (`dosing`/`settle`/`grace`) — from idle it's consumed but ignored (logs "no active session"), no STOPPED latch. **Physical STOP stays unconditional** (emergency stop); no remote ACK added (keeping ACK physical is a deliberate safety property). Braces balanced, 31 C++ tests green. **Firmware → batches reflash with any further firmware fixes** | Active |
 
 ---
 
@@ -4554,6 +4555,23 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Also.** Updated the README roadmap's "Security hardening" line to link SECURITY.md and scope future work (dashboard auth, MQTT-over-TLS) to a broadened deployment.
 
 **Files.** `SECURITY.md` (new), `README.md`.
+
+---
+
+<a id="dl-186"></a>
+### DL-186 — Audit R1: remote abort no longer strands the system from idle
+
+**Date:** 2026-08-20 · **Status:** Active — safety regression fix from the post-remote-control audit. **Awaiting reflash.**
+
+**The regression.** DL-169 wired remote abort into the *unconditional* `req_abort` signal — the same path the physical STOP button uses (`req_abort = btn_stop.pressed_edge || remote_abort`). That is correct for the physical button (the operator is standing at the ACK button to clear the resulting `ST_STOPPED`). But for a *remote* abort it created a real hazard: the dashboard gates its Abort button on a session-state row refreshed only every 30 s, so the button can remain visible for up to ~30 s after a session has already ended. A click in that window sends `abort` while the FSM is in `ST_MONITOR`, and the unconditional path latches `ST_STOPPED` — which clears **only** via the physical ACK button. Auto-watering is then dead until someone is physically at the bench, directly defeating the project's unattended-operation premise. Not reachable before DL-169 (the physical STOP had the same semantics, but you were always next to ACK when using it).
+
+**Fix.** Gate `remote_abort` on the existing `active` predicate (`ST_DOSING || ST_SETTLE || ST_GRACE`): the one-shot is always consumed, but only becomes an abort when a session is actually running; from an idle state it logs "remote abort ignored — no active session" and does nothing. The **physical STOP button remains unconditional** — it is the emergency stop and must always work, with the operator present to ACK. No remote ACK was added: keeping fault-acknowledgement physical is a deliberate safety property (a human clears a latched fault in person).
+
+**Why not also add remote ACK.** It would "solve" stranding by letting a remote clear `ST_STOPPED`, but at the cost of the safety property that a latched fault requires physical presence to release. Gating the abort is the correct fix; remote ACK is explicitly declined.
+
+**Verification.** `btn_stop.pressed_edge` still unconditional in `req_abort`; `remote_abort` now `active`-gated; braces balanced; `water_logic.h` untouched → 31 C++ tests green. **Reflash, then verify: remote abort during a session stops it (unchanged); remote abort from `monitor` is ignored (serial logs it, state stays monitor, auto-watering continues); physical STOP still stops from any state.**
+
+**Files.** `firmware/integrated/src/fsm.cpp`.
 
 ---
 
