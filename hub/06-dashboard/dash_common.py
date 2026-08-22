@@ -75,7 +75,7 @@ _BANNER_PALETTE = {
 }
 
 MAINT_CMD_TOPIC = "plant/cmd/maintenance"
-DOSE_CMD_TOPIC = "plant/cmd/dose"   # integrated handles "abort" (DL-169); "start" deferred
+DOSE_CMD_TOPIC = "plant/cmd/dose"   # integrated handles "abort" (DL-169) + "start" (DL-182)
 
 # F3 (DL-166): derive the fault set from STATE_DISPLAY's "fault" tier so the two
 # can't drift. The old hardcoded {leak_fault, stopped, watering_fault} was missing
@@ -271,6 +271,8 @@ def send_maintenance_cmd(value: str) -> bool:
         mqtt_publish.single(
             MAINT_CMD_TOPIC, value, hostname="localhost",
             auth={"username": user, "password": password},
+            retain=False,   # commands must NEVER be retained: a retained cmd would be
+                            # replayed to the WROVER on every reconnect (re-dosing / re-toggling)
         )
         return True
     except Exception as e:
@@ -279,8 +281,8 @@ def send_maintenance_cmd(value: str) -> bool:
 
 def send_dose_cmd(value: str) -> bool:
     """Publish a bottom-watering command to plant/cmd/dose. The integrated firmware
-    handles "abort" (DL-169), stopping the current session; "start" is not yet
-    handled (deferred). Mirrors send_maintenance_cmd."""
+    handles "abort" (DL-169, stops the current session) and "start" (DL-182, begins a
+    session; respects maintenance). Mirrors send_maintenance_cmd."""
     user = os.environ.get("MQTT_USER")
     password = os.environ.get("MQTT_PASS")
     if not user or not password:
@@ -290,6 +292,7 @@ def send_dose_cmd(value: str) -> bool:
         mqtt_publish.single(
             DOSE_CMD_TOPIC, value, hostname="localhost",
             auth={"username": user, "password": password},
+            retain=False,   # see send_maintenance_cmd: commands must never be retained
         )
         return True
     except Exception as e:

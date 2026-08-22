@@ -208,6 +208,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-186](#dl-186) | 2026-08-20 | **Audit R1 — remote abort no longer strands the system from idle.** DL-169 ORed remote abort into the *unconditional* `req_abort` path (same as the physical STOP). Fine for STOP (operator present at the ACK button), but dangerous for remote: the dashboard's 30s-refresh Abort button can linger ~30s after a session ends, so a click from `ST_MONITOR` latched `ST_STOPPED` — which clears ONLY via physical ACK, killing auto-watering until someone's at the bench (breaks the unattended premise). A regression introduced by DL-169, caught by the post-remote-control audit. Fix: gate `remote_abort` on the existing `active` predicate (`dosing`/`settle`/`grace`) — from idle it's consumed but ignored (logs "no active session"), no STOPPED latch. **Physical STOP stays unconditional** (emergency stop); no remote ACK added (keeping ACK physical is a deliberate safety property). Braces balanced, 31 C++ tests green. **Firmware → batches reflash with any further firmware fixes** | Active |
 | [DL-187](#dl-187) | 2026-08-20 | **Audit F10 — plantctl online/offline now agrees with the rest of the hub.** Two real bugs in `_check_wrover`: (1) it aged the newest `status='online'` row and ignored whether a newer `offline` row superseded it — so `plantctl health` could print ✓online while the watchdog/dashboard/alerter said offline; (2) its 300s staleness threshold disagreed with the listener watchdog's 90s. Fix mirrors `alerter._presence`: read the LATEST presence row (`metric IS NULL`, online|offline) and treat `offline` as down; otherwise age the freshest telemetry from ANY wrover signal (sensors ~2s / state 30s — the same 'any publish' liveness the watchdog uses) against a new `WROVER_SILENCE_S=120` aligned with the watchdog's 90s + margin. Also removed the dead `row = _latest(...)` assignment (F10-minor, plantctl:145). py_compile + 72 tests green; `_check_wrover` is a console-print fn (no direct test, consistent with existing design — helpers it uses are tested). Hub-only, no reflash | Active |
 | [DL-188](#dl-188) | 2026-08-20 | **Audit follow-up — drop the retention-bound `_lux_ever_seen` guard (F7 hardening).** The DL-173 guard distinguished a lux-less calibration harness (stay quiet) from a lux-capable board whose BH1750 died (alert), by checking whether lux had EVER been recorded. But it queried only `sensor_readings`, which is pruned at 30 days — so a BH1750 dead longer than 30 days aged out its last lux row, `_lux_ever_seen` flipped to False, and F7's mask silently returned (a dead sensor stopped alerting). Fix (Option 2, chosen over adding a durable marker table): remove the guard entirely. The harness is retired (DL-157, do-not-flash) so the only board is the lux-capable integrated firmware, and a BH1750 that never worked is itself a real fault worth surfacing — so F7 now alerts whenever the board is alive (fresh soil) + no lux for 30 min during lit hours, with no history dependency and no retention hole. Removed the helper + its 3 tests; updated the branch comment. py_compile + 69 Python + 31 C++ green. Hub-only, no reflash. (A future genuinely lux-less node would be re-gated then — harnesses remain buildable anytime) | Active |
+| [DL-189](#dl-189) | 2026-08-20 | **Post-audit cleanup sweep** (hub + docs; the audit's minor tier). (1) **Retained-message guard:** the dashboard's `send_maintenance_cmd`/`send_dose_cmd` relied on paho's default `retain=False`; made it explicit + commented, so a command can never be accidentally retained (which would replay to the WROVER on every reconnect, re-dosing/re-toggling). (2) **Stale comments from DL-182/183:** `DOSE_CMD_TOPIC` comment and `send_dose_cmd` docstring both said `"start" deferred/not handled` — false since DL-182; corrected. (3) **listener state-payload:** comment claimed the WROVER publishes `daily_pump_ms` (it doesn't since the P1-8 port); removed the permanently-None `daily = data.get(...)` read and now write the `fsm_state` row's numeric value as explicit `None` (behaviour-preserving — it was always NULL via `daily`), with an accurate comment. (4) **DL-186 validation record** added from the 2026-08-22 hardware test. py_compile + 69 Python + 31 C++ green; hub deploy (dashboard + listener) | Active |
 
 ---
 
@@ -4563,7 +4564,7 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 <a id="dl-186"></a>
 ### DL-186 — Audit R1: remote abort no longer strands the system from idle
 
-**Date:** 2026-08-20 · **Status:** Active — safety regression fix from the post-remote-control audit. **Awaiting reflash.**
+**Date:** 2026-08-20 · **Status:** Active — safety regression fix from the post-remote-control audit. **Validated on hardware 2026-08-22.**
 
 **The regression.** DL-169 wired remote abort into the *unconditional* `req_abort` signal — the same path the physical STOP button uses (`req_abort = btn_stop.pressed_edge || remote_abort`). That is correct for the physical button (the operator is standing at the ACK button to clear the resulting `ST_STOPPED`). But for a *remote* abort it created a real hazard: the dashboard gates its Abort button on a session-state row refreshed only every 30 s, so the button can remain visible for up to ~30 s after a session has already ended. A click in that window sends `abort` while the FSM is in `ST_MONITOR`, and the unconditional path latches `ST_STOPPED` — which clears **only** via the physical ACK button. Auto-watering is then dead until someone is physically at the bench, directly defeating the project's unattended-operation premise. Not reachable before DL-169 (the physical STOP had the same semantics, but you were always next to ACK when using it).
 
@@ -4572,6 +4573,8 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Why not also add remote ACK.** It would "solve" stranding by letting a remote clear `ST_STOPPED`, but at the cost of the safety property that a latched fault requires physical presence to release. Gating the abort is the correct fix; remote ACK is explicitly declined.
 
 **Verification.** `btn_stop.pressed_edge` still unconditional in `req_abort`; `remote_abort` now `active`-gated; braces balanced; `water_logic.h` untouched → 31 C++ tests green. **Reflash, then verify: remote abort during a session stops it (unchanged); remote abort from `monitor` is ignored (serial logs it, state stays monitor, auto-watering continues); physical STOP still stops from any state.**
+
+**Validated (2026-08-22).** Reflashed and confirmed on hardware: (A) remote abort from idle `monitor` → "remote abort ignored — no active session", state stayed monitor, auto-watering not stranded (the R1 fix); (B) remote abort during a live dose → stopped it (unchanged); (C) physical STOP from idle → still latches stopped (unconditional emergency stop). The idle-remote-abort vs idle-physical-STOP contrast confirms the gating.
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
 
@@ -4610,6 +4613,23 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Verification.** No `_lux_ever_seen` references remain in code or tests; the F7 `if/elif/else` chain is structurally intact (board-alive vs not-alive during lit hours still partition cleanly); py_compile; suite 69 Python + 31 C++ green. Deploy: scp `alerter.py`, restart `plant-listener`.
 
 **Files.** `hub/04-listener/alerter.py`, `tests/test_alerter.py`.
+
+---
+
+<a id="dl-189"></a>
+### DL-189 — Post-audit cleanup sweep (hub + docs)
+
+**Date:** 2026-08-20 · **Status:** Active — the audit's minor-cleanup tier, plus doc currency. Hub + docs only.
+
+**Changes.**
+1. **Retained-message guard (real, small).** `send_maintenance_cmd` and `send_dose_cmd` in `dash_common.py` published via `mqtt_publish.single` relying on paho's *default* `retain=False`. A command must never be retained — a retained `cmd/dose start` would be replayed to the WROVER on every reconnect and re-dose each time. Set `retain=False` explicitly on both, with a comment, so the invariant is enforced in code rather than by default (the audit's suggested mitigation; the firmware subscriber can't read the retain flag via PubSubClient, so the guarantee belongs on the publisher side).
+2. **Stale comments (DL-182/183 regressions).** The `DOSE_CMD_TOPIC` inline comment and the `send_dose_cmd` docstring both still said `"start"` was deferred/not handled — false since remote start landed (DL-182). Corrected both to state abort (DL-169) + start (DL-182).
+3. **listener state-payload cleanup.** The comment claimed the WROVER publishes `{state, pump, daily_pump_ms}`; the integrated firmware's payload is `{state, pump, session_ml, dose_count, moist_pct, maintenance, reason}` and no longer includes `daily_pump_ms`. Removed the `daily = data.get("daily_pump_ms")` read (permanently `None` since the port) and write the `fsm_state` row's numeric `value` as explicit `None` — behaviour-preserving, since `float(daily) if daily is not None else None` already always yielded `None`; the state string lives in the `status` column. Comment rewritten to match.
+4. **DL-186 validation record.** Filled in the 2026-08-22 hardware test result (idle remote-abort ignored, mid-session abort works, physical STOP unconditional).
+
+**Verification.** No `daily` references remain; py_compile clean; full suite 69 Python + 31 C++ green, including the `route_message` state-payload tests (confirming the NULL-value change didn't alter parsing). Deploy: scp `dash_common.py` + `listener.py`; restart `plant-dashboard` + `plant-listener`.
+
+**Files.** `hub/06-dashboard/dash_common.py`, `hub/04-listener/listener.py`, `docs/decision-log.md`.
 
 ---
 

@@ -174,8 +174,11 @@ def route_message(
             return
 
         # plant/state/<device> -> system_status (FSM watering state)
-        # WROVER publishes {state, pump, daily_pump_ms} retained. Stored with a
-        # metric set so it does not collide with the metric-IS-NULL online query.
+        # WROVER publishes {state, pump, session_ml, dose_count, moist_pct, maintenance,
+        # reason} retained (DL-148 integrated payload). Stored with a metric set so it does
+        # not collide with the metric-IS-NULL online query. The fsm_state row keeps the
+        # state string in `status`; its numeric `value` is intentionally NULL (the old
+        # daily_pump_ms field is no longer published — F9/DL-175, comment fixed DL-189).
         if len(parts) == 3 and parts[1] == "state":
             device = parts[2]
             try:
@@ -185,7 +188,6 @@ def route_message(
                 return
             state = data.get("state")
             pump = data.get("pump")
-            daily = data.get("daily_pump_ms")
             maint = data.get("maintenance")   # reported by both firmwares (harness DL-128, integrated DL-148)
             if maint is not None:
                 _last_maint[device] = bool(maint)   # DL-138: for reboot classification
@@ -200,7 +202,7 @@ def route_message(
                        (ts, message_id, run_id, device, status, metric, value)
                        VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (ts, message_id, run_id, device, state, "fsm_state",
-                     float(daily) if daily is not None else None),
+                     None),   # value intentionally NULL; state lives in `status`
                 )
             if session_ml is not None:
                 conn.execute(
