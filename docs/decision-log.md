@@ -200,6 +200,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-178](#dl-178) | 2026-08-20 | **Audit fix F14 — stale-comment sweep** (documentation only, zero behavior change). Removed post-P1-8 comments that now contradict the code: alerter + listener both claimed "the integrated firmware sends no reason, so only the harness triggers these" / "no-op for integrated" — false since the port (integrated publishes reasons; F1/DL-163 restored the stop ones and the alerts are load-bearing). Fixed the `DOSE_CMD_TOPIC` comment ("harness start|abort" → integrated handles abort, start deferred, DL-169). Clarified the plantctl lux-stale comment (integrated DOES read lux, so sustained stale lux can mean a dead BH1750 per DL-173 — plantctl reports INFO as a point-in-time check). Left accurate historical notes intact. Verified diff is comments-only; 62+31 tests green | Active |
 | [DL-179](#dl-179) | 2026-08-20 | **Audit fix #6 — last rollover-unsafe timer.** Inventory of fsm.cpp time comparisons found all timers already use the rollover-safe `(uint32_t)(now - last_ms) >= interval` form EXCEPT one: the periodic state-publish used `if (now >= state_pub_next_ms)` — an absolute deadline that misfires once every ~49.7 days when `millis()` wraps (would spuriously publish then stop republishing until the next wrap). Converted to elapsed-since form (`state_pub_next_ms` → `state_pub_last_ms`), mirroring the existing `blink_last_ms` pattern. Telemetry-only timer (not pump-path), low risk. Braces balanced, 31 C++ tests green. **Batches with #3 for one final firmware reflash** | Active |
 | [DL-180](#dl-180) | 2026-08-20 | **Audit fix #3 — reboot-safe dose reservation (Option A: reserve-then-reconcile).** Before, `begin_dose` saved `session_ml` to NVS *before* the dose but the delivered volume was only added *after* the dose completed — so a reboot mid-dose lost up to one dose's water from the session total, letting the 600mL `SESSION_CAP_ML` be under-budgeted on resume. Fix: `begin_dose` now RESERVES the full intended dose into `session_ml` and persists it to NVS before the pump starts; when leaving DOSING the accounting RECONCILES down to actually-delivered (returns the unused remainder on abort/fault/short dose). A clean dose nets ~0 correction; a mid-dose reboot never reaches the reconcile, so the reserved (conservative) count stands — the cap can only be over-, never under-counted. clamp_dose still runs pre-reserve (no double-count). Braces balanced, 31 C++ tests green. **Last substantive firmware item; reflash batches DL-179+DL-180 (and DL-174 if not yet flashed)** | Active |
+| [DL-181](#dl-181) | 2026-08-20 | **CI dev-deps + listener.route_message tests** (closes the last audit test-infra gap, F15's other half). Added `requirements-dev.txt` (pytest + paho-mqtt) and switched the CI pytest job to install from it — previously CI installed only pytest, so any test importing `listener.py` (which imports `paho.mqtt.client` at module top) couldn't run. New `tests/test_listener.py` (10 tests) drives `route_message` against the real `schema.sql` on an in-memory DB (no hardware/network — alerter no-ops without NTFY_TOPIC): sensor fan-out + per-device storage, non-JSON rejection, null-field skipping, and the state-message fields the audits touched — **F11 moist_ema stored + -1 sentinel skipped**, session_ml/dose_count, maintenance, pump. Mutation-verified (forcing the moist_ema guard false / breaking fan-out fails the right tests). Suite now 72 Python + 31 C++ | Active |
 
 ---
 
@@ -4444,6 +4445,25 @@ Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, int
 **Verification.** Braces balanced; `water_logic.h` untouched → 31 C++ tests green. **Reflash; verify a normal dose still accounts correctly (session_ml tracks delivered) and a mid-dose abort leaves the actual delivered amount.** The reboot path is logic-verified (hard to bench without cutting power mid-dose).
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
+
+---
+
+<a id="dl-181"></a>
+### DL-181 — CI dev-deps + listener.route_message tests
+
+**Date:** 2026-08-20 · **Status:** Active — closes the last audit test-infra gap (the half of F15 deferred at DL-171).
+
+**Why.** `route_message` is the single writer that turns an inbound MQTT message into DB rows, and it sat at the centre of several audit bugs (F11 dropped `moist_pct`, F9 daily-mL, F5 leak reasons) — yet had no direct test. The alerter/plantctl suites test the *readers*. The blocker was CI: `listener.py` imports `paho.mqtt.client` at module top, and the pytest job installed only `pytest`, so any test importing listener would fail to collect.
+
+**Changes.**
+- **`requirements-dev.txt`** — declares the host-test deps (`pytest`, `paho-mqtt<3.0`). The CI pytest job now `pip install -r requirements-dev.txt` instead of bare `pytest`, so listener-importing tests can run. Runtime Pi deps stay managed on-device; this file is test-only.
+- **`tests/test_listener.py`** (10 tests) — drives `route_message` against the real `schema.sql` on an in-memory SQLite DB. No hardware, no network (alerter is a silent no-op without `NTFY_TOPIC`, which the test also clears). Coverage: sensor fan-out to `sensor_readings` with correct per-device rows; lux under `device='bh1750'`; null fields skipped; non-JSON payloads ignored; and the state-message path the audits touched — **F11 `moist_ema` stored and the `-1` sentinel skipped**, `session_ml`/`dose_count`, `maintenance`, `pump`.
+
+**Teeth.** Mutation-verified: forcing the `moist_ema` guard false fails `test_state_stores_moist_ema_f11`; breaking the moisture fan-out fails `test_sensor_payload_fans_out_to_rows`.
+
+**Suite.** 72 Python (62 + 10) + 31 C++. Deploy: none — CI + test-only; takes effect on next push.
+
+**Files.** `requirements-dev.txt` (new), `.github/workflows/tests.yml`, `tests/test_listener.py` (new).
 
 ---
 
