@@ -58,6 +58,10 @@ void setup() {
 void loop() {
     const unsigned long now_ms = millis();
 
+    // Audit #1 (DL-174): the hard pump-off ceiling runs FIRST, before any network
+    // call, so a blocking MQTT/WiFi reconnect can never delay cutting a runaway pump.
+    fsm_safety_tick();
+
     wifi_tick();  // non-blocking: services WiFi reconnects on its cadence
     mqtt_tick();  // non-blocking: connects/reconnects + pumps the client
 

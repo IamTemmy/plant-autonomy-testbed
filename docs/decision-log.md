@@ -193,6 +193,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-171](#dl-171) | 2026-08-20 | **Audit fix F15 — alert-contract test** (the durable guard against F1/F2/F5). New `tests/test_alert_contract.py` (7 tests) parses the actual state/reason strings out of `fsm.cpp` and asserts them against the alerter's two dicts: every fault STATE has a `FAULT_ALERTS` entry; every stop/fault REASON is in `_WATERING_ALERTS`, covered by its state alert, or on an explicit intentional-silence allowlist (`abort`/`maintenance`/`recovery cleared`/`target reached`/`soil sensor stale`); no dead alert keys the firmware never emits; plus explicit P0 guards + the F5 leak/disconnect distinction. Parses firmware directly so it tracks reality, not a hand-copy. Mutation-verified: re-removing `sensor_fault` or the pump-max-runtime reason fails it. Suite now 59 Python + 31 C++. Would have caught all three of F1/F2/F5 | Active |
 | [DL-172](#dl-172) | 2026-08-20 | **Audit fix F11 — store moist_pct (the FSM decision variable).** The firmware publishes `moist_pct` (the smoothed EMA the watering logic actually acts on) in the state payload (DL-148), but the listener parsed every other field and silently dropped it — so the exact variable that drives dosing decisions was never persisted, unrecoverable for the future consumption model. Now stored in `system_status` as metric `moist_ema` (distinct from the raw `soil_raw`/`moisture` in sensor_readings — this is what the FSM *believed*, not the instantaneous probe), skipping the firmware's `-1` no-reading sentinel. listener.py py_compiles; hub-only, deploy = scp + restart plant-listener. Follow-up: a `listener.route_message` test (audit F15) needs paho in CI (requirements-dev.txt) — deferred | Active |
 | [DL-173](#dl-173) | 2026-08-20 | **Audit fix F7 — lux carve-out no longer masks a dead BH1750.** The DL-137/139 board-liveness gate treated "board alive (soil fresh) but no lux" as benign — correct for the harness (no I2C, never any lux) but wrong for integrated, which reads lux: a died/disconnected BH1750 during daytime went completely unreported. Fix: added `_lux_ever_seen()` and split the carve-out — if the board is up, lux is absent 30+ min during lit hours, AND lux was ever recorded (lux-capable firmware), alert "Light sensor not reporting" (dead/disconnected BH1750); a board that never reported lux (true harness) stays silent as before. Added recovery notification + `lux_dead_since`/`lux_dead_alerted` trackers. +3 tests for `_lux_ever_seen` (mutation-verified). Same harness-era-assumption class as DL-162/172; hub-only, deploy = scp + restart plant-listener | Active |
+| [DL-174](#dl-174) | 2026-08-20 | **Audit fix #1 — network-independent pump safety (`fsm_safety_tick`).** The P0-2 hard pump ceiling lived inside `fsm_tick`, which `loop()` calls AFTER `mqtt_tick` — so a blocking PubSubClient reconnect (socket timeout) could delay cutting a runaway pump. Split the physical half into `fsm_safety_tick()` called FIRST in `loop()`, before wifi/mqtt: it only checks the ceiling and `pump_off()`s + latches a flag. `fsm_tick` (later, same loop) observes the flag and does the state/accounting/NVS bookkeeping — so the DL-164 accounting fix is preserved AND the pump-off can never be gated behind a network call. Real severity was bounded (~2s worst-case overrun on a 165s ceiling) but the principle — safety never blocked by I/O — is now enforced structurally. 3 files; braces balanced, 31 C++ tests green. **Pump path → reflash + verify safe boot/arm** | Active |
 
 ---
 
@@ -4312,6 +4313,25 @@ Added `lux_dead_since` / `lux_dead_alerted` state trackers and a "Light sensor r
 **Verification.** py_compile; alerter + contract suites green; +3 `_lux_ever_seen` tests, mutation-verified (forcing it True fails the never-seen cases). Hub-only; deploy = scp `alerter.py`, restart `plant-listener`.
 
 **Files.** `hub/04-listener/alerter.py`, `tests/test_alerter.py`.
+
+---
+
+<a id="dl-174"></a>
+### DL-174 — Audit fix #1: network-independent pump safety (fsm_safety_tick)
+
+**Date:** 2026-08-20 · **Status:** Active — last substantive firmware robustness item. **Awaiting reflash.**
+
+**The concern.** The P0-2 hard pump ceiling lived inside `fsm_tick`, and `loop()` calls `wifi_tick()` → `mqtt_tick()` → `fsm_tick()`. `PubSubClient` can block during a reconnect (socket timeout, ~2 s), so in principle the ceiling — and thus cutting a runaway pump — could be delayed behind a network call. Bounded in practice (~2 s overrun on a 165 s ceiling, ~1%), but the architecture violated the principle that a physical safety action must never depend on I/O completing.
+
+**Fix.** Split the ceiling into two halves:
+- `fsm_safety_tick()` — new, called **first in `loop()`** before any network tick. Does only the physical safety act: if `pump_is_on()` and the run has exceeded `MAX_PUMP_ON_MS`, `pump_off()` and set `safety_ceiling_tripped`. Reads only `millis()` + pump state; can only turn the pump *off*.
+- `fsm_tick()` — later the same loop, observes the flag and does the bookkeeping half (latch `ST_STOPPED`, reason, and — because `prev_state` is still captured at entry — the DL-164 delivered-water accounting + NVS persist + publish).
+
+So the pump-off is now guaranteed every loop regardless of network state, while the accounting/persistence fix from DL-164 is fully preserved (verified by tracing: safety_tick offs the pump → fsm_tick captures prev_state=DOSING → sees flag → STOPPED → accounting fires → NVS/publish fires).
+
+**Verification.** `fsm_safety_tick` declared/defined/called; flag set-and-consumed; ceiling still keyed on `pump_on_since_ms`; braces balanced across the 3 files; `water_logic.h` untouched → 31 C++ tests green. **Reflash; verify safe boot + arm (no spurious dose at ~64%).** The ceiling path itself is hard to bench-trigger, but the split is logic-traced and low-risk (safety_tick can only stop the pump).
+
+**Files.** `firmware/integrated/src/fsm.cpp`, `firmware/integrated/src/fsm.h`, `firmware/integrated/src/main.cpp`.
 
 ---
 

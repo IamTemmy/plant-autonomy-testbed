@@ -19,6 +19,7 @@ void fsm_begin();
 
 // Advance the state machine one step. Call every loop() iteration with the
 // latest cached sensor readings. Non-blocking.
+void fsm_safety_tick();   // audit #1 (DL-174): network-independent hard pump-off; call FIRST in loop()
 void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReading& leak);
 
 // Request an intentional maintenance pause on/off from outside the FSM (e.g.

@@ -331,6 +331,22 @@ void fsm_begin() {
 }
 
 // ---- tick -----------------------------------------------------------------
+// P0-2 / audit #1 (DL-174): the physical half of the pump ceiling, split into a
+// dedicated tick that main.cpp calls at the very TOP of loop() — before wifi_tick
+// / mqtt_tick — so the hard pump-off can never be delayed by a blocking network
+// call (PubSubClient connect/socket). It does the minimum: if the pump has run past
+// the ceiling, turn it OFF and latch a flag. All bookkeeping (state transition,
+// accounting, NVS, publish) stays in fsm_tick, which runs later the same loop and
+// observes the flag — preserving the DL-164 accounting fix.
+static volatile bool safety_ceiling_tripped = false;
+void fsm_safety_tick() {
+    if (pump_is_on() && (uint32_t)(millis() - pump_on_since_ms) >= MAX_PUMP_ON_MS) {
+        pump_off();
+        safety_ceiling_tripped = true;
+        Serial.println("[SAFETY] pump max-runtime exceeded — pump OFF (safety_tick)");
+    }
+}
+
 void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReading& leak) {
     const unsigned long now = millis();
 
@@ -341,13 +357,15 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
     // and never persisted/published the STOPPED transition.)
     prev_state = state;
 
-    // P0-2: independent hard pump ceiling, BEFORE anything else. Pure backstop:
-    // can only ever turn the pump OFF, whatever the FSM or a stuck path is doing.
-    if (pump_is_on() && (uint32_t)(now - pump_on_since_ms) >= MAX_PUMP_ON_MS) {
-        pump_off();
+    // P0-2 bookkeeping: fsm_safety_tick() (called first in loop(), before any network
+    // I/O) has already physically stopped the pump if the ceiling tripped. Here we do
+    // only the state/accounting/persist half, after prev_state was captured above so
+    // the delivered-water accounting still fires (DL-164).
+    if (safety_ceiling_tripped) {
+        safety_ceiling_tripped = false;
         last_reason = "pump max-runtime exceeded";
         state = ST_STOPPED;
-        Serial.println("[SAFETY] pump max-runtime exceeded — pump OFF, latched STOPPED");
+        Serial.println("[SAFETY] pump max-runtime exceeded — latched STOPPED");
     }
 
     button_update(btn_stop, now);
