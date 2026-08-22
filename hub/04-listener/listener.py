@@ -244,8 +244,9 @@ def route_message(
                     (ts, message_id, run_id, device, "on" if pump else "off",
                      "pump", 1.0 if pump else 0.0),
                 )
-            # Bottom-watering loop alerts (DL-109): fire on the harness's session
-            # reason. No-op for the integrated firmware (no reason field).
+            # Bottom-watering loop alerts (DL-109): fire on the WROVER's session
+            # reason. Both firmwares publish a reason (integrated since the P1-8 port;
+            # F1/DL-163 restored the stop reasons), so this drives real alerts.
             if device == "wrover":
                 alerter.on_watering_state(state, data.get("reason"))
             return

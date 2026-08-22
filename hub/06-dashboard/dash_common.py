@@ -75,7 +75,7 @@ _BANNER_PALETTE = {
 }
 
 MAINT_CMD_TOPIC = "plant/cmd/maintenance"
-DOSE_CMD_TOPIC = "plant/cmd/dose"   # bottom-watering harness: "start" | "abort" (DL-110)
+DOSE_CMD_TOPIC = "plant/cmd/dose"   # integrated handles "abort" (DL-169); "start" deferred
 
 # F3 (DL-166): derive the fault set from STATE_DISPLAY's "fault" tier so the two
 # can't drift. The old hardcoded {leak_fault, stopped, watering_fault} was missing

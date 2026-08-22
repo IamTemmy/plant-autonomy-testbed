@@ -197,6 +197,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-175](#dl-175) | 2026-08-20 | **Audit fix F9 — remove fabricated daily-mL fallback.** Both `alerter._daily_ml` and dashboard `daily_ml_delivered` summed session_ml positive deltas over 24h (correct — integrated publishes session_ml, DL-148), but fell back to reading `fsm_state.value` as `daily_pump_ms/1000` when no session data. `daily_pump_ms` was retired with the daily-limit model (DL-150/158) and integrated no longer sends it, so `fsm_state.value` is null and the fallback computed a meaningless "mL" number (dividing null/pump-ms by 1000). Removed the fallback from both; the session_ml-delta sum is now the sole, correct source (returns 0 when no session data). The misleading `daily_pump_ms` dict key in `latest_fsm_state` is now read only by F8's dead watering-page overlay — cleaned up together with F8. Both py_compile; 62 tests green; hub-only deploy | Active |
 | [DL-176](#dl-176) | 2026-08-20 | **Audit fix F8 — revive the watering-page episode overlay.** `watering_episodes` keyed off retired states (`watering`/`manual`) and computed volume from the retired `daily_pump_ms` delta — so under integrated it detected zero episodes and the soil chart never shaded a watering bout. Rewrote it to derive episodes from integrated data: an episode is a contiguous span in an active state (`dosing`/`settle`/`grace`), and delivered volume is the **peak `session_ml`** reached during the span (real data, DL-148/172). Also retired the now-unread misleading `daily_pump_ms` key from `latest_fsm_state` (→ `value`), completing the F9 coupling. Trigger labeled 'Auto' (integrated state history doesn't distinguish manual). py_compile OK, 62+31 tests green; dashboard-only deploy | Active |
 | [DL-177](#dl-177) | 2026-08-20 | **Audit fixes F12 + F13 — query correctness across the hub.** **F12 (same-second tie ordering):** `ts` is 1-second-resolution text, so `ORDER BY ts DESC LIMIT 1` picks an arbitrary row among same-second ties instead of the newest. Converted all latest-row queries to `ORDER BY id DESC` (unique monotonic rowid): plantctl `_latest` helper + 4 inline queries, and the dash_common camera-readings query. **F13 (missing device predicates):** EAV queries that filtered only on sensor/metric could mix devices if a name ever overlapped. Pinned each to its verified device (sensors publish on per-sensor topics → lux=`bh1750`, moisture/soil=`soil`, air=`bme280`): plantctl pump-on query (+`device='wrover'`), alerter `_latest_lux`/`_lux_ever_seen` (+`device='bh1750'`), alerter external-water pump-count (+`device='wrover'`), alerter `_soil_avg` (+`device='soil'`). Updated 3 F7 lux tests to the bh1750 device. 62 Python + 31 C++ green; hub-only deploy | Active |
+| [DL-178](#dl-178) | 2026-08-20 | **Audit fix F14 — stale-comment sweep** (documentation only, zero behavior change). Removed post-P1-8 comments that now contradict the code: alerter + listener both claimed "the integrated firmware sends no reason, so only the harness triggers these" / "no-op for integrated" — false since the port (integrated publishes reasons; F1/DL-163 restored the stop ones and the alerts are load-bearing). Fixed the `DOSE_CMD_TOPIC` comment ("harness start|abort" → integrated handles abort, start deferred, DL-169). Clarified the plantctl lux-stale comment (integrated DOES read lux, so sustained stale lux can mean a dead BH1750 per DL-173 — plantctl reports INFO as a point-in-time check). Left accurate historical notes intact. Verified diff is comments-only; 62+31 tests green | Active |
 
 ---
 
@@ -4384,6 +4385,26 @@ So the pump-off is now guaranteed every loop regardless of network state, while 
 **Verification.** No `ORDER BY ts DESC LIMIT 1` remains in `hub/`; device predicates confirmed; full suite (62 Python + 31 C++) green including plantctl. Deploy: scp `plantctl.py`, `alerter.py`, `dash_common.py`; restart `plant-listener` + dashboard (plantctl picks up on next run).
 
 **Files.** `hub/12-plantctl/plantctl.py`, `hub/04-listener/alerter.py`, `hub/06-dashboard/dash_common.py`, `tests/test_alerter.py`.
+
+---
+
+<a id="dl-178"></a>
+### DL-178 — Audit fix F14: stale-comment sweep
+
+**Date:** 2026-08-20 · **Status:** Active — documentation only, no behavior change. Closes the last Claude Code audit finding.
+
+**Why.** The P1-8 unification changed what the firmware publishes, but several hub comments still described the pre-port world — actively contradicting the code they annotate, which is worse than no comment (they'd mislead the next reader, including a future me).
+
+**Fixed.**
+- `alerter.py` (`_WATERING_ALERTS` header) and `listener.py` (the `on_watering_state` call site): both claimed the integrated firmware sends no `reason` and these alerts were "harness only / no-op for integrated." False since the port — integrated publishes reasons, F1 (DL-163) restored the stop ones, and the alerts are load-bearing (guarded by the DL-171 contract test). Rewritten to say both firmwares publish reasons.
+- `dash_common.py` `DOSE_CMD_TOPIC` comment: "bottom-watering harness: start | abort" → integrated handles `abort` (DL-169), `start` deferred. (Code unchanged; comment only.)
+- `plantctl.py` lux-stale comment: dropped the "this firmware doesn't read lux (harness reads no I2C)" framing; integrated does read lux, so sustained stale lux can indicate a dead BH1750 (which the alerter escalates, DL-173) — plantctl reports INFO as a point-in-time check.
+
+Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, integrated DL-148)", fsm.cpp's "replaces the old harness") were left as-is.
+
+**Verification.** Diff confirmed comments-only (the one flagged code line was an unchanged assignment with a changed trailing comment); all four files py_compile; full suite (62 Python + 31 C++) green. Deploy with the next hub push; no restart strictly required for comments, but scp on next convenient deploy.
+
+**Files.** `hub/04-listener/alerter.py`, `hub/04-listener/listener.py`, `hub/06-dashboard/dash_common.py`, `hub/12-plantctl/plantctl.py`.
 
 ---
 

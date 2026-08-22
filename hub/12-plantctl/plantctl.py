@@ -209,9 +209,10 @@ def _check_light(conn):
         age = _age_s(ts)
         lit = lux > GROW_LUX_THRESHOLD
         if age is not None and age > SENSOR_STALE_S:
-            # Lux is stale. Distinguish "the board is down" from "this firmware doesn't read
-            # lux" (the bottom-water harness reads no I2C): if soil is fresh, the WROVER is
-            # alive and simply isn't reporting light — an expected INFO, not a fault.
+            # Lux is stale. If soil is fresh the WROVER is alive but not reporting light.
+            # Integrated does read lux, so sustained stale lux during lit hours can mean a
+            # dead BH1750 (the alerter escalates that, DL-173); plantctl is a point-in-time
+            # check, so it reports INFO here rather than diagnosing a fault.
             soil = _latest(conn, "sensor_readings", "sensor='soil_raw' AND device='soil'")
             soil_age = _age_s(soil[0]) if soil else None
             if soil_age is not None and soil_age <= SENSOR_STALE_S:

@@ -132,11 +132,12 @@ def notify(title, message, priority="default", tags=None):
 
 
 # ---- bottom-watering loop alerts (event-driven, DL-109) --------------------
-# The bottom-watering harness publishes plant/state/wrover with a `reason` field
-# describing session outcomes; the integrated firmware sends no reason, so only
-# the harness can trigger these. Keyed on the exact reason strings the firmware
-# emits. Routine states (monitor/dosing/settle/grace) carry no alert-worthy
-# reason and are ignored. `abort` is user-initiated, so it is intentionally silent.
+# The WROVER publishes plant/state/wrover with a `reason` field describing session
+# outcomes; both firmwares send it (harness originally, integrated since the P1-8
+# port — the F1 fix DL-163 restored the stop reasons). Keyed on the exact reason
+# strings the firmware emits. Routine states (monitor/dosing/settle/grace) carry no
+# alert-worthy reason and are ignored. `abort` is user-initiated, so it is silent.
+# The alert-contract test (DL-171) asserts this dict stays in sync with fsm.cpp.
 _WATERING_ALERTS = {
     "stalled: tray may be holding water": (
         "Watering stalled",
