@@ -27,10 +27,10 @@ static const char MQTT_WILL_PAYLOAD[] = "{\"online\":false}";
 
 // Inbound message handler. We subscribe to two command topics:
 //   plant/cmd/maintenance -- "on"|"off", toggles the intentional pause.
-//   plant/cmd/dose        -- "abort", stops the current session (STOP-button
-//                            equivalent). "start" is intentionally NOT handled yet
-//                            (DL-169: abort-only; remote start is a later, riskier
-//                            feature). Neither topic can start the pump.
+//   plant/cmd/dose        -- "abort" stops the current session (STOP-button
+//                            equivalent); "start" begins a session (DL-182), which
+//                            the FSM gates on armed + monitor + fresh soil. Neither
+//                            can bypass the safety chain or the maintenance pause.
 static void mqtt_on_message(char* topic, byte* payload, unsigned int length) {
     if (strcmp(topic, MQTT_TOPIC_CMD_MAINT) == 0) {
         if (length == 2 && strncmp((const char*)payload, "on", 2) == 0) {
@@ -48,9 +48,11 @@ static void mqtt_on_message(char* topic, byte* payload, unsigned int length) {
         if (length == 5 && strncmp((const char*)payload, "abort", 5) == 0) {
             fsm_request_abort();
             Serial.println("MQTT: remote abort");
+        } else if (length == 5 && strncmp((const char*)payload, "start", 5) == 0) {
+            fsm_request_start();   // DL-182: FSM gates it (armed + monitor + fresh soil only)
+            Serial.println("MQTT: remote start requested");
         } else {
-            // "start" and anything else are ignored (abort-only for now).
-            Serial.println("MQTT: cmd/dose ignored (only 'abort' supported)");
+            Serial.println("MQTT: cmd/dose ignored (expected 'start' or 'abort')");
         }
         return;
     }

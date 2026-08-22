@@ -201,6 +201,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-179](#dl-179) | 2026-08-20 | **Audit fix #6 — last rollover-unsafe timer.** Inventory of fsm.cpp time comparisons found all timers already use the rollover-safe `(uint32_t)(now - last_ms) >= interval` form EXCEPT one: the periodic state-publish used `if (now >= state_pub_next_ms)` — an absolute deadline that misfires once every ~49.7 days when `millis()` wraps (would spuriously publish then stop republishing until the next wrap). Converted to elapsed-since form (`state_pub_next_ms` → `state_pub_last_ms`), mirroring the existing `blink_last_ms` pattern. Telemetry-only timer (not pump-path), low risk. Braces balanced, 31 C++ tests green. **Batches with #3 for one final firmware reflash** | Active |
 | [DL-180](#dl-180) | 2026-08-20 | **Audit fix #3 — reboot-safe dose reservation (Option A: reserve-then-reconcile).** Before, `begin_dose` saved `session_ml` to NVS *before* the dose but the delivered volume was only added *after* the dose completed — so a reboot mid-dose lost up to one dose's water from the session total, letting the 600mL `SESSION_CAP_ML` be under-budgeted on resume. Fix: `begin_dose` now RESERVES the full intended dose into `session_ml` and persists it to NVS before the pump starts; when leaving DOSING the accounting RECONCILES down to actually-delivered (returns the unused remainder on abort/fault/short dose). A clean dose nets ~0 correction; a mid-dose reboot never reaches the reconcile, so the reserved (conservative) count stands — the cap can only be over-, never under-counted. clamp_dose still runs pre-reserve (no double-count). Braces balanced, 31 C++ tests green. **Last substantive firmware item; reflash batches DL-179+DL-180 (and DL-174 if not yet flashed)** | Active |
 | [DL-181](#dl-181) | 2026-08-20 | **CI dev-deps + listener.route_message tests** (closes the last audit test-infra gap, F15's other half). Added `requirements-dev.txt` (pytest + paho-mqtt) and switched the CI pytest job to install from it — previously CI installed only pytest, so any test importing `listener.py` (which imports `paho.mqtt.client` at module top) couldn't run. New `tests/test_listener.py` (10 tests) drives `route_message` against the real `schema.sql` on an in-memory DB (no hardware/network — alerter no-ops without NTFY_TOPIC): sensor fan-out + per-device storage, non-JSON rejection, null-field skipping, and the state-message fields the audits touched — **F11 moist_ema stored + -1 sentinel skipped**, session_ml/dose_count, maintenance, pump. Mutation-verified (forcing the moist_ema guard false / breaking fan-out fails the right tests). Suite now 72 Python + 31 C++ | Active |
+| [DL-182](#dl-182) | 2026-08-20 | **Option 2b — remote start (firmware).** Integrated now handles `plant/cmd/dose` payload `"start"` → `fsm_request_start()`, a latching one-shot ORed into the existing `req_start` signal (same path as the MANUAL short-press) — so it inherits every gate: acts only in `ST_MONITOR`, rejected on stale soil, blocked by leak/abort/reservoir safety (which override before the switch), dose clamped by the session cap. **Unlike the MANUAL button, remote start RESPECTS maintenance** — the one-shot is always consumed but only fires when armed (`!maintenance`); in maintenance it logs "ignored — arm first" and does nothing, so an unattended command can't override a deliberate pause (the agreed conservative design). Triggers the normal plateau-gated session (`start_session`, DOSE1_ML→supplements); sessions log "remote" vs "button". Added `fsm_request_start()` (fsm.h/.cpp), the cmd/dose start branch (net_mqtt.cpp). Braces balanced, 31 C++ tests green. **Reflash + verify: remote start doses when armed, is ignored in maintenance. Dashboard Start button is the DL-183 follow-up** | Active |
 
 ---
 
@@ -4464,6 +4465,27 @@ Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, int
 **Suite.** 72 Python (62 + 10) + 31 C++. Deploy: none — CI + test-only; takes effect on next push.
 
 **Files.** `requirements-dev.txt` (new), `.github/workflows/tests.yml`, `tests/test_listener.py` (new).
+
+---
+
+<a id="dl-182"></a>
+### DL-182 — Option 2b: remote start (firmware)
+
+**Date:** 2026-08-20 · **Status:** Active — completes the remote-control pair (abort DL-169 + start). **Awaiting reflash.**
+
+**What.** Integrated now acts on `plant/cmd/dose` payload `"start"`: `fsm_request_start()` sets a latching one-shot (mirroring `fsm_request_abort`) that is ORed into the existing `req_start` signal — the exact path the MANUAL short-press uses. So remote start triggers the normal plateau-gated session (`start_session` → `DOSE1_ML` then supplements toward target) and **inherits every existing gate** with no new bypass:
+- acts only from `ST_MONITOR` (can't interrupt a dose/settle/grace/fault),
+- rejected when soil is stale,
+- overridden by the leak/abort/soil-fault/reservoir-empty safety chain (which runs before the normal-op switch),
+- dose volume clamped by `SESSION_CAP_ML`.
+
+**Respects maintenance (the key design choice).** Unlike the MANUAL button — a physical-presence override that doses even in maintenance — remote start is consumed but only fires when **armed** (`!maintenance`). In maintenance it logs "ignored — arm first" and does nothing. Rationale: a remote, unattended command must not override a deliberate pause; to remote-dose you first arm (remote `maintenance off`), then `start`. The button's behavior is unchanged.
+
+**Telemetry.** Sessions now log their origin: `[SESSION] start (remote)` vs `(button)` vs `(auto)` (serial only; not a published field).
+
+**Verification.** `fsm_request_start` declared/defined/consumed/called; maintenance gate confirmed; braces balanced across `fsm.cpp`/`net_mqtt.cpp`; `water_logic.h` untouched → 31 C++ tests green. **Reflash, then verify: (1) armed + monitor → remote `start` begins a session; (2) in maintenance → remote `start` is ignored (serial logs it, no pump); (3) remote `abort` still stops it.** Dashboard "Start session" button is the DL-183 follow-up once this is confirmed on hardware.
+
+**Files.** `firmware/integrated/src/fsm.cpp`, `firmware/integrated/src/fsm.h`, `firmware/integrated/src/net_mqtt.cpp`.
 
 ---
 

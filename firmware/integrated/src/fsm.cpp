@@ -105,6 +105,12 @@ void fsm_request_maintenance(bool on) { maint_req_on = on; maint_req_pending = t
 static volatile bool abort_req_pending = false;
 void fsm_request_abort() { abort_req_pending = true; }
 
+// Remote start (DL-182): a latching one-shot ORed into the same req_start path as the
+// MANUAL short-press. Unlike the button, remote start RESPECTS maintenance (consumed
+// only when armed) — an unattended command must not override a deliberate pause.
+static volatile bool start_req_pending = false;
+void fsm_request_start() { start_req_pending = true; }
+
 // ---- P0-1: reboot-safe watering transaction (NVS) -------------------------
 static Preferences   nvs;
 static const char*   NVS_NS = "water";
@@ -409,9 +415,17 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
         }
     }
 
-    // Manual dose intent: MANUAL short-press (release without a long-press) or... (MQTT 'start'
-    // is not wired in integrated yet; DL-145 deferred cmd/dose — MANUAL button is the manual path).
-    const bool req_start = (btn_manual.released_edge && !btn_manual.long_fired);
+    // Manual dose intent: MANUAL short-press (release without a long-press), OR a remote
+    // start command (DL-182). Remote start RESPECTS maintenance — it's consumed only when
+    // armed, so an unattended command can't override a deliberate pause. The MANUAL button
+    // keeps its physical-presence override (works in maintenance) unchanged.
+    bool remote_start = false;
+    if (start_req_pending) {
+        start_req_pending = false;   // always consume the one-shot
+        if (!maintenance) remote_start = true;
+        else Serial.println("MQTT: remote start ignored — in maintenance (arm first)");
+    }
+    const bool req_start = (btn_manual.released_edge && !btn_manual.long_fired) || remote_start;
     bool remote_abort = false;
     if (abort_req_pending) { remote_abort = true; abort_req_pending = false; }
     const bool req_abort = (btn_stop.pressed_edge || remote_abort);
@@ -461,7 +475,7 @@ void fsm_tick(const SoilReading& soil, const FloatReading& flt, const LeakReadin
                 if (reservoir_empty) { state = ST_RESERVOIR_EMPTY; break; }
                 if (req_start) {
                     if (soil_stale) Serial.println("[SENSOR] manual dose rejected — soil stale");
-                    else start_session("button", reservoir_empty);
+                    else start_session(remote_start ? "remote" : "button", reservoir_empty);
                 } else if (water_logic::should_trigger(moist_ema, maintenance, soil_stale, TRIGGER_PCT)) {
                     start_session("auto", reservoir_empty);
                 }
