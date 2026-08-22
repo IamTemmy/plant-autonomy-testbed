@@ -229,13 +229,16 @@ def _dev_reboots_24h(conn):
 
 
 def _daily_ml(conn):
-    """mL delivered in the last 24 h.
+    """mL delivered in the last 24 h: sum the positive increments of `session_ml`.
+    Each dose bumps session_ml by its delivered volume and a session reset drops it
+    to 0, so summing positive deltas across the window gives the true total across
+    all sessions (both firmwares publish session_ml — harness P1-6, integrated
+    DL-148). Returns 0.0 when there's no session data.
 
-    Harness (P1-6): sum the positive increments of `session_ml` — each dose bumps
-    session_ml by its delivered volume, and a session reset drops it back to 0, so
-    summing the positive deltas across the window gives the true total across all
-    sessions. Falls back to the integrated firmware's `daily_pump_ms` (stored in
-    fsm_state.value, pump run-time) when no session_ml is present.
+    F9 (DL-175): the old fallback read `fsm_state.value` as `daily_pump_ms/1000` —
+    but daily_pump_ms was retired with the daily-limit model (DL-150/158) and
+    integrated no longer sends it, so that path stored null and computed a
+    meaningless number. Removed; the session_ml sum is the sole, correct source.
     """
     row = conn.execute(
         """WITH s AS (
@@ -249,14 +252,7 @@ def _daily_ml(conn):
                                     THEN value - COALESCE(prev, 0) ELSE 0 END), 0)
            FROM s"""
     ).fetchone()
-    delivered = row[0] if row else 0
-    if delivered and delivered > 0:
-        return float(delivered)
-    # Fallback: integrated firmware reports cumulative pump run-time (ms) in fsm_state.
-    ms = _scalar(conn,
-        "SELECT value FROM system_status WHERE device='wrover' "
-        "AND metric='fsm_state' AND value IS NOT NULL ORDER BY id DESC LIMIT 1")
-    return (ms or 0) / 1000.0
+    return float(row[0]) if row and row[0] else 0.0
 
 
 def _soil_pct(conn):

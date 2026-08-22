@@ -194,6 +194,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-172](#dl-172) | 2026-08-20 | **Audit fix F11 — store moist_pct (the FSM decision variable).** The firmware publishes `moist_pct` (the smoothed EMA the watering logic actually acts on) in the state payload (DL-148), but the listener parsed every other field and silently dropped it — so the exact variable that drives dosing decisions was never persisted, unrecoverable for the future consumption model. Now stored in `system_status` as metric `moist_ema` (distinct from the raw `soil_raw`/`moisture` in sensor_readings — this is what the FSM *believed*, not the instantaneous probe), skipping the firmware's `-1` no-reading sentinel. listener.py py_compiles; hub-only, deploy = scp + restart plant-listener. Follow-up: a `listener.route_message` test (audit F15) needs paho in CI (requirements-dev.txt) — deferred | Active |
 | [DL-173](#dl-173) | 2026-08-20 | **Audit fix F7 — lux carve-out no longer masks a dead BH1750.** The DL-137/139 board-liveness gate treated "board alive (soil fresh) but no lux" as benign — correct for the harness (no I2C, never any lux) but wrong for integrated, which reads lux: a died/disconnected BH1750 during daytime went completely unreported. Fix: added `_lux_ever_seen()` and split the carve-out — if the board is up, lux is absent 30+ min during lit hours, AND lux was ever recorded (lux-capable firmware), alert "Light sensor not reporting" (dead/disconnected BH1750); a board that never reported lux (true harness) stays silent as before. Added recovery notification + `lux_dead_since`/`lux_dead_alerted` trackers. +3 tests for `_lux_ever_seen` (mutation-verified). Same harness-era-assumption class as DL-162/172; hub-only, deploy = scp + restart plant-listener | Active |
 | [DL-174](#dl-174) | 2026-08-20 | **Audit fix #1 — network-independent pump safety (`fsm_safety_tick`).** The P0-2 hard pump ceiling lived inside `fsm_tick`, which `loop()` calls AFTER `mqtt_tick` — so a blocking PubSubClient reconnect (socket timeout) could delay cutting a runaway pump. Split the physical half into `fsm_safety_tick()` called FIRST in `loop()`, before wifi/mqtt: it only checks the ceiling and `pump_off()`s + latches a flag. `fsm_tick` (later, same loop) observes the flag and does the state/accounting/NVS bookkeeping — so the DL-164 accounting fix is preserved AND the pump-off can never be gated behind a network call. Real severity was bounded (~2s worst-case overrun on a 165s ceiling) but the principle — safety never blocked by I/O — is now enforced structurally. 3 files; braces balanced, 31 C++ tests green. **Pump path → reflash + verify safe boot/arm** | Active |
+| [DL-175](#dl-175) | 2026-08-20 | **Audit fix F9 — remove fabricated daily-mL fallback.** Both `alerter._daily_ml` and dashboard `daily_ml_delivered` summed session_ml positive deltas over 24h (correct — integrated publishes session_ml, DL-148), but fell back to reading `fsm_state.value` as `daily_pump_ms/1000` when no session data. `daily_pump_ms` was retired with the daily-limit model (DL-150/158) and integrated no longer sends it, so `fsm_state.value` is null and the fallback computed a meaningless "mL" number (dividing null/pump-ms by 1000). Removed the fallback from both; the session_ml-delta sum is now the sole, correct source (returns 0 when no session data). The misleading `daily_pump_ms` dict key in `latest_fsm_state` is now read only by F8's dead watering-page overlay — cleaned up together with F8. Both py_compile; 62 tests green; hub-only deploy | Active |
 
 ---
 
@@ -4332,6 +4333,23 @@ So the pump-off is now guaranteed every loop regardless of network state, while 
 **Verification.** `fsm_safety_tick` declared/defined/called; flag set-and-consumed; ceiling still keyed on `pump_on_since_ms`; braces balanced across the 3 files; `water_logic.h` untouched → 31 C++ tests green. **Reflash; verify safe boot + arm (no spurious dose at ~64%).** The ceiling path itself is hard to bench-trigger, but the split is logic-traced and low-risk (safety_tick can only stop the pump).
 
 **Files.** `firmware/integrated/src/fsm.cpp`, `firmware/integrated/src/fsm.h`, `firmware/integrated/src/main.cpp`.
+
+---
+
+<a id="dl-175"></a>
+### DL-175 — Audit fix F9: remove fabricated daily-mL fallback
+
+**Date:** 2026-08-20 · **Status:** Active — hub-only.
+
+**The bug.** `_daily_ml` (alerter) and `daily_ml_delivered` (dashboard) both compute 24h delivered volume by summing the positive deltas of `session_ml` — which is correct and works with integrated (it publishes session_ml, DL-148, now stored). But both had a fallback: if that sum was 0, read the latest `fsm_state.value` and divide by 1000 as "mL." That `value` used to hold `daily_pump_ms`, a concept retired with the daily-limit model (DL-150/158) and no longer sent by integrated — so the column is null and the fallback produced a meaningless number (the audit's "fabricated mL"; in practice `(null)/1000 → 0`, but it's dead, misleading code referencing a removed feature).
+
+**Fix.** Removed the fallback from both functions; the session_ml positive-delta sum is the sole source, returning 0.0 when there's no session data (the honest answer). No behavior change in the normal case (the primary path already dominated); the dead branch is simply gone.
+
+**Deferred coupling.** `latest_fsm_state()` still returns the null `value` under the key `"daily_pump_ms"`; its only remaining reader is the dead watering-page episode overlay (audit F8). That key rename + the F8 overlay are handled together in the F8 fix, to keep this commit scoped.
+
+**Verification.** Both files py_compile; full suite (62 Python + 31 C++) green. Deploy: scp `alerter.py` + `dash_common.py`, restart `plant-listener` and the dashboard.
+
+**Files.** `hub/04-listener/alerter.py`, `hub/06-dashboard/dash_common.py`.
 
 ---
 
