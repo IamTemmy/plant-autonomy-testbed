@@ -4085,7 +4085,7 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 <a id="dl-161"></a>
 ### DL-161 — P2-13 Direction B step 3: wire fsm.cpp to the tested logic
 
-**Date:** 2026-08-20 · **Status:** Active — closes Direction B. **Awaiting reflash + bench spot-check.**
+**Date:** 2026-08-20 · **Status:** Active — closes Direction B. **Validated on hardware 2026-08-20** (reflashed; OLED "Session:" row confirmed; re-armed to `monitor` with no spurious dose at ~70%).
 
 **This step.** `fsm.cpp` now `#include`s `water_logic.h` and calls its functions everywhere it previously inlined the decision math — 12 call sites across `begin_dose` (`clamp_dose`), `evaluate` (`evaluate_decision`), the freshness computation (`is_soil_stale`), the MONITOR trigger (`should_trigger`), the SETTLE/GRACE target checks (`target_reached`), and the SETTLE plateau (`is_plateau`). Verified no inline decision math remains.
 
@@ -4123,7 +4123,7 @@ So whenever lux went stale — exactly what happens when the WROVER goes offline
 <a id="dl-163"></a>
 ### DL-163 — Audit fix F1: stop_session() never set last_reason
 
-**Date:** 2026-08-20 · **Status:** Active — first fix from the post-P1-8 bug audits. **Awaiting reflash.**
+**Date:** 2026-08-20 · **Status:** Active — first fix from the post-P1-8 bug audits. **Validated on hardware 2026-08-20** (reflashed in the F1/#2/#5 batch; live).
 
 **The bug (confirmed at HEAD).** `stop_session(reason)` in `fsm.cpp` called `publish_state_now()` **without** first assigning `last_reason = reason`. Since `publish_state_now()` sends `last_reason`, every stop shipped the *stale* previous value (normally `""` from `start_session()`), and the `reason` argument reached only the serial log. `finish_done()` twelve lines above does it correctly (`last_reason = "target reached"` before publish) — `stop_session` was the one exit path that forgot.
 
@@ -4233,7 +4233,7 @@ Also dropped the dead `watering_fault` key (no firmware emits it).
 <a id="dl-169"></a>
 ### DL-169 — Option 2a: remote abort (firmware)
 
-**Date:** 2026-08-20 · **Status:** Active — first half of the real remote dose/abort feature (the truthful replacement for the DL-168 buttons). **Awaiting reflash.**
+**Date:** 2026-08-20 · **Status:** Active — first half of the real remote dose/abort feature (the truthful replacement for the DL-168 buttons). **Validated on hardware 2026-08-20** (reflashed; remote `abort` stopped a live dose → `stopped`).
 
 **What.** The integrated firmware now subscribes to `plant/cmd/dose` and acts on payload `"abort"`: it calls `fsm_request_abort()`, a latching one-shot (mirroring `fsm_request_maintenance`) consumed once per tick and ORed into the existing `req_abort` signal — the exact path the physical STOP button uses. Effect: pump off, state `stopped`, reason `"abort"`, needs ACK to clear. Identical to a bench STOP press, now triggerable remotely.
 
@@ -4327,7 +4327,7 @@ Added `lux_dead_since` / `lux_dead_alerted` state trackers and a "Light sensor r
 <a id="dl-174"></a>
 ### DL-174 — Audit fix #1: network-independent pump safety (fsm_safety_tick)
 
-**Date:** 2026-08-20 · **Status:** Active — last substantive firmware robustness item. **Awaiting reflash.**
+**Date:** 2026-08-20 · **Status:** Active — last substantive firmware robustness item. **Validated on hardware 2026-08-22.**
 
 **The concern.** The P0-2 hard pump ceiling lived inside `fsm_tick`, and `loop()` calls `wifi_tick()` → `mqtt_tick()` → `fsm_tick()`. `PubSubClient` can block during a reconnect (socket timeout, ~2 s), so in principle the ceiling — and thus cutting a runaway pump — could be delayed behind a network call. Bounded in practice (~2 s overrun on a 165 s ceiling, ~1%), but the architecture violated the principle that a physical safety action must never depend on I/O completing.
 
@@ -4338,6 +4338,8 @@ Added `lux_dead_since` / `lux_dead_alerted` state trackers and a "Light sensor r
 So the pump-off is now guaranteed every loop regardless of network state, while the accounting/persistence fix from DL-164 is fully preserved (verified by tracing: safety_tick offs the pump → fsm_tick captures prev_state=DOSING → sees flag → STOPPED → accounting fires → NVS/publish fires).
 
 **Verification.** `fsm_safety_tick` declared/defined/called; flag set-and-consumed; ceiling still keyed on `pump_on_since_ms`; braces balanced across the 3 files; `water_logic.h` untouched → 31 C++ tests green. **Reflash; verify safe boot + arm (no spurious dose at ~64%).** The ceiling path itself is hard to bench-trigger, but the split is logic-traced and low-risk (safety_tick can only stop the pump).
+
+**Validated (2026-08-22).** Reflashed in the DL-174/179/180 batch. Clean safe boot (maintenance ON, both cmd subscriptions, sensors reading), armed with no spurious dose at ~63% — safety-tick ordering confirmed healthy in normal operation.
 
 **Files.** `firmware/integrated/src/fsm.cpp`, `firmware/integrated/src/fsm.h`, `firmware/integrated/src/main.cpp`.
 
@@ -4425,6 +4427,8 @@ Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, int
 
 **Verification.** No `state_pub_next_ms` or absolute `now >=` deadline remains in `fsm.cpp`; braces balanced; 31 C++ tests green. Reflash (batched with #3). Not bench-observable without a 49.7-day uptime; logic-verified.
 
+**Validated (2026-08-22).** Reflashed in the batch; normal state-publish cadence confirmed flowing post-reflash (telemetry uninterrupted). The rollover itself is a 49.7-day-uptime edge case, so it remains logic-verified rather than bench-triggered — as expected.
+
 **Files.** `firmware/integrated/src/fsm.cpp`.
 
 ---
@@ -4432,7 +4436,7 @@ Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, int
 <a id="dl-180"></a>
 ### DL-180 — Audit fix #3: reboot-safe dose reservation (reserve-then-reconcile)
 
-**Date:** 2026-08-20 · **Status:** Active — last substantive firmware fix. **Awaiting reflash (batch with DL-179, and DL-174 if not yet flashed).**
+**Date:** 2026-08-20 · **Status:** Active — last substantive firmware fix. **Validated on hardware 2026-08-22.**
 
 **The gap.** `begin_dose` persisted `session_ml` to NVS *before* starting the pump, but `session_ml` was only incremented by the delivered volume *after* the dose finished (the accounting step on leaving DOSING). So the NVS snapshot during a dose held the *pre-dose* total. A reboot mid-dose therefore recovered a `session_ml` that omitted the water already delivered in the interrupted dose — up to one full dose (≤150 mL) uncounted. On resume, the `SESSION_CAP_ML` (600 mL) budget is computed against that undercount, so a session spanning a reboot could deliver more than the cap intends. Bounded (narrow mid-dose reboot window; per-dose 150 mL cap and leak sensor still active) but a real flaw in the transaction model.
 
@@ -4444,6 +4448,8 @@ Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, int
 **Correctness trace.** `clamp_dose` runs on `session_ml` *before* the reserve (no double-count); multi-dose sessions clamp each dose against the reconciled running total; the ceiling case caps `dose_delivered_ml()` at target so unused=0 (keeps the reserve, fine for a fault path). Verified against all DOSING-exit paths (normal→settle, abort→stopped, fault, ceiling).
 
 **Verification.** Braces balanced; `water_logic.h` untouched → 31 C++ tests green. **Reflash; verify a normal dose still accounts correctly (session_ml tracks delivered) and a mid-dose abort leaves the actual delivered amount.** The reboot path is logic-verified (hard to bench without cutting power mid-dose).
+
+**Validated (2026-08-22).** A full manual dose reported `[SESSION] DONE ... | 100 mL over 1 dose(s)` — the reserve (full 100 at dose start) reconciled to exactly 100 on clean completion. A live dose was also aborted mid-flight (via remote abort) and stopped correctly; the reserve-reconcile returned the unused remainder. The mid-dose *reboot* path (power-cut mid-dose) remains logic-verified only, as expected.
 
 **Files.** `firmware/integrated/src/fsm.cpp`.
 
@@ -4471,7 +4477,7 @@ Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, int
 <a id="dl-182"></a>
 ### DL-182 — Option 2b: remote start (firmware)
 
-**Date:** 2026-08-20 · **Status:** Active — completes the remote-control pair (abort DL-169 + start). **Awaiting reflash.**
+**Date:** 2026-08-20 · **Status:** Active — completes the remote-control pair (abort DL-169 + start). **Validated on hardware 2026-08-22.**
 
 **What.** Integrated now acts on `plant/cmd/dose` payload `"start"`: `fsm_request_start()` sets a latching one-shot (mirroring `fsm_request_abort`) that is ORed into the existing `req_start` signal — the exact path the MANUAL short-press uses. So remote start triggers the normal plateau-gated session (`start_session` → `DOSE1_ML` then supplements toward target) and **inherits every existing gate** with no new bypass:
 - acts only from `ST_MONITOR` (can't interrupt a dose/settle/grace/fault),
@@ -4484,6 +4490,8 @@ Accurate historical notes (e.g. "reported by both firmwares (harness DL-128, int
 **Telemetry.** Sessions now log their origin: `[SESSION] start (remote)` vs `(button)` vs `(auto)` (serial only; not a published field).
 
 **Verification.** `fsm_request_start` declared/defined/consumed/called; maintenance gate confirmed; braces balanced across `fsm.cpp`/`net_mqtt.cpp`; `water_logic.h` untouched → 31 C++ tests green. **Reflash, then verify: (1) armed + monitor → remote `start` begins a session; (2) in maintenance → remote `start` is ignored (serial logs it, no pump); (3) remote `abort` still stops it.** Dashboard "Start session" button is the DL-183 follow-up once this is confirmed on hardware.
+
+**Validated (2026-08-22).** All three checks passed on hardware: (1) armed + monitor → remote `start` began a session (`[SESSION] start (remote)`, pump on); (2) in maintenance → remote `start` logged "ignored — arm first" with no pump — the conservative gate holds; (3) remote `abort` stopped a live session. Clears the way for the DL-183 dashboard Start button.
 
 **Files.** `firmware/integrated/src/fsm.cpp`, `firmware/integrated/src/fsm.h`, `firmware/integrated/src/net_mqtt.cpp`.
 
