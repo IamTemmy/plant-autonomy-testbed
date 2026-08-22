@@ -189,6 +189,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-167](#dl-167) | 2026-08-20 | **Audit fixes F2 + F5 (alerter, no reflash)** — restore missing fault alerts + fix leak-disconnect copy. **F2:** three P0 fail-safes fired the pump-off latch but sent NO push. Added `sensor_fault` + `recovery_hold` to state-keyed `FAULT_ALERTS` (dropped dead `watering_fault`); added `"pump max-runtime exceeded"` to reason-keyed `_WATERING_ALERTS`. **F5:** `leak_fault` state alert said "Water detected" for BOTH a real leak and a disconnected sensor (opposite responses). Since `reason` isn't persisted (only flows event-driven via `on_watering_state`), added a distinct `"leak sensor disconnected"` reason alert (check-the-connector copy) and made the reason-blind polled `leak_fault` state alert neutral ("leak or disconnect — check sensor and tray"). Every P0 fail-safe now alerts; leak vs disconnect distinguished. py_compile + 15 alerter tests green; deploy = scp alerter.py + restart plant-listener | Active |
 | [DL-168](#dl-168) | 2026-08-20 | **Audit fix F4 (dashboard, no reflash)** — removed the dead/lying dose buttons. The controls page's Start/Abort buttons published to `plant/cmd/dose`, which the integrated (production) firmware doesn't subscribe to — so `send_dose_cmd` returned True and the UI reported "the pump will stop and the session will end" while nothing happened: a dangerous false safety affordance during an emergency. Replaced both with an honest note (remote dose/abort not yet available; use the maintenance toggle to pause remotely, or MANUAL at the plant to dose); dropped the now-unused `send_dose_cmd` import (helper kept in dash_common for the planned real implementation). This is the interim fix; **Option 2 — actually implementing remote dose/abort in the firmware — is the follow-up feature.** py_compile OK; deploy = scp controls.py + dashboard restart | Active |
 | [DL-169](#dl-169) | 2026-08-20 | **Option 2a — remote abort (firmware).** Integrated now subscribes to `plant/cmd/dose` and handles payload `"abort"` → `fsm_request_abort()`, a latching one-shot ORed into the same `req_abort` path as the physical STOP button (→ pump off, `stopped`, reason "abort"). Mirrors the `cmd/maintenance` request pattern exactly. **Safe by construction: can only STOP a session, never start one** — `"start"` is explicitly ignored for now (remote start is the riskier, later half). Added `fsm_request_abort()` (fsm.h/.cpp), `MQTT_TOPIC_CMD_DOSE` (config.h), and the handler+subscribe (net_mqtt.cpp). Braces balanced, 31 C++ tests green. **Needs reflash + verify remote abort stops an active dose.** Dashboard Abort button restored in a follow-up once verified | Active |
+| [DL-170](#dl-170) | 2026-08-20 | **Option 2a — restore truthful dashboard Abort button.** With remote abort verified on hardware (DL-169), restored a real Abort button on the controls page — now honest, since the firmware actually stops the session. Shown **only while a session is active** (`dosing`/`settle`/`grace`) so it never implies control when there's nothing to stop; otherwise an honest caption. Publishes `abort` to `plant/cmd/dose` via `send_dose_cmd`. Remote **start** still NOT offered (deferred riskier half — dose via MANUAL at the plant). Fixed the stale `send_dose_cmd` docstring. Closes the F4 loop properly (interim removal DL-168 → real capability DL-169 → truthful UI DL-170). py_compile OK; deploy = scp controls.py + dash_common.py + dashboard restart | Active |
 
 ---
 
@@ -4231,6 +4232,23 @@ Also dropped the dead `watering_fault` key (no firmware emits it).
 **Verification.** Braces/parens balanced across changed files; symbol declared/defined/consumed/called; `water_logic.h` untouched → 31 C++ tests green. **Reflash, then verify:** start a manual dose (bottle), publish `mosquitto_pub -t plant/cmd/dose -m abort`, confirm the pump stops and state → `stopped`/`abort`. The dashboard Abort button is restored in the follow-up (DL-170) once this is confirmed on hardware.
 
 **Files.** `firmware/integrated/src/{fsm.cpp,fsm.h,config.h,net_mqtt.cpp}`.
+
+---
+
+<a id="dl-170"></a>
+### DL-170 — Option 2a: truthful dashboard Abort button
+
+**Date:** 2026-08-20 · **Status:** Active — completes the F4 → remote-abort arc.
+
+**What.** Remote abort was verified on hardware (DL-169: `mosquitto_pub -t plant/cmd/dose -m abort` stopped a live dose). So the dashboard Abort button is restored — now truthful, because the firmware genuinely handles it. The button is shown **only while a watering session is active** (`state ∈ {dosing, settle, grace}`); at other times an honest caption explains there's nothing to abort. On click it publishes `abort` to `plant/cmd/dose` and reports that the state will move to `stopped` once the device confirms.
+
+**Not restored: remote start.** The "Start session" button stays gone — remote start is the deferred, riskier half (energises the pump unattended). A dose is still initiated at the plant via the MANUAL button. Also fixed the `send_dose_cmd` docstring (was "harness only / no effect").
+
+**F4 arc, complete.** DL-168 removed the lying buttons (interim safety) → DL-169 built the real firmware capability → DL-170 exposes it truthfully. The dashboard now offers exactly the remote controls that actually work: maintenance toggle (arm/pause) and, during a session, abort.
+
+**Verification.** Both files py_compile. Deploy: scp `controls.py` + `dash_common.py` to the Pi, restart the dashboard. To see the button live, it must be viewed while a session is active (e.g. during a manual dose).
+
+**Files.** `hub/06-dashboard/dash_pages/controls.py`, `hub/06-dashboard/dash_common.py`.
 
 ---
 

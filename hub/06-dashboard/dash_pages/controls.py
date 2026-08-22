@@ -12,6 +12,7 @@ from dash_common import (
     latest_maintenance,
     _FAULT_STATES,
     send_maintenance_cmd,
+    send_dose_cmd,
 )
 
 
@@ -42,14 +43,22 @@ else:
             st.success(f"Sent '{_cmd}'. The status will update once the device confirms.")
 
 st.markdown("### Bottom-watering session")
-# F4 (DL-168): the Start/Abort dose buttons published to plant/cmd/dose, which the
-# integrated (production) firmware does NOT subscribe to — so "Abort" would report
-# "the pump will stop" while nothing happened: a dangerous false safety affordance.
-# Removed until remote dose/abort is actually implemented in the firmware (planned).
-# In the meantime, arming/maintenance above is the working remote control, and a
-# real dose can be started at the plant with the MANUAL button.
-st.caption(
-    "Remote start/abort of a watering dose isn't available yet — the production "
-    "firmware doesn't accept dose commands. To pause watering remotely, use the "
-    "maintenance toggle above; to force a dose, use the MANUAL button at the plant."
-)
+# DL-170: remote abort is now real — the integrated firmware handles
+# plant/cmd/dose "abort" (DL-169), routing it into the STOP-button path. The Abort
+# button is shown only while a session is actually active, so it never falsely
+# implies control when there's nothing to stop. Remote "start" is NOT offered yet
+# (deferred, riskier half) — a dose is still started at the plant via MANUAL.
+_ACTIVE_STATES = {"dosing", "settle", "grace"}
+_active = bool(_fsm) and _fsm["state"] in _ACTIVE_STATES
+if _active:
+    st.warning(f"A watering session is active (**{_fsm['state']}**).")
+    if st.button("Abort watering now", key="dose_abort"):
+        if send_dose_cmd("abort"):
+            st.success("Sent 'abort'. The pump will stop and the session will end; "
+                       "the state will update to 'stopped' once the device confirms.")
+else:
+    st.caption(
+        "No active watering session to abort. Remote *start* isn't available yet — "
+        "to force a dose, use the MANUAL button at the plant. To pause auto-watering "
+        "remotely, use the maintenance toggle above."
+    )

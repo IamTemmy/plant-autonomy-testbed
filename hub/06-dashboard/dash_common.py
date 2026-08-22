@@ -283,8 +283,9 @@ def send_maintenance_cmd(value: str) -> bool:
         return False
 
 def send_dose_cmd(value: str) -> bool:
-    """Publish a bottom-watering command ('start' | 'abort') to the harness.
-    Mirrors send_maintenance_cmd. No effect unless the harness firmware is running."""
+    """Publish a bottom-watering command to plant/cmd/dose. The integrated firmware
+    handles "abort" (DL-169), stopping the current session; "start" is not yet
+    handled (deferred). Mirrors send_maintenance_cmd."""
     user = os.environ.get("MQTT_USER")
     password = os.environ.get("MQTT_PASS")
     if not user or not password:
