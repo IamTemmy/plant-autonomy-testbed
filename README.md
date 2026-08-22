@@ -8,7 +8,7 @@
 
 ## Overview
 
-The Plant Autonomy Testbed senses soil moisture, air conditions, and light, then waters a basil plant with a precisely metered dose **only when the soil actually needs it** — and verifies that each watering had an effect. It runs the grow light on a daily photoperiod, reports its status to a live remote dashboard, and degrades safely when a sensor, actuator, or the network fails, so the plant can be left unattended.
+The Plant Autonomy Testbed senses soil moisture, air conditions, and light, then waters a basil plant with a precisely metered dose **only when the soil actually needs it** — and verifies that each watering had an effect. It runs the grow-light on a daily photoperiod, reports its status to a live remote dashboard, and degrades safely when a sensor, actuator, or the network fails, so the plant can be left unattended.
 
 It originated from an engineering interview question — *"how would you design a system to autonomously care for a plant, including for when you travel?"* — and has been built into a complete, working answer, with every engineering decision recorded in a [decision log](docs/decision-log.md).
 
@@ -22,7 +22,7 @@ The system is **operational** — sensing, telemetry, dashboard, camera, lightin
 | **Phase 2** | Integrated ESP32-WROVER firmware — sensing, the watering state machine, dosing, fault detection | ✅ Complete |
 | **Phase 3** | Raspberry Pi telemetry hub — MQTT broker, database, live dashboard | ✅ Complete |
 | **Phase 4** | Camera vision node — XIAO ESP32-S3 Sense capture, Pi-side greenness metrics, dashboard panel | ✅ Complete |
-| **Phase 5** | Root/bottom watering — probe recalibration, volume-metered dose→settle→evaluate loop ported to the production firmware and hardware-validated, phone alerts, dashboard + remote start/abort control | ✅ Complete |
+| **Phase 5** | Root/bottom-watering — probe recalibration, volume-metered dose→settle→evaluate loop ported to the production firmware and hardware-validated, phone alerts, dashboard + remote start/abort control | ✅ Complete |
 | **Next** | Vision analysis (greenness → growth/health), adaptive lighting | 🔜 Roadmap |
 
 ## Engineering framing
@@ -44,7 +44,7 @@ Four functional layers:
 |---|---|
 | **Perception** | Capacitive soil-moisture sensor · BME280 (air temp/humidity/pressure) · BH1750 (light) · float switch (reservoir level) · conductive leak sensor |
 | **Planning** | ESP32-WROVER firmware — a `millis()`-based, non-blocking state machine with threshold logic, closed-loop watering verification, fault detection, and safety-first evaluation |
-| **Action** | 12 V peristaltic pump via a logic-level MOSFET · grow light on a Shelly Plug US Gen4, photoperiod enforced Pi-side over local RPC with the plug's onboard schedule as fallback (DL-074) · OLED, traffic-light status LEDs, and buzzer for local feedback |
+| **Action** | 12 V peristaltic pump via a logic-level MOSFET · grow-light on a Shelly Plug US Gen4, photoperiod enforced Pi-side over local RPC with the plug's onboard schedule as fallback (DL-074) · OLED, traffic-light status LEDs, and buzzer for local feedback |
 | **Telemetry** | WiFi → MQTT → Raspberry Pi 4 hub running Mosquitto, SQLite, and a Streamlit dashboard; remote access over Tailscale |
 
 ## What it does now
@@ -52,9 +52,9 @@ Four functional layers:
 - **Autonomous watering** — the ESP32 waters from a `millis()`-based state machine: when soil crosses the dry threshold it doses a precisely metered volume, settles, and evaluates the effect against a moisture-plateau, supplementing toward target and bounding total water with a per-session cap. This root/bottom-watering loop (a rework of the original top-water logic, which showed large sensor-vs-actuator lag) is now the production firmware — volume-metered, reboot-safe, and controllable remotely (start/abort) as well as at the plant (Phase 5; DL-104–188). Auto-triggering on a natural dry-down is implemented and unit-tested; the loop itself has run end-to-end on hardware.
 - **Closed-loop watering watchdog** — detects watering that isn't moving soil moisture and latches a `watering_fault` instead of running dry (catches an empty reservoir, dead pump, clog, or disconnected float).
 - **Safety states** — leak detection, emergency stop, reservoir-empty, sensor-fault, and per-session volume-cap handling, surfaced on status LEDs, an OLED, and a buzzer.
-- **Scheduled grow light** — a fixed daily photoperiod (07:00–19:00) enforced from the always-on Pi every ~2 min over local RPC, self-healing a plug reboot within one tick; the smart plug's onboard schedule is kept as a fallback so the light still cycles if the Pi is down (DL-074).
+- **Scheduled grow-light** — a fixed daily photoperiod (07:00–19:00) enforced from the always-on Pi every ~2 min over local RPC, self-healing a plug reboot within one tick; the smart plug's onboard schedule is kept as a fallback so the light still cycles if the Pi is down (DL-074).
 - **Live remote dashboard** — current state, sensor readings, a soil-moisture trend with watering episodes overlaid, and power telemetry.
-- **Device-presence awareness** — if the controller drops offline, the dashboard detects it — via the MQTT Last-Will, and via a hub-side timeout watchdog that also catches a device hung but still TCP-connected — greys stale readings, and flags exactly when contact was lost. Controller reboots are detected from uptime resets and surfaced, with a warning if they start flapping.
+- **Device-presence awareness** — if the controller drops offline, the dashboard notices (via the MQTT Last-Will, and a hub-side timeout watchdog that also catches a device hung but still TCP-connected), greys out stale readings, and flags when contact was lost. Controller reboots are detected from uptime resets and surfaced, with a warning if they start flapping.
 - **Push alerting** — genuine problems (leak, watering fault, empty reservoir, prolonged offline, flapping reboots) send a phone push notification over ntfy, each with a "Resolved" recovery ping, plus a low-priority daily heartbeat — reaching the operator anywhere, independent of the lab network.
 
 ## Dashboard

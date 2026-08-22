@@ -40,4 +40,4 @@ Validated 2026-06-19 (DL-077).
 
 ## What this test does not verify
 
-WiFi (antenna seating, association, the campus-network path), the HTTP-POST transport to the Pi receiver (`hub/09-camera`), SD storage, image quality/focus/exposure under the grow light, or the eventual capture cadence. Those belong to the capture-and-POST slice that follows this bring-up.
+WiFi (antenna seating, association, the campus-network path), the HTTP-POST transport to the Pi receiver (`hub/09-camera`), SD storage, image quality/focus/exposure under the grow-light, or the eventual capture cadence. Those belong to the capture-and-POST slice that follows this bring-up.
