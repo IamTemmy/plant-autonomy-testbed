@@ -195,6 +195,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-173](#dl-173) | 2026-08-20 | **Audit fix F7 — lux carve-out no longer masks a dead BH1750.** The DL-137/139 board-liveness gate treated "board alive (soil fresh) but no lux" as benign — correct for the harness (no I2C, never any lux) but wrong for integrated, which reads lux: a died/disconnected BH1750 during daytime went completely unreported. Fix: added `_lux_ever_seen()` and split the carve-out — if the board is up, lux is absent 30+ min during lit hours, AND lux was ever recorded (lux-capable firmware), alert "Light sensor not reporting" (dead/disconnected BH1750); a board that never reported lux (true harness) stays silent as before. Added recovery notification + `lux_dead_since`/`lux_dead_alerted` trackers. +3 tests for `_lux_ever_seen` (mutation-verified). Same harness-era-assumption class as DL-162/172; hub-only, deploy = scp + restart plant-listener | Active |
 | [DL-174](#dl-174) | 2026-08-20 | **Audit fix #1 — network-independent pump safety (`fsm_safety_tick`).** The P0-2 hard pump ceiling lived inside `fsm_tick`, which `loop()` calls AFTER `mqtt_tick` — so a blocking PubSubClient reconnect (socket timeout) could delay cutting a runaway pump. Split the physical half into `fsm_safety_tick()` called FIRST in `loop()`, before wifi/mqtt: it only checks the ceiling and `pump_off()`s + latches a flag. `fsm_tick` (later, same loop) observes the flag and does the state/accounting/NVS bookkeeping — so the DL-164 accounting fix is preserved AND the pump-off can never be gated behind a network call. Real severity was bounded (~2s worst-case overrun on a 165s ceiling) but the principle — safety never blocked by I/O — is now enforced structurally. 3 files; braces balanced, 31 C++ tests green. **Pump path → reflash + verify safe boot/arm** | Active |
 | [DL-175](#dl-175) | 2026-08-20 | **Audit fix F9 — remove fabricated daily-mL fallback.** Both `alerter._daily_ml` and dashboard `daily_ml_delivered` summed session_ml positive deltas over 24h (correct — integrated publishes session_ml, DL-148), but fell back to reading `fsm_state.value` as `daily_pump_ms/1000` when no session data. `daily_pump_ms` was retired with the daily-limit model (DL-150/158) and integrated no longer sends it, so `fsm_state.value` is null and the fallback computed a meaningless "mL" number (dividing null/pump-ms by 1000). Removed the fallback from both; the session_ml-delta sum is now the sole, correct source (returns 0 when no session data). The misleading `daily_pump_ms` dict key in `latest_fsm_state` is now read only by F8's dead watering-page overlay — cleaned up together with F8. Both py_compile; 62 tests green; hub-only deploy | Active |
+| [DL-176](#dl-176) | 2026-08-20 | **Audit fix F8 — revive the watering-page episode overlay.** `watering_episodes` keyed off retired states (`watering`/`manual`) and computed volume from the retired `daily_pump_ms` delta — so under integrated it detected zero episodes and the soil chart never shaded a watering bout. Rewrote it to derive episodes from integrated data: an episode is a contiguous span in an active state (`dosing`/`settle`/`grace`), and delivered volume is the **peak `session_ml`** reached during the span (real data, DL-148/172). Also retired the now-unread misleading `daily_pump_ms` key from `latest_fsm_state` (→ `value`), completing the F9 coupling. Trigger labeled 'Auto' (integrated state history doesn't distinguish manual). py_compile OK, 62+31 tests green; dashboard-only deploy | Active |
 
 ---
 
@@ -4350,6 +4351,23 @@ So the pump-off is now guaranteed every loop regardless of network state, while 
 **Verification.** Both files py_compile; full suite (62 Python + 31 C++) green. Deploy: scp `alerter.py` + `dash_common.py`, restart `plant-listener` and the dashboard.
 
 **Files.** `hub/04-listener/alerter.py`, `hub/06-dashboard/dash_common.py`.
+
+---
+
+<a id="dl-176"></a>
+### DL-176 — Audit fix F8: revive the watering-page episode overlay
+
+**Date:** 2026-08-20 · **Status:** Active — dashboard-only. Completes the F9 coupling.
+
+**The bug.** The watering page shades "watering episodes" on the soil-moisture chart and tables their volume. `watering_episodes()` detected an episode as a span in state `"watering"` or `"manual"` and computed mL from the `daily_pump_ms` delta — both retired: integrated's active states are `dosing`/`settle`/`grace`, and `daily_pump_ms` is gone (DL-150/158). So under the production firmware it found zero episodes: the overlay was always empty and the table always "no episodes," silently.
+
+**Fix.** Rewrote `watering_episodes()` to use integrated data. It now reads both `fsm_state` and `session_ml` rows in the window; an episode is a contiguous span in an active state (`dosing`/`settle`/`grace`), and its delivered volume is the **peak `session_ml`** observed during the span (session_ml rises through the doses then resets to 0 at session end, so the peak is the total delivered). Duration from the span endpoints; trigger labeled "Auto" (the integrated state history doesn't record whether a session was button- or auto-started).
+
+**Coupling cleanup.** With F8 no longer reading it, retired the misleading `"daily_pump_ms"` key that `latest_fsm_state()` still returned (the null `fsm_state.value`) — renamed to `"value"`. Confirmed no remaining consumers of the old key. This finishes what DL-175 (F9) deferred.
+
+**Verification.** `watering.py` + `dash_common.py` py_compile; full suite (62 Python + 31 C++) green. Deploy: scp `watering.py` + `dash_common.py`, restart the dashboard. The overlay populates once a real session's state/session_ml rows are in the window (e.g. after the next dose).
+
+**Files.** `hub/06-dashboard/dash_pages/watering.py`, `hub/06-dashboard/dash_common.py`.
 
 ---
 

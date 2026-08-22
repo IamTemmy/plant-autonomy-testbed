@@ -141,7 +141,7 @@ def latest_fsm_state():
     if df.empty:
         return None
     return {"ts": df.iloc[0]["ts"], "state": df.iloc[0]["status"],
-            "daily_pump_ms": df.iloc[0]["value"]}
+            "value": df.iloc[0]["value"]}   # raw fsm_state.value; no longer daily_pump_ms (DL-176)
 
 def latest_maintenance():
     """True/False from the most recent maintenance flag reported by the WROVER,

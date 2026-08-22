@@ -24,13 +24,16 @@ def soil_history(hours: int) -> pd.DataFrame:
     )
 
 def watering_episodes(hours: int) -> pd.DataFrame:
-    # Derive watering bouts from FSM-state history: a span in 'watering' or
-    # 'manual' is one episode. daily_pump_ms (cumulative) gives the volume via
-    # its delta across the span (~1.0 mL/s, DL-048).
+    # F8 (DL-176): derive watering bouts from the integrated FSM history. An episode
+    # is a contiguous span in an active watering state (dosing/settle/grace); the
+    # delivered volume is the peak session_ml reached during the span (session_ml
+    # rises through the doses, then resets to 0 when the session ends). The old code
+    # keyed off retired states ('watering'/'manual') and a retired daily_pump_ms
+    # delta, so it never rendered anything under the integrated firmware.
     out_cols = ["start", "end", "duration_s", "ml", "trigger"]
     df = query_df(
-        """SELECT ts, status AS state, value AS daily_ms FROM system_status
-           WHERE device = 'wrover' AND metric = 'fsm_state'
+        """SELECT ts, status AS state, metric, value FROM system_status
+           WHERE device = 'wrover' AND metric IN ('fsm_state','session_ml')
              AND ts >= strftime('%Y-%m-%dT%H:%M:%SZ','now', ?)
            ORDER BY id""",
         (f"-{hours} hours",),
@@ -38,23 +41,30 @@ def watering_episodes(hours: int) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=out_cols)
     df["ts"] = pd.to_datetime(df["ts"], utc=True)
-    eps, in_ep, start_ts, start_ms, trigger = [], False, None, 0.0, None
+    active = {"dosing", "settle", "grace"}
+    eps, in_ep, start_ts, end_ts, peak_ml = [], False, None, None, 0.0
+    last_state = None
     for _, row in df.iterrows():
-        watering = row["state"] in ("watering", "manual")
-        if watering and not in_ep:
-            in_ep, start_ts, start_ms, trigger = True, row["ts"], (row["daily_ms"] or 0.0), row["state"]
-        elif not watering and in_ep:
+        if row["metric"] == "session_ml":
+            if in_ep and row["value"] is not None:
+                peak_ml = max(peak_ml, float(row["value"]))
+            continue
+        # metric == fsm_state
+        is_active = row["state"] in active
+        if is_active and not in_ep:
+            in_ep, start_ts, end_ts, peak_ml = True, row["ts"], row["ts"], 0.0
+        elif is_active and in_ep:
+            end_ts = row["ts"]
+        elif not is_active and in_ep:
+            eps.append((start_ts, row["ts"], peak_ml))
             in_ep = False
-            eps.append((start_ts, row["ts"], start_ms, row["daily_ms"] or start_ms, trigger))
     if in_ep:  # episode still open at the window edge
-        last = df.iloc[-1]
-        eps.append((start_ts, last["ts"], start_ms, last["daily_ms"] or start_ms, trigger))
+        eps.append((start_ts, df.iloc[-1]["ts"], peak_ml))
     if not eps:
         return pd.DataFrame(columns=out_cols)
-    out = pd.DataFrame(eps, columns=["start", "end", "start_ms", "end_ms", "trigger"])
+    out = pd.DataFrame(eps, columns=["start", "end", "ml"])
     out["duration_s"] = (out["end"] - out["start"]).dt.total_seconds()
-    out["ml"] = ((out["end_ms"] - out["start_ms"]).clip(lower=0)) / 1000.0
-    out["trigger"] = out["trigger"].map({"watering": "Auto", "manual": "Manual"}).fillna("Auto")
+    out["trigger"] = "Auto"   # integrated doesn't distinguish auto vs manual in state history
     return out[out_cols]
 
 def plot_soil(soil_df: pd.DataFrame, ep_df: pd.DataFrame) -> go.Figure:
