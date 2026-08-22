@@ -117,7 +117,7 @@ This project was built with AI assistance (Anthropic's Claude), used as a design
 - **Autonomous bottom watering** — the sense → dose → settle → evaluate loop is built and logic-validated in a standalone harness (DL-104–110), with recalibrated moisture anchors, ntfy alerts, and dashboard start/abort control. What remains: one real supervised watering cycle (to tune plateau-detection timing against real, hours-long wicking) and then porting the loop into the integrated firmware as the production watering FSM, retiring the top-water pulse logic.
 - **Vision analysis** — the Seeed XIAO ESP32-S3 Sense node (replacing the original ESP32-CAM, DL-034) and Pi-side greenness metrics are live (DL-076–090); what remains is turning the greenness trend into growth/health analysis beyond foliage-area-in-frame.
 - **Adaptive lighting** — supplement the photoperiod from the BH1750 against a daily-light-integral target, rather than a fixed schedule.
-- **Security hardening** — dashboard authentication and MQTT over TLS.
+- **Security hardening** — the threat model and the deliberate deferral of MQTT ACLs / camera auth (the system is single-operator, private-tailnet, no internet exposure) are documented in [SECURITY.md](SECURITY.md). Future work if the deployment ever broadens: dashboard authentication and MQTT over TLS.
 
 ## License
 

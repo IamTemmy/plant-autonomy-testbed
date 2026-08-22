@@ -204,6 +204,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-182](#dl-182) | 2026-08-20 | **Option 2b — remote start (firmware).** Integrated now handles `plant/cmd/dose` payload `"start"` → `fsm_request_start()`, a latching one-shot ORed into the existing `req_start` signal (same path as the MANUAL short-press) — so it inherits every gate: acts only in `ST_MONITOR`, rejected on stale soil, blocked by leak/abort/reservoir safety (which override before the switch), dose clamped by the session cap. **Unlike the MANUAL button, remote start RESPECTS maintenance** — the one-shot is always consumed but only fires when armed (`!maintenance`); in maintenance it logs "ignored — arm first" and does nothing, so an unattended command can't override a deliberate pause (the agreed conservative design). Triggers the normal plateau-gated session (`start_session`, DOSE1_ML→supplements); sessions log "remote" vs "button". Added `fsm_request_start()` (fsm.h/.cpp), the cmd/dose start branch (net_mqtt.cpp). Braces balanced, 31 C++ tests green. **Reflash + verify: remote start doses when armed, is ignored in maintenance. Dashboard Start button is the DL-183 follow-up** | Active |
 | [DL-183](#dl-183) | 2026-08-20 | **Option 2b UI — dashboard Start button (remote-control feature complete).** With remote start verified on hardware (DL-182), added a truthful "Start watering session" button to the controls page, shown ONLY when armed + `monitor` (idle, ready) — exactly the state the firmware honours. Rewrote the session-control area to map every FSM state to one truthful control: active session→Abort, armed+monitor→Start, maintenance→"arm first" caption, fault→"clear fault" caption, else neutral caption. Simulated all state×maintenance combos for exclusivity/coverage. Publishes `start` to `plant/cmd/dose` via `send_dose_cmd`. Completes the remote-control arc: DL-168 (removed lying buttons)→169/170 (abort)→182/183 (start). py_compile OK; dashboard-only deploy | Active |
 | [DL-184](#dl-184) | 2026-08-20 | **Pin CI test deps for reproducible builds** (P2 hygiene). `requirements-dev.txt` used `>=` ranges, so a future `pip install` could pull a newer pytest/paho whose behaviour differs from what the suite was validated against. Pinned to the exact known-good versions (`pytest==9.1.1`, `paho-mqtt==2.1.0`) — bumps become deliberate + re-tested rather than silent drift. CI GitHub Actions (checkout@v4, setup-python@v5, python 3.12) were already appropriately pinned. Verified install resolves + 72 tests pass under the pins | Active |
+| [DL-185](#dl-185) | 2026-08-20 | **SECURITY.md — threat model + deliberate hardening deferrals.** Documented the security model rather than adding controls for their own sake: single-operator, single-plant, nothing internet-exposed, remote access only via a private Tailscale tailnet limited to the operator's own devices; authenticated MQTT (no anon), git-ignored secrets, on-device EnvironmentFile creds. Explicitly records MQTT per-topic ACLs and camera-node auth as **deliberately deferred** — they defend against a broker-reachable-but-limited party, which the network model doesn't have (anyone who can reach the broker is already the operator) — with the exact revisit conditions and intended role model for if the deployment ever broadens. Notes the real watering safety lives in firmware fail-safes, not the network layer. Linked from the README roadmap. Closes the P2 'security hardening' item as a reasoned decision, not a checkbox | Active |
 
 ---
 
@@ -4535,6 +4536,24 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Verification.** `pip install -r requirements-dev.txt` resolves to the pinned versions; full suite (72 Python + 31 C++) green under them.
 
 **Files.** `requirements-dev.txt`.
+
+---
+
+<a id="dl-185"></a>
+### DL-185 — SECURITY.md: threat model + deliberate hardening deferrals
+
+**Date:** 2026-08-20 · **Status:** Active — documentation; closes the P2 "security hardening" roadmap item as a reasoned decision.
+
+**Why.** After evaluating the P2 hardening tier, the honest conclusion was that the heavy items (MQTT ACLs, camera auth) defend against threats this deployment doesn't have — the broker and dashboard are reachable only over a private Tailscale tailnet, by the operator's own devices, with no internet exposure. Rather than add controls for their own sake (or silently skip them), the decision and its reasoning are documented, which is both more honest and better portfolio evidence (it shows security was *evaluated*, not cargo-culted).
+
+**What SECURITY.md covers.**
+- The system + threat model: single-operator, single-plant, private-tailnet, no public exposure; the safety that actually matters (preventing unintended watering) lives in the firmware fail-safes, not the network layer.
+- Network exposure and credential handling (authenticated MQTT, git-ignored `secrets.h`, on-device `EnvironmentFile`, no secrets in logs/telemetry).
+- **Deliberately deferred**, with reasoning + revisit conditions: MQTT per-topic ACLs (defends against a broker-reachable-but-limited party the model doesn't have; documents the intended `wrover`/`hub`/`operator` role split for if the deployment broadens) and camera-node auth (fold into the vision phase).
+
+**Also.** Updated the README roadmap's "Security hardening" line to link SECURITY.md and scope future work (dashboard auth, MQTT-over-TLS) to a broadened deployment.
+
+**Files.** `SECURITY.md` (new), `README.md`.
 
 ---
 
