@@ -213,6 +213,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-191](#dl-191) | 2026-08-20 | **Commit the supervised float-divider bench sketch (`16-float-divider`) + record the float-sensing decision.** An untracked, complete PlatformIO diagnostic was sitting in the working tree: it characterizes a 3-state supervised float divider (empty ~0 / water ~2048 / wire-cut ~4095 on GPIO35) — testing whether to give the float the disconnect-detection the leak sensor got under P0-5 (DL-140). **Decision recorded:** production kept the simpler 2-state digital float (GPIO27, INPUT_PULLUP, closed=empty); the supervised-disconnect pattern was retained only for the leak sensor (where a disconnected sensor is the more dangerous failure), while a disconnected float is caught in practice by the watering watchdog (no moisture rise → watering_fault). Committed per the test-sketches convention (all 01–16 are tracked with READMEs) as bench evidence of a measured-and-set-aside alternative. Fixed the stale `platformio.ini` pin comment (said GPIO32; code uses GPIO35, since 32 is BTN_ABORT); added a README; bumped the repo-layout sketch range 01–14→01–16. Numbering confirmed contiguous (15 = i2c-scanner). No build/test/behavior change | Active |
 | [DL-192](#dl-192) | 2026-08-20 | **Fix the stale `fsm.h` states-list comment** (the last known stale comment; the DL-190 follow-up). The header's docstring still listed the *original* top-water states from DL-046 — `monitoring, watering, manual, daily_limit, watering_fault` — none of which exist after the P1-8 port, and called the pump `(stubbed)`. Rewrote it to the actual 10 states (`monitor, dosing, settle, grace, reservoir_empty, recovery_hold, sensor_fault, leak_fault, stopped, maintenance`), verified against the enum + published names, and updated the safety/recoverable-block/maintenance notes (incl. remote toggle DL-182) and the pump ('stubbed' -> real). **Re-examined `fsm.cpp:15` (the other flagged comment) and left it: it correctly describes the old states as what the port REPLACED — accurate history, not staleness.** Comment-only header change: byte-identical binary, no reflash needed. Braces balanced | Active |
 | [DL-193](#dl-193) | 2026-08-20 | **Docs polish sweep** (portfolio pass; docs only, no code/behavior). Ran a deep scan of the portfolio-facing prose for LLM-slop tells, typos, and inconsistencies. Findings were reassuring: zero filler words (comprehensive/robust/seamless/leverage/delve/etc.) across README, SECURITY.md, ai-use.md, and the sketch READMEs; no typos or doubled words; the README em-dashes are overwhelmingly the legitimate `Term — definition` bullet pattern, not a tic. Fixes applied: standardized `grow light` → `grow-light` (chosen house style; README ×3 + xiao-cam sketch README ×1), hyphenated one `bottom watering` → `bottom-watering`, and tightened one convoluted device-presence sentence (nested em-dash aside → cleaner parenthetical). **Deliberately NOT done:** the decision log's ~1,436 em-dashes were left untouched — bulk replacement would inject grammatical errors into the append-only permanent record for near-zero benefit; agreed path is to leave history and lighten future entries. Also left `WiFi` (self-consistent) and well-structured dense prose (over-editing sands off voice) | Active |
+| [DL-194](#dl-194) | 2026-08-23 | **Fix camera-page crash — regression from DL-177.** The dashboard camera panel threw `sqlite3.OperationalError: no such column: id` on `latest_camera()`. Cause: DL-177's F12 id-ordering fix changed the `camera_readings` query to `ORDER BY id DESC`, but unlike `sensor_readings`/`system_status` (both `id INTEGER PRIMARY KEY AUTOINCREMENT`), `camera_readings` has no `id` column — its PK is `ts TEXT PRIMARY KEY`. Reverted that one query to `ORDER BY ts DESC`, which is correct AND tie-safe here since `ts` is the unique primary key (the same-second-tie concern F12 addressed can't occur). Audited all other `ORDER BY id` queries: every one targets an id-bearing table, so this was the only broken query. py_compile + 69 Python + 31 C++ green. Hub-only (dashboard); remote scp + restart — no lab visit needed | Active |
 
 ---
 
@@ -4716,6 +4717,27 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 - The dense-but-well-structured README watering paragraph left alone — over-editing correct prose sands off an authentic voice, which works against "reads like a person wrote it."
 
 **Files.** `README.md`, `firmware/test-sketches/14-xiao-cam/README.md`.
+
+---
+
+<a id="dl-194"></a>
+### DL-194 — Fix camera-page crash (regression from DL-177)
+
+**Date:** 2026-08-23 · **Status:** Active — hub-only bugfix; fixable remotely (no lab visit).
+
+**Symptom.** The dashboard's Plant-camera panel raised `sqlite3.OperationalError: no such column: id`, traceback ending at `dash_common.latest_camera()` → `... FROM camera_readings ORDER BY id DESC LIMIT 1`.
+
+**Cause — a self-inflicted regression.** DL-177's F12 fix converted "latest single row" queries from `ORDER BY ts DESC` to `ORDER BY id DESC`, to avoid arbitrary selection among same-second `ts` ties. That is correct for `sensor_readings` and `system_status`, which both have `id INTEGER PRIMARY KEY AUTOINCREMENT`. But the same change was wrongly applied to the `camera_readings` query — and `camera_readings` has **no `id` column**; its primary key is `ts TEXT PRIMARY KEY`. So the query referenced a non-existent column and crashed the camera page from the DL-177 deploy onward. The camera query had no unit test and this table's schema differs from the others, so it slipped through.
+
+**Fix.** Reverted the camera query to `ORDER BY ts DESC`. For this table that is not a compromise but the correct ordering: `ts` is the unique PRIMARY KEY, so there are no same-second ties to worry about — the exact concern F12 addressed cannot arise here.
+
+**Blast-radius audit.** Checked every `ORDER BY id DESC` query in `hub/`: all others target `sensor_readings` or `system_status` (both id-bearing), so this was the only broken one. No other table lacks the column.
+
+**Lesson.** A cross-table "consistency" change must be checked against each table's actual schema, not assumed uniform — `camera_readings` was intentionally keyed on `ts` (DL-era camera work), unlike the EAV tables.
+
+**Verification.** py_compile; full suite (69 Python + 31 C++) green. Deploy: scp `dash_common.py`, restart `plant-dashboard`.
+
+**Files.** `hub/06-dashboard/dash_common.py`.
 
 ---
 
