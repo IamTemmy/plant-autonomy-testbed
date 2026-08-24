@@ -214,6 +214,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-192](#dl-192) | 2026-08-20 | **Fix the stale `fsm.h` states-list comment** (the last known stale comment; the DL-190 follow-up). The header's docstring still listed the *original* top-water states from DL-046 — `monitoring, watering, manual, daily_limit, watering_fault` — none of which exist after the P1-8 port, and called the pump `(stubbed)`. Rewrote it to the actual 10 states (`monitor, dosing, settle, grace, reservoir_empty, recovery_hold, sensor_fault, leak_fault, stopped, maintenance`), verified against the enum + published names, and updated the safety/recoverable-block/maintenance notes (incl. remote toggle DL-182) and the pump ('stubbed' -> real). **Re-examined `fsm.cpp:15` (the other flagged comment) and left it: it correctly describes the old states as what the port REPLACED — accurate history, not staleness.** Comment-only header change: byte-identical binary, no reflash needed. Braces balanced | Active |
 | [DL-193](#dl-193) | 2026-08-20 | **Docs polish sweep** (portfolio pass; docs only, no code/behavior). Ran a deep scan of the portfolio-facing prose for LLM-slop tells, typos, and inconsistencies. Findings were reassuring: zero filler words (comprehensive/robust/seamless/leverage/delve/etc.) across README, SECURITY.md, ai-use.md, and the sketch READMEs; no typos or doubled words; the README em-dashes are overwhelmingly the legitimate `Term — definition` bullet pattern, not a tic. Fixes applied: standardized `grow light` → `grow-light` (chosen house style; README ×3 + xiao-cam sketch README ×1), hyphenated one `bottom watering` → `bottom-watering`, and tightened one convoluted device-presence sentence (nested em-dash aside → cleaner parenthetical). **Deliberately NOT done:** the decision log's ~1,436 em-dashes were left untouched — bulk replacement would inject grammatical errors into the append-only permanent record for near-zero benefit; agreed path is to leave history and lighten future entries. Also left `WiFi` (self-consistent) and well-structured dense prose (over-editing sands off voice) | Active |
 | [DL-194](#dl-194) | 2026-08-23 | **Fix camera-page crash — regression from DL-177.** The dashboard camera panel threw `sqlite3.OperationalError: no such column: id` on `latest_camera()`. Cause: DL-177's F12 id-ordering fix changed the `camera_readings` query to `ORDER BY id DESC`, but unlike `sensor_readings`/`system_status` (both `id INTEGER PRIMARY KEY AUTOINCREMENT`), `camera_readings` has no `id` column — its PK is `ts TEXT PRIMARY KEY`. Reverted that one query to `ORDER BY ts DESC`, which is correct AND tie-safe here since `ts` is the unique primary key (the same-second-tie concern F12 addressed can't occur). Audited all other `ORDER BY id` queries: every one targets an id-bearing table, so this was the only broken query. py_compile + 69 Python + 31 C++ green. Hub-only (dashboard); remote scp + restart — no lab visit needed | Active |
+| [DL-195](#dl-195) | 2026-08-23 | **Regression test for the camera query (closes the gap that let DL-194 ship).** The camera-page crash reached production because `latest_camera()`'s query had zero test coverage and `camera_readings`' schema (PK `ts`, no `id`) differs from the EAV tables. Added `tests/test_dashboard.py` (4 tests) that run the camera SELECT against the real `schema.sql` on an in-memory DB: query executes against the actual schema (the DL-194 guard — a stale column raises here), newest-by-ts ordering, None-when-empty, and the five-column shape. To avoid dragging streamlit/pandas/PIL into CI just to test one SQL string, the test **extracts the query from `dash_common.py` source at runtime** rather than importing the module — keeps CI lean and guarantees the test tracks the real query (can't drift). Mutation-verified: re-introducing `ORDER BY id` fails all 4 with the exact production error. Added `hub/06-dashboard` to conftest paths. Suite 73 Python + 31 C++ green; no new CI deps; test-only, no deploy | Active |
 
 ---
 
@@ -4738,6 +4739,29 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Verification.** py_compile; full suite (69 Python + 31 C++) green. Deploy: scp `dash_common.py`, restart `plant-dashboard`.
 
 **Files.** `hub/06-dashboard/dash_common.py`.
+
+---
+
+<a id="dl-195"></a>
+### DL-195 — Regression test for the camera query
+
+**Date:** 2026-08-23 · **Status:** Active — test-only; closes the coverage gap that let DL-194 ship. No deploy.
+
+**Why.** DL-194 (the `no such column: id` camera crash) reached the live dashboard because `latest_camera()` had no test and `camera_readings`' schema (`ts TEXT PRIMARY KEY`, no `id`) differs from the EAV tables the F12 change assumed. A test that runs the query against the real schema would have caught it in CI.
+
+**What.** `tests/test_dashboard.py`, 4 tests:
+- **runs against real schema** — the DL-194 guard: executes the camera query against `schema.sql`, so any column the schema lacks (e.g. `ORDER BY id`) raises `OperationalError` in CI, not on the page;
+- **newest-by-ts ordering** — three rows, asserts the latest `ts` comes back;
+- **None when empty** — the panel must handle an empty table, not error;
+- **five-column shape** — `ts, path, greenness, green_area, green_ratio` in order.
+
+**Design choice — extract the SQL, don't import the module.** `dash_common` imports `streamlit`, `pandas`, and `PIL` at module top; importing it in tests would force those heavy deps into CI (which installs only pytest + paho) to exercise one SQL string. Instead the test reads the camera query *out of the `dash_common.py` source at runtime* and runs it directly. This keeps CI lean (no new deps), and because the query is pulled from source it cannot silently drift from what the app actually runs. Trade-off: it tests the query, not the thin function wrapper — acceptable, since the regression was in the SQL and the wrapper is a trivial `execute(...).fetchone()`.
+
+**Teeth.** Mutation-verified: reverting the source to `ORDER BY id DESC` fails all four tests with the exact production error (`sqlite3.OperationalError: no such column: id`); restoring passes them.
+
+**Verification.** Added `hub/06-dashboard` to `conftest.py` import paths. Full suite 73 Python (69 + 4) + 31 C++ green. No new CI dependencies.
+
+**Files.** `tests/test_dashboard.py` (new), `tests/conftest.py`.
 
 ---
 

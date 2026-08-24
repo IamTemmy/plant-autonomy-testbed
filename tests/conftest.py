@@ -16,6 +16,7 @@ _HUB_DIRS = [
     "hub/04-listener",      # alerter.py (board-liveness + reboot-classification helpers)
     "hub/08-grow-light",    # photoperiod.py (desired_on window logic)
     "hub/12-plantctl",      # plantctl.py (age/format/soil-pct helpers)
+    "hub/06-dashboard",     # dash_common.py (latest_camera + other query helpers)
 ]
 for _d in _HUB_DIRS:
     _p = os.path.join(_REPO_ROOT, _d)
