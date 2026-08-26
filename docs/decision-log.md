@@ -4769,7 +4769,7 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 <a id="dl-196"></a>
 ### DL-196 — Vision phase, Piece 1: Pi-triggered capture over MQTT (camera node)
 
-**Date:** 2026-08-24 · **Status:** Active — firmware; first piece of the top-down-camera vision phase. **Awaiting XIAO reflash.**
+**Date:** 2026-08-24 · **Status:** Active — firmware; first piece of the top-down-camera vision phase. **Validated on hardware 2026-08-24.**
 
 **Context — the phase.** The top-down XIAO's green metric drifted after the grow-light was lowered closer to the plant: the brighter, closer light throws specular highlights on the leaves that read as near-white (ExG ≈ 0), shrinking the measured green area/ratio even on a healthy plant. The fix is to capture under the grow-light OFF. Design (agreed): 5 short grow-light-OFF **measurement** windows/day (07:58–08:03, 09:58–10:03, 11:58–12:03, 13:58–14:03, 15:58–16:03) whose frames feed the calibrated metric, plus a **30-min lit time-lapse** kept as a visual/portfolio record only. All Pi-orchestrated, because only the Pi knows the wall clock and owns the grow-light plug.
 
@@ -4786,6 +4786,8 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Verification.** Braces/parens balanced across all six files; `poster_post_jpeg`'s new signature consistent at its definition and sole call site; every config symbol `net_mqtt.cpp` references is defined in `config.h`; include graph resolves; PubSubClient version matches the WROVER. Cannot host-compile ESP32 firmware — **reflash the XIAO** (copy `secrets.h.example`→`secrets.h` with the real WiFi+MQTT creds first), then verify: on `mosquitto_pub -t plant/cmd/capture -m dark` the node logs `capture requested [dark]` → captures → `POST 200 [dark]`; presence appears retained on `plant/status/camera`; the 2 h fallback still fires if left idle.
 
 **Files.** `firmware/camera-node/src/{main.cpp,net_mqtt.h,net_mqtt.cpp,poster.h,poster.cpp,config.h,secrets.h.example}`, `firmware/camera-node/platformio.ini`.
+
+**Validated (2026-08-24).** Compiled clean (PubSubClient 2.8.0; RAM 15.2%, Flash 27.5% — MQTT added negligible footprint) and flashed to the XIAO. Boot confirmed: camera init OK, WiFi up, `MQTT: connecting ... connected.`, `MQTT: subscribed to cmd/capture`. Primary path verified end-to-end — `mosquitto_pub -t plant/cmd/capture -m dark` produced `MQTT: capture requested [dark]` → `captured 1600x1200 145388 bytes [dark] -> POST` → `POST 200 [dark]`. Fallback path also observed firing at boot with context `fallback`. (Test run was after 19:00, so the receiver replied `{"skipped": "outside photoperiod"}` — the existing DL-082 nighttime gate correctly declining to *store* the frame; the trigger→capture→POST path itself is proven. Daytime triggered captures will be stored.)
 
 ---
 
