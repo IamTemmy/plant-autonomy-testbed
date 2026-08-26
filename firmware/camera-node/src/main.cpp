@@ -14,10 +14,29 @@
 
 #include "config.h"
 #include "net_wifi.h"
+#include "net_mqtt.h"
 #include "camera.h"
 #include "poster.h"
 
-static unsigned long next_capture_ms = 0;
+static unsigned long next_fallback_ms = 0;
+
+// Capture one frame and POST it with the given trigger context
+// ("dark"|"lit"|"fallback"). Shared by the MQTT trigger and the fallback timer.
+static void do_capture(const char* context) {
+    if (!wifi_connected()) {
+        Serial.println("skip capture: WiFi down");
+        return;
+    }
+    camera_fb_t* fb = camera_capture();
+    if (!fb) {
+        Serial.println("capture failed (NULL framebuffer)");
+        return;
+    }
+    Serial.printf("captured %ux%u  %u bytes [%s] -> POST\n",
+                  fb->width, fb->height, (unsigned)fb->len, context);
+    poster_post_jpeg(fb->buf, fb->len, context);
+    esp_camera_fb_return(fb);
+}
 
 void setup() {
     Serial.begin(115200);
@@ -34,30 +53,30 @@ void setup() {
     Serial.println("Camera ready");
 
     wifi_begin();
+    mqtt_begin();   // DL-196: inbound capture trigger; connects once WiFi is up
 }
 
 void loop() {
     wifi_tick();
+    mqtt_tick();
 
+    // Primary path (DL-196): capture when the Pi orchestrator triggers it. The
+    // MQTT callback latches the request + context; we perform the blocking
+    // capture+POST here in the loop, never inside the callback.
+    char ctx[CAPTURE_CONTEXT_MAX];
+    if (mqtt_take_capture_request(ctx, sizeof(ctx))) {
+        do_capture(ctx[0] ? ctx : "triggered");
+        next_fallback_ms = millis() + CAPTURE_INTERVAL_MS;  // defer the fallback
+    }
+
+    // Fallback path: if the orchestrator goes silent, still capture occasionally
+    // so the node isn't dark. Tagged "fallback" so the receiver keeps these out
+    // of the calibrated metric (they may be lit or dark, uncontrolled).
     const unsigned long now = millis();
-    if (now < next_capture_ms) {
-        delay(20);
-        return;
-    }
-    next_capture_ms = now + CAPTURE_INTERVAL_MS;
-
-    if (!wifi_connected()) {
-        Serial.println("skip capture: WiFi down");
-        return;
+    if (now >= next_fallback_ms) {
+        next_fallback_ms = now + CAPTURE_INTERVAL_MS;
+        do_capture("fallback");
     }
 
-    camera_fb_t* fb = camera_capture();
-    if (!fb) {
-        Serial.println("capture failed (NULL framebuffer)");
-        return;
-    }
-    Serial.printf("captured %ux%u  %u bytes -> POST\n",
-                  fb->width, fb->height, (unsigned)fb->len);
-    poster_post_jpeg(fb->buf, fb->len);
-    esp_camera_fb_return(fb);
+    delay(20);
 }
