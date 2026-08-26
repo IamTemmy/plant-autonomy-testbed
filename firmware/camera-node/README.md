@@ -2,7 +2,7 @@
 
 Production firmware for the camera node (the XIAO ESP32-S3 Sense chosen in DL-034, brought up in DL-077). Sibling to `firmware/integrated/` (the WROVER's firmware) — one production firmware project per node.
 
-**v1 scope (DL-078):** on a timer, capture a JPEG and **HTTP POST it to the Pi image receiver** (`hub/09-camera`), which stores the file and computes greenness. That's it. Image bytes go over HTTP; the small MQTT capture-event / presence message (joining the DL-059 watchdog) is a deliberately separate later slice, as is the deployment cadence and photoperiod gating.
+**Scope (DL-078; MQTT capture trigger added DL-196):** on a Pi-published trigger (`plant/cmd/capture`), capture a JPEG and **HTTP POST it to the Pi image receiver** (`hub/09-camera`), which stores the file and computes greenness. Image bytes go over HTTP; the capture trigger and the node's presence go over MQTT. Capture is Pi-orchestrated — the Pi owns the wall clock and the grow-light, so it drives the grow-light-OFF measurement windows and the lit time-lapse, and tags each frame's context; a slow self-timer remains only as a resilience fallback. Joining the DL-059 device-presence watchdog is still a separate later slice (the node's publish cadence is irregular, so it needs a cadence-aware timeout).
 
 ## Structure (modular, mirroring the WROVER)
 
@@ -43,7 +43,7 @@ captured 1600x1200  ~110000 bytes -> POST
 POST 200: {"ts": ..., "greenness": 0.xx, ...}
 ```
 
-A `POST 200` with a greenness value — and a matching new row in the Pi's `camera_readings` (and a `cam-*.jpg` in `hub`'s image dir) — confirms the end-to-end path. The deployment cadence in `config.h` is **hourly** (UXGA, DL-080/DL-081); photoperiod gating (keep only daytime captures) is enforced Pi-side by the receiver, which shares the grow-light window, so the node carries no clock. To bench-test, temporarily drop `CAPTURE_INTERVAL_MS` to a few seconds.
+A `POST 200` with a greenness value — and a matching new row in the Pi's `camera_readings` (and a `cam-*.jpg` in `hub`'s image dir) — confirms the end-to-end path. Capture is Pi-triggered: publish `plant/cmd/capture` (payload = context, e.g. `dark`/`lit`) and the node captures and POSTs, echoing the context in the `X-Capture-Context` header (UXGA, DL-080/DL-081). Photoperiod gating (store only in-window captures) is enforced Pi-side by the receiver, which shares the grow-light window. To bench-test without the Pi orchestrator, publish the trigger by hand with `mosquitto_pub`; the slow self-timer (`CAPTURE_INTERVAL_MS`) also fires a `fallback`-tagged capture if the node is left idle.
 
 ## Not yet (later slices)
 

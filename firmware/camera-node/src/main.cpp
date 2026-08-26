@@ -1,14 +1,18 @@
 /*
  * Plant Autonomy Testbed — camera node (XIAO ESP32-S3 Sense).
  *
- * Vision-node firmware v1 (DL-078): on a timer, capture a JPEG and HTTP POST it
- * to the Pi image receiver (hub/09-camera), which stores it and computes an
- * Excess-Green "greenness" value. Image bytes go over HTTP; the MQTT capture
- * event / presence is a later slice. WiFi loss is non-fatal — captures are
+ * Vision-node firmware (DL-078; MQTT capture trigger added DL-196): on a
+ * Pi-published trigger (plant/cmd/capture), capture a JPEG and HTTP POST it to
+ * the Pi image receiver (hub/09-camera), which stores it and computes an
+ * Excess-Green "greenness" value. Image bytes go over HTTP; the capture trigger
+ * and the node's presence go over MQTT. WiFi loss is non-fatal — captures are
  * skipped while down and resume on reconnect.
  *
- * Capture cadence is the deployment value in config.h (hourly); photoperiod
- * gating (capture only during the lit window) is enforced Pi-side (DL-082).
+ * Capture is Pi-orchestrated: the Pi owns the wall clock and the grow-light, so
+ * it drives the 5 grow-light-OFF measurement windows + the lit time-lapse and
+ * tags each frame's context. A slow self-timer (config.h) remains only as a
+ * resilience fallback. Photoperiod gating (store only in-window captures) is
+ * enforced Pi-side by the receiver (DL-082).
  */
 #include <Arduino.h>
 
