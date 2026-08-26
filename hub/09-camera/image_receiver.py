@@ -61,8 +61,12 @@ GROW_OFF_HOUR = int(os.environ.get("GROW_OFF_HOUR", "19"))
 
 
 def within_photoperiod(now=None):
-    """True if the local hour is inside the grow-light window. Mirrors the
-    enforcer's desired_on() exactly, including the overnight-wrap case."""
+    """True if the local hour is inside the grow-light day window (07:00-19:00),
+    used to decide whether to STORE a capture. This intentionally stays hour-based
+    and does NOT track the DL-199 dark capture windows: a dark-window frame is
+    taken during the day and must be kept (it is the measurement set). So this no
+    longer mirrors the enforcer's desired_on() -- they answer different questions
+    ("is it daytime, store it?" vs "should the light be on now?")."""
     if now is None:
         now = datetime.datetime.now(LOCAL_TZ)
     hour = now.hour
