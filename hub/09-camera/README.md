@@ -16,16 +16,20 @@ XIAO stays a first-class networked node alongside the WROVER.
 `image_receiver.py` is a small always-on HTTP service (Python stdlib
 `http.server`, threaded — no web framework):
 
-- `POST /image` — raw JPEG body. Inside the photoperiod window it stores the
-  file, computes the greenness metrics, writes a `camera_readings` row, and
-  returns `{ts, path, bytes, width, height, greenness, green_area, green_ratio}`;
+- `POST /image` — raw JPEG body, with an optional `X-Capture-Context` header
+  set by the node (`dark` | `lit` | `fallback`; absent → `unknown`). Inside the
+  photoperiod window it stores the file, computes the greenness metrics, writes a
+  `camera_readings` row carrying the context, and returns
+  `{ts, path, bytes, width, height, greenness, green_area, green_ratio, context}`;
   a capture taken outside the window is discarded and returns `{skipped}`
-  (DL-082).
+  (DL-082). The context tag lets downstream keep only the grow-light-OFF `dark`
+  frames for the calibrated metric, while `lit` frames serve as the time-lapse
+  record (DL-197).
 - `GET /health` — liveness check, returns `{"status": "ok"}`.
 
 It writes the JPEG to `IMAGE_DIR` as `cam-YYYYMMDD-HHMMSS-ffffff.jpg`
 (microsecond suffix so rapid captures never collide) and inserts
-`(ts, path, greenness, green_area, green_ratio)` into the `camera_readings` table, opened **WAL +
+`(ts, path, greenness, green_area, green_ratio, context)` into the `camera_readings` table, opened **WAL +
 busy_timeout** so the dashboard can read while the receiver writes (the
 multi-reader rule from DL-066).
 

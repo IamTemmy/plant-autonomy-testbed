@@ -83,7 +83,10 @@ def init_db():
             "green_area REAL, green_ratio REAL)"
         )
         # Add the dual-metric columns to a pre-existing table (DL-079).
-        for col in ("green_area REAL", "green_ratio REAL"):
+        # DL-197 adds `context`: the capture trigger ("dark"|"lit"|"fallback"|
+        # "unknown") from the node's X-Capture-Context header, so downstream can
+        # keep only the grow-light-OFF ("dark") frames for the calibrated metric.
+        for col in ("green_area REAL", "green_ratio REAL", "context TEXT"):
             try:
                 conn.execute("ALTER TABLE camera_readings ADD COLUMN %s" % col)
             except sqlite3.OperationalError:
@@ -138,15 +141,15 @@ def compute_metrics(jpeg_bytes):
     return greenness, green_area, green_ratio, img.size
 
 
-def record(ts, path, greenness, green_area, green_ratio):
+def record(ts, path, greenness, green_area, green_ratio, context):
     conn = sqlite3.connect(DB_PATH, timeout=30)
     try:
         conn.execute("PRAGMA busy_timeout=5000;")
         conn.execute(
             "INSERT OR REPLACE INTO camera_readings "
-            "(ts, path, greenness, green_area, green_ratio) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (ts, path, greenness, green_area, green_ratio),
+            "(ts, path, greenness, green_area, green_ratio, context) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (ts, path, greenness, green_area, green_ratio, context),
         )
         conn.commit()
     finally:
@@ -198,6 +201,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "decode failed: %s" % exc})
             return
 
+        # Capture context from the node's X-Capture-Context header (DL-197):
+        # "dark" (grow-light-OFF measurement window), "lit" (time-lapse record),
+        # "fallback" (node self-timer, uncontrolled lighting). Absent header ->
+        # "unknown", so an untagged frame is never mistaken for calibration-grade
+        # "dark" data downstream.
+        context = self.headers.get("X-Capture-Context", "unknown").strip() or "unknown"
+
         # Store ts in UTC with a trailing Z, matching the rest of the hub
         # (listener's utc_now_iso). The dashboard reads ts as UTC and converts
         # to the display zone; a naive local ts would be misread. Filename keeps
@@ -208,16 +218,17 @@ class Handler(BaseHTTPRequestHandler):
         path = os.path.join(IMAGE_DIR, fname)
         with open(path, "wb") as fh:
             fh.write(data)
-        record(ts, path, greenness, green_area, green_ratio)
+        record(ts, path, greenness, green_area, green_ratio, context)
 
-        print("stored %s  %dx%d  %d bytes  greenness=%.4f area=%.4f ratio=%.4f"
-              % (fname, w, h, len(data), greenness, green_area, green_ratio),
+        print("stored %s  %dx%d  %d bytes  greenness=%.4f area=%.4f ratio=%.4f  [%s]"
+              % (fname, w, h, len(data), greenness, green_area, green_ratio, context),
               flush=True)
         self._json(200, {"ts": ts, "path": path, "bytes": len(data),
                          "width": w, "height": h,
                          "greenness": round(greenness, 4),
                          "green_area": round(green_area, 4),
-                         "green_ratio": round(green_ratio, 4)})
+                         "green_ratio": round(green_ratio, 4),
+                         "context": context})
 
     def log_message(self, fmt, *args):
         return
