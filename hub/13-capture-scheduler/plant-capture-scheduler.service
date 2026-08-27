@@ -1,0 +1,10 @@
+[Unit]
+Description=Plant Autonomy Testbed - camera capture orchestrator (dark windows + lit time-lapse)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=basilpi
+EnvironmentFile=/etc/plant-hub/credentials
+WorkingDirectory=/home/basilpi/plant-hub
+ExecStart=/usr/bin/python3 /home/basilpi/plant-hub/capture_scheduler.py

@@ -1,0 +1,12 @@
+[Unit]
+Description=Plant Autonomy Testbed - run the capture orchestrator every minute
+
+[Timer]
+OnCalendar=*:0/1
+AccuracySec=5s
+# No Persistent: a missed minute is not worth catching up -- the next tick, and
+# the node's own fallback, cover it. Sub-minute accuracy so dark captures land
+# close to the :00 center while the light is held off (07:58-08:03 window).
+
+[Install]
+WantedBy=timers.target
