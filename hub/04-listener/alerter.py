@@ -32,6 +32,7 @@ NTFY_TOPIC = os.environ.get("NTFY_TOPIC")
 NTFY_SERVER = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
 OFFLINE_GRACE_S = int(os.environ.get("ALERT_OFFLINE_GRACE_S", "300"))
 HEARTBEAT_HOUR = int(os.environ.get("HEARTBEAT_HOUR", "9"))
+EVENING_HOUR = int(os.environ.get("EVENING_HOUR", "21"))   # end-of-day summary hour
 LOCAL_TZ = ZoneInfo(os.environ.get("LOCAL_TZ", "America/Chicago"))
 
 # Grow-light photoperiod verification (DL-063): cross-check measured lux against
@@ -92,6 +93,7 @@ _st = {
     "offline_alerted": False,
     "reboot_flap_alerted": False,
     "last_heartbeat_date": None,
+    "last_evening_date": None,   # once-a-day gate for the 9pm end-of-day summary
     "gl_mismatch_since": None,   # monotonic time the current grow-light mismatch began
     "gl_mismatch_kind": None,    # "dark_during_on" | "lit_during_off"
     "gl_alerted": None,          # mismatch kind we've alerted on (for recovery)
@@ -260,6 +262,33 @@ def _soil_pct(conn):
     return _scalar(conn,
         "SELECT value FROM sensor_readings WHERE sensor='moisture' "
         "AND device='soil' ORDER BY id DESC LIMIT 1")
+
+
+def _soil_at_day_start(conn, now_local=None):
+    """Soil % at the start of the local day: the earliest moisture reading at or
+    after local midnight. The DB stores UTC (ts ...Z), so local midnight is
+    converted to its UTC instant and compared against the indexed ts (sargable --
+    a strftime on `now` would break the index). Returns None if no reading yet
+    today (e.g. sensor was down all morning)."""
+    if now_local is None:
+        now_local = datetime.now(LOCAL_TZ)
+    midnight_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight_utc = midnight_local.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return _scalar(conn,
+        "SELECT value FROM sensor_readings WHERE sensor='moisture' "
+        "AND device='soil' AND ts >= ? ORDER BY id ASC LIMIT 1",
+        (midnight_utc,))
+
+
+def _soil_net_change_today(conn, now_local=None):
+    """Net soil-% change over the local day so far: (soil now) - (soil at day
+    start). Positive = net moisture gain, negative = net dry-down. None if either
+    endpoint is missing."""
+    start = _soil_at_day_start(conn, now_local)
+    now = _soil_pct(conn)
+    if start is None or now is None:
+        return None
+    return now - start
 
 
 def _latest_lux(conn):
@@ -595,3 +624,22 @@ def evaluate(conn):
             body += f" ({dev} dev flash(es) in maintenance.)"
         notify("Daily plant summary", body, "low", ["seedling"])
         _st["last_heartbeat_date"] = today
+
+    # 8) Evening end-of-day summary at EVENING_HOUR. Same core as the morning
+    #    heartbeat, framed as a wrap-up and adding the day's net soil change
+    #    (soil now vs. soil at local midnight) alongside the mL watered, so the
+    #    two together tell the day's water story (dried faster than watered, or
+    #    the reverse). Separate once-a-day gate from the morning heartbeat.
+    if now_local.hour >= EVENING_HOUR and _st["last_evening_date"] != today:
+        soil = _soil_pct(conn)
+        soil_s = f"{soil:.0f}%" if soil is not None else "n/a"
+        state = _latest_fsm(conn) or "unknown"
+        delta = _soil_net_change_today(conn, now_local)
+        delta_s = f"{delta:+.0f}% today" if delta is not None else "net n/a"
+        body = (f"Soil {soil_s} \u00b7 {delta_s} \u00b7 ~{_daily_ml(conn):.0f} mL "
+                f"watered \u00b7 state {state} \u00b7 {_reboots_24h(conn)} reboot(s)/24h.")
+        dev = _dev_reboots_24h(conn)
+        if dev:
+            body += f" ({dev} dev flash(es) in maintenance.)"
+        notify("Evening plant summary", body, "low", ["crescent_moon"])
+        _st["last_evening_date"] = today

@@ -175,3 +175,69 @@ def test_presence_returns_latest():
     assert alerter._presence(c) == "offline"
 
 
+
+
+# --------------------------------------------------------------------------- #
+# evening summary: soil-at-day-start + net change today (DL-202)              #
+# --------------------------------------------------------------------------- #
+# _soil_at_day_start reads the earliest moisture reading at/after LOCAL midnight
+# (DB stores UTC). _soil_net_change_today = soil now - soil at day start.
+
+def _add_soil_at(c, value, when_utc):
+    """Insert a moisture reading at an explicit UTC datetime."""
+    c.execute("INSERT INTO sensor_readings (ts, device, sensor, value) VALUES (?,?,?,?)",
+              (_iso(when_utc), "soil", "moisture", value))
+    c.commit()
+
+
+def _local_midnight_today():
+    now_local = datetime.now(alerter.LOCAL_TZ)
+    return now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def test_soil_at_day_start_picks_earliest_today():
+    c = _conn()
+    midnight = _local_midnight_today()
+    # A reading just after midnight (start of day) and a later one; expect the early one.
+    _add_soil_at(c, 60.0, (midnight + timedelta(minutes=5)).astimezone(timezone.utc))
+    _add_soil_at(c, 52.0, (midnight + timedelta(hours=8)).astimezone(timezone.utc))
+    assert alerter._soil_at_day_start(c) == 60.0
+
+
+def test_soil_at_day_start_ignores_yesterday():
+    c = _conn()
+    midnight = _local_midnight_today()
+    # A reading before local midnight (yesterday) must not be chosen.
+    _add_soil_at(c, 99.0, (midnight - timedelta(hours=2)).astimezone(timezone.utc))
+    _add_soil_at(c, 55.0, (midnight + timedelta(minutes=10)).astimezone(timezone.utc))
+    assert alerter._soil_at_day_start(c) == 55.0
+
+
+def test_soil_at_day_start_none_when_no_reading_today():
+    c = _conn()
+    midnight = _local_midnight_today()
+    _add_soil_at(c, 70.0, (midnight - timedelta(hours=1)).astimezone(timezone.utc))  # yesterday only
+    assert alerter._soil_at_day_start(c) is None
+
+
+def test_net_change_negative_when_dried():
+    c = _conn()
+    midnight = _local_midnight_today()
+    _add_soil_at(c, 60.0, (midnight + timedelta(minutes=5)).astimezone(timezone.utc))   # start
+    _add_soil_at(c, 48.0, (midnight + timedelta(hours=12)).astimezone(timezone.utc))    # now (latest)
+    assert alerter._soil_net_change_today(c) == pytest.approx(-12.0)
+
+
+def test_net_change_positive_when_watered_up():
+    c = _conn()
+    midnight = _local_midnight_today()
+    _add_soil_at(c, 40.0, (midnight + timedelta(minutes=5)).astimezone(timezone.utc))
+    _add_soil_at(c, 55.0, (midnight + timedelta(hours=10)).astimezone(timezone.utc))
+    assert alerter._soil_net_change_today(c) == pytest.approx(15.0)
+
+
+def test_net_change_none_without_start():
+    c = _conn()
+    midnight = _local_midnight_today()
+    _add_soil_at(c, 50.0, (midnight - timedelta(hours=3)).astimezone(timezone.utc))  # yesterday only
+    assert alerter._soil_net_change_today(c) is None

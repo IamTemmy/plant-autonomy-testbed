@@ -221,6 +221,7 @@ The README and code describe *what* and *how*. This file documents *why*.
 | [DL-199](#dl-199) | 2026-08-24 | **Vision phase, Piece 3 — photoperiod holds the grow-light OFF during dark capture windows.** For the top-down camera to measure the plant free of the close grow-light's specular glare, the light must be off at capture time. Taught the Pi grow-light enforcer about 5 short dark windows (centers 08:00/10:00/12:00/14:00/16:00, each center-2min..center+3min = 07:58-08:03 etc., matching the agreed schedule), read from shared config (single source of truth with the Piece-4 orchestrator, per D1). `desired_on(hour)` is UNCHANGED (all its tests still pass); added minute-precise `in_dark_window(now)` + `grow_light_should_be_on(now) = desired_on(hour) and not in_dark_window`. `main()` now uses the combined decision and logs a dark-hold distinctly from a real correction (so the journal doesn't read it as the plug misbehaving). Also clarified the receiver's `within_photoperiod` docstring: it stays hour-based and intentionally NO LONGER mirrors `desired_on` (a dark-window frame is daytime and must be STORED). 8 new mutation-verified tests; 81 Python + 31 C++ green. Deploy: scp photoperiod.py + receiver, restart services (enforcer picks up next timer tick) | Active |
 | [DL-200](#dl-200) | 2026-08-26 | **Vision phase, Piece 4 — the capture orchestrator (ties it together).** New hub service `hub/13-capture-scheduler/`: a oneshot run every minute by a systemd timer that publishes `plant/cmd/capture` with the right context. `dark` at the 5 window centers (08:00/10:00/12:00/14:00/16:00, read from the SAME `DARK_WINDOW_CENTERS` env as the enforcer — no drift); `lit` every 30 min (:00/:30) through the lit day; nothing at night (the node's 2h fallback covers liveness). Pure trigger + single authority (D1): it NEVER sets the plug — before a `dark` capture it reads the plug state (read-only Shelly RPC) and only fires if the light is confirmed OFF, else skips-and-logs (a missed dark frame is harmless; a second plug-setter would not be). Dark center takes precedence over the :00 lit slot. `decide(now, centers)` is a pure, unit-tested core; plug-query + publish are the I/O around it. Publish mirrors the dashboard's `mqtt_publish.single(..., retain=False)` (a retained capture cmd would replay on reconnect). 8 new mutation-verified tests (89 Python + 31 C++). Deploy: scp script + install service/timer, enable timer | Active |
 | [DL-201](#dl-201) | 2026-08-26 | **Fix DL-200 orchestrator crash — wrong Python interpreter (`ModuleNotFoundError: paho`).** The capture-scheduler service used `/usr/bin/python3` (system Python), copied from the photoperiod/retention service pattern — but those are stdlib-only, while the orchestrator imports `paho`, which lives in the project venv (`/home/basilpi/plant-hub/venv/`, same as the dashboard/listener). So the service failed every minute at import. Fix: point `ExecStart` at `/home/basilpi/plant-hub/venv/bin/python`. Documented the interpreter rule in the component README (stdlib-only → system python; imports paho → venv). Caught the night of deploy via journal check before it mattered (night = no captures anyway); had it gone unnoticed, tomorrow's dark/lit captures would never have fired. Deploy: re-copy service file, daemon-reload, restart timer | Active |
+| [DL-202](#dl-202) | 2026-08-26 | **Add a 9pm end-of-day summary with the day's net soil change.** Complements the existing 9am heartbeat (alerter.py section 7) with an evening wrap-up at `EVENING_HOUR` (default 21), its own once-a-day gate (`last_evening_date`). Same core as the morning brief (soil, state, mL watered, reboots) but framed as end-of-day and adding **net soil change today** = soil now - soil at local midnight (`+N%`/`-N%`), so paired with the mL-watered it tells the day's water story (dried faster than watered, or the reverse). New helpers `_soil_at_day_start` (earliest moisture reading at/after local midnight; local->UTC conversion compared against indexed ts, sargable) and `_soil_net_change_today`. Evening notify uses a distinct title ("Evening plant summary") + moon tag. 6 new mutation-verified tests (sign + day-boundary + missing-endpoint); 95 Python + 31 C++ green. Deploy: scp alerter.py + restart plant-alerter | Active |
 
 ---
 
@@ -4896,6 +4897,27 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Deploy.** Re-copy `plant-capture-scheduler.service` to `/etc/systemd/system/`, `sudo systemctl daemon-reload`, `sudo systemctl restart plant-capture-scheduler.timer` (or just let the next tick pick it up after daemon-reload). Verify a tick runs clean.
 
 **Files.** `hub/13-capture-scheduler/plant-capture-scheduler.service`, `hub/13-capture-scheduler/README.md`.
+
+---
+
+<a id="dl-202"></a>
+### DL-202 — 9pm end-of-day summary with the day's net soil change
+
+**Date:** 2026-08-26 · **Status:** Active — hub (alerter). Deploy: scp + restart.
+
+**What.** A second daily push summary at `EVENING_HOUR` (default 21:00), bookending the existing 9am heartbeat. It shares the morning brief's core — soil %, FSM state, mL watered, reboot count — but is framed as an end-of-day wrap-up and adds the **net soil change over the day**: soil now minus soil at local midnight, shown as `+N%`/`-N%`. Read together with the mL-watered figure, it tells the day's water story (e.g. "~40 mL watered · -7% today" = it dried faster than watering compensated). Distinct title ("Evening plant summary") and a moon tag so it's visually separate from the morning one.
+
+**Helpers added.**
+- `_soil_at_day_start(conn, now_local=None)` — the earliest moisture reading at or after **local** midnight. The DB stores UTC (`...Z`), so local midnight is converted to its UTC instant and compared against the indexed `ts` (`ts >= ?`), keeping the query sargable (a `strftime` on `now` would break the index — the DL-134 lesson). Returns None if no reading yet today.
+- `_soil_net_change_today(conn, now_local=None)` — `_soil_pct(now) - _soil_at_day_start`; None if either endpoint is missing.
+
+**Scheduling.** New `last_evening_date` state key gives the evening summary its own once-a-day gate, independent of the morning `last_heartbeat_date`. Same "fire on the first poll at/after the hour, then mark the date" mechanism.
+
+**Definitions chosen (with Temmy).** Evening summary is an end-of-day *variant* (not a copy of the morning brief); "moisture difference" = net change (start-of-day vs now), not range; "day" = local midnight to now (aligns with the intuitive "today").
+
+**Verification.** `py_compile` clean; existing 15 alerter tests still pass. 6 new tests: earliest-today selection, ignores-yesterday, none-when-no-reading-today, negative-when-dried, positive-when-watered-up, none-without-start. Mutation-verified (flipping the `now - start` sign fails the direction tests). Full suite 95 Python (89 + 6) + 31 C++ green. Deploy: scp `alerter.py`, restart `plant-alerter`.
+
+**Files.** `hub/04-listener/alerter.py`, `tests/test_alerter.py`.
 
 ---
 
