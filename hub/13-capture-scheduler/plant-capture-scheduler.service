@@ -7,4 +7,4 @@ Type=oneshot
 User=basilpi
 EnvironmentFile=/etc/plant-hub/credentials
 WorkingDirectory=/home/basilpi/plant-hub
-ExecStart=/usr/bin/python3 /home/basilpi/plant-hub/capture_scheduler.py
+ExecStart=/home/basilpi/plant-hub/venv/bin/python /home/basilpi/plant-hub/capture_scheduler.py

@@ -41,3 +41,8 @@ ssh basilpi@<pi> 'sudo systemctl daemon-reload && sudo systemctl enable --now pl
 
 Env (from `/etc/plant-hub/credentials`): `MQTT_USER` / `MQTT_PASS`, `SHELLY_HOST`,
 `DARK_WINDOW_CENTERS`, `GROW_ON_HOUR` / `GROW_OFF_HOUR`, `LOCAL_TZ`.
+
+The service runs under the project venv (`/home/basilpi/plant-hub/venv/bin/python`),
+not system `python3` — it imports `paho`, which lives in the venv (like the
+dashboard and listener). Stdlib-only services (photoperiod, retention) use system
+`python3`; anything importing `paho` must use the venv interpreter.
