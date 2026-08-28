@@ -4818,6 +4818,8 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 
 **Files.** `hub/09-camera/image_receiver.py`, `hub/09-camera/README.md`.
 
+**Validated (2026-08-27).** A full autonomous day of captures landed in `camera_readings` correctly tagged: `dark` rows at the five window centers and `lit` rows at the intervening :00/:30 slots (timestamps in UTC; e.g. a 21:00Z row = 16:00 CDT dark window). The tagging pipeline (node header -> receiver column) works end-to-end. Notably the `lit` frames are bimodal in greenness (a normal cluster plus a high `green_area~0.093`/`green_ratio~0.578` cluster) -- the specular-glare corruption we moved measurement to dark windows to avoid, now visible in the data; the `dark` frames are the stable set.
+
 ---
 
 <a id="dl-198"></a>
@@ -4879,6 +4881,8 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 
 **Files.** `hub/13-capture-scheduler/capture_scheduler.py`, `hub/13-capture-scheduler/plant-capture-scheduler.service`, `hub/13-capture-scheduler/plant-capture-scheduler.timer`, `hub/13-capture-scheduler/README.md`, `tests/test_capture_scheduler.py`, `tests/conftest.py`.
 
+**Validated (2026-08-27).** A full day's orchestrator journal shows a clean schedule: `triggered capture [dark]` at all five centers (08:00/10:00/12:00/14:00/16:00) and `[lit]` at every intervening :00/:30, with **zero skips and zero errors** across the day. The plug-state gate never had to skip a window -- the enforcer's dark hold (07:58 start) was always in place by the :00 center. Matching `dark`/`lit` rows are in the DB, so trigger -> capture -> store is proven end-to-end.
+
 ---
 
 <a id="dl-201"></a>
@@ -4897,6 +4901,8 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Deploy.** Re-copy `plant-capture-scheduler.service` to `/etc/systemd/system/`, `sudo systemctl daemon-reload`, `sudo systemctl restart plant-capture-scheduler.timer` (or just let the next tick pick it up after daemon-reload). Verify a tick runs clean.
 
 **Files.** `hub/13-capture-scheduler/plant-capture-scheduler.service`, `hub/13-capture-scheduler/README.md`.
+
+**Validated (2026-08-27).** The fix held: a full day of every-minute ticks ran with no `ModuleNotFoundError` and the orchestrator published all its dark/lit triggers (see DL-200). The venv interpreter resolves `paho` correctly in production.
 
 ---
 
@@ -4918,6 +4924,8 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Verification.** `py_compile` clean; existing 15 alerter tests still pass. 6 new tests: earliest-today selection, ignores-yesterday, none-when-no-reading-today, negative-when-dried, positive-when-watered-up, none-without-start. Mutation-verified (flipping the `now - start` sign fails the direction tests). Full suite 95 Python (89 + 6) + 31 C++ green. Deploy: scp `alerter.py`, restart `plant-alerter`.
 
 **Files.** `hub/04-listener/alerter.py`, `tests/test_alerter.py`.
+
+**Validated (2026-08-26/27).** The evening summary fired at 21:00 and delivered the end-of-day push including the net soil-change line. Confirmed on hardware.
 
 ---
 
