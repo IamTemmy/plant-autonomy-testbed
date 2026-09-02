@@ -132,15 +132,15 @@ static constexpr uint16_t LEAK_THRESHOLD = 200;
 static constexpr uint16_t LEAK_DISCONNECT_RAW = 3500;
 
 // ---- Bottom-watering loop (DL-142) — the SETTLED strategy the ported FSM uses ----
-// Plateau-gated volume dosing on a 20-40% band. (The legacy raw-threshold pulse constants
+// Plateau-gated volume dosing on a 60-80% band (DL-203; was 20-40%). (The legacy raw-threshold pulse constants
 // — SOIL_THRESHOLD_*, WATER_PULSE_MS, WATER_WATCHDOG_PULSES, WATER_RESPONSE_MARGIN — were
 // retired in the P1-8 cleanup, DL-150, along with the old top-water FSM.)
 //
-// % here are on the DL-121 2585/1700 soil mapping. 40% is an EQUILIBRATED OUTCOME of
+// % here are on the DL-121 2585/1700 soil mapping. TARGET_PCT is an EQUILIBRATED OUTCOME of
 // metered volume, never a live pump cutoff (the probe is blind to the filling direction,
 // DL-125): dose a measured volume, wait the settle, read the plateau, decide.
-static constexpr float    TRIGGER_PCT      = 20.0f;   // start a cycle when moisture drifts below this
-static constexpr float    TARGET_PCT       = 40.0f;   // stop supplementing once the plateau reaches/exceeds this
+static constexpr float    TRIGGER_PCT      = 60.0f;   // start a cycle when moisture drifts below this (DL-203: 20->60; a 13-day dry-down showed the plant stressed by ~28% under the old 20% floor and thriving in the 50s-60s)
+static constexpr float    TARGET_PCT       = 80.0f;   // stop supplementing once the plateau reaches/exceeds this (DL-203: 40->80; the Aug-20 watering equilibrated ~71% and the plant drew it down healthily over 13 days, so it tolerates and prefers the higher range)
 static constexpr uint16_t DOSE1_ML         = 100;     // first dose of a cycle (DL-154: 150->100; the 150mL first cycle equilibrated to ~70% over ~12h, well past the 40% target)
 static constexpr uint16_t SUPPLEMENT_ML    = 50;      // each subsequent dose if plateau < target (DL-154: 100->50 for a finer approach to target)
 static constexpr uint16_t MAX_DOSE_ML      = 150;     // hard per-dose cap: tray absorbs each dose, never holds standing water
