@@ -23,7 +23,7 @@ The system is **operational** — sensing, telemetry, dashboard, camera, lightin
 | **Phase 3** | Raspberry Pi telemetry hub — MQTT broker, database, live dashboard | ✅ Complete |
 | **Phase 4** | Camera vision node — XIAO ESP32-S3 Sense capture, Pi-side greenness metrics, dashboard panel | ✅ Complete |
 | **Phase 5** | Root/bottom-watering — probe recalibration, volume-metered dose→settle→evaluate loop ported to the production firmware and hardware-validated, phone alerts, dashboard + remote start/abort control | ✅ Complete |
-| **Next** | Vision analysis (greenness → growth/health), adaptive lighting | 🔜 Roadmap |
+| **Next** | Greenness-metric calibration on the grow-light-off measurement frames (the glare-free capture pipeline is built + hardware-validated) → growth/health analysis; adaptive lighting | 🔜 Roadmap |
 
 ## Engineering framing
 
@@ -49,13 +49,13 @@ Four functional layers:
 
 ## What it does now
 
-- **Autonomous watering** — the ESP32 waters from a `millis()`-based state machine: when soil crosses the dry threshold it doses a precisely metered volume, settles, and evaluates the effect against a moisture-plateau, supplementing toward target and bounding total water with a per-session cap. This root/bottom-watering loop (a rework of the original top-water logic, which showed large sensor-vs-actuator lag) is now the production firmware — volume-metered, reboot-safe, and controllable remotely (start/abort) as well as at the plant (Phase 5; DL-104–188). Auto-triggering on a natural dry-down is implemented and unit-tested; the loop itself has run end-to-end on hardware.
+- **Autonomous watering** — the ESP32 waters from a `millis()`-based state machine: when soil drops below the trigger it doses a precisely metered volume, settles, and evaluates the effect against a moisture-plateau, supplementing toward target and bounding total water with a per-session cap. The band is currently 60→80% (raised from 20→40% once two weeks of dry-down data showed the plant was chronically under-watered, DL-203). This root/bottom-watering loop (a rework of the original top-water logic, which showed large sensor-vs-actuator lag) is now the production firmware — volume-metered, reboot-safe, and controllable remotely (start/abort) as well as at the plant (Phase 5; DL-104–204). Auto-triggering on a natural dry-down is implemented and unit-tested, and has run end-to-end on hardware.
 - **Closed-loop watering watchdog** — detects watering that isn't moving soil moisture and latches a `watering_fault` instead of running dry (catches an empty reservoir, dead pump, clog, or disconnected float).
 - **Safety states** — leak detection, emergency stop, reservoir-empty, sensor-fault, and per-session volume-cap handling, surfaced on status LEDs, an OLED, and a buzzer.
-- **Scheduled grow-light** — a fixed daily photoperiod (07:00–19:00) enforced from the always-on Pi every ~2 min over local RPC, self-healing a plug reboot within one tick; the smart plug's onboard schedule is kept as a fallback so the light still cycles if the Pi is down (DL-074).
+- **Scheduled grow-light** — a fixed daily photoperiod (07:00–19:00) enforced from the always-on Pi every ~2 min over local RPC, self-healing a plug reboot within one tick; the smart plug's onboard schedule is kept as a fallback so the light still cycles if the Pi is down (DL-074). Within the lit day the enforcer also holds the light **off** during five short measurement windows so the top-down camera can capture the plant free of the close grow-light's specular glare (DL-199).
 - **Live remote dashboard** — current state, sensor readings, a soil-moisture trend with watering episodes overlaid, and power telemetry.
 - **Device-presence awareness** — if the controller drops offline, the dashboard notices (via the MQTT Last-Will, and a hub-side timeout watchdog that also catches a device hung but still TCP-connected), greys out stale readings, and flags when contact was lost. Controller reboots are detected from uptime resets and surfaced, with a warning if they start flapping.
-- **Push alerting** — genuine problems (leak, watering fault, empty reservoir, prolonged offline, flapping reboots) send a phone push notification over ntfy, each with a "Resolved" recovery ping, plus a low-priority daily heartbeat — reaching the operator anywhere, independent of the lab network.
+- **Push alerting** — genuine problems (leak, watering fault, empty reservoir, prolonged offline, flapping reboots) send a phone push notification over ntfy, each with a "Resolved" recovery ping, plus a low-priority morning heartbeat and a 9 pm end-of-day summary reporting the day's net soil-moisture change (DL-202) — reaching the operator anywhere, independent of the lab network.
 
 ## Dashboard
 
@@ -93,7 +93,7 @@ firmware/
   camera-node/     Phase 4 — vision node (XIAO ESP32-S3 Sense): capture + HTTP POST to the Pi receiver
   bottom-water-calibration/   Phase 5 — the standalone prototype harness for soil recalibration + the bottom-watering loop; retired (DL-157, do-not-flash) once the loop was ported into integrated, kept for history
 hub/
-  01-pi-setup … 11-shelly-monitor   Phases 3–4 — Pi hub: broker, listener, dashboard, camera receiver, grow-light, retention, monitors
+  01-pi-setup … 13-capture-scheduler   Phases 3+ — Pi hub: broker, listener, dashboard, camera receiver, grow-light, retention, monitors, capture orchestrator
 docs/
   decision-log.md  the authoritative engineering record
   explainers/      narrative walkthroughs
