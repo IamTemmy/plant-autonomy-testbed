@@ -148,7 +148,7 @@ static constexpr uint16_t SESSION_CAP_ML   = 600;     // safety ceiling on total
 static constexpr uint32_t SETTLE_MIN_MS    = 3UL * 60UL * 60UL * 1000UL;  // min wait after a dose before a plateau can gate a supplement (~3h; beats the probe lag)
 static constexpr uint32_t PLATEAU_WINDOW_MS= 30UL * 60UL * 1000UL;         // window over which "stopped changing" is judged
 static constexpr float    PLATEAU_SLOPE_PCT= 1.0f;    // <= this change over the window = plateaued (probe has caught up)
-static constexpr float    ABSORB_RISE_PCT  = 7.0f;    // moisture rise that counts as the dose being "absorbed" (else: stall)
+static constexpr float    ABSORB_RISE_PCT  = 2.0f;    // moisture rise that counts as the dose being "absorbed" (else: stall). DL-204: 7->2. A 100mL dose into bone-dry media moved the probe only ~3% (drought recovery) and the old 7% bar misread that real absorption as a stall and faulted; 2% still catches genuine failures (dead pump/empty reservoir ~= 0% rise) while treating any real positive rise as absorption. The failure modes are asymmetric: a false "stall" fault strands a thirsty plant, a false "absorbed" adds one capped 50mL supplement -- so bias toward watering.
 static constexpr uint32_t GRACE_MS         = 90UL * 60UL * 1000UL;         // one-time extra settle if absorption is slow
 
 // ---- Physical pump + sensor safety (P0-2 / P0-3 / DL-127..131) ------------

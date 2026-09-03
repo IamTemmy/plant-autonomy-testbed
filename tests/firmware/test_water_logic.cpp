@@ -106,6 +106,26 @@ static void test_evaluate_decision() {
     CHECK(evaluate_decision(30.0f, 7.0f, 100, false, TARGET, ABSORB, CAP) == Decision::SUPPLEMENT);
     // Target takes precedence even when session is capped.
     CHECK(evaluate_decision(45.0f, 1.0f, 600, true, TARGET, ABSORB, CAP) == Decision::DONE);
+
+    // ---- DL-204: production behavior at the lowered ABSORB_RISE_PCT = 2.0 ----
+    // These pin the real-world fix using the actual production threshold and the
+    // real numbers that exposed the bug, so a future re-raise would fail here.
+    const float PROD_ABSORB = 2.0f;   // matches config.h ABSORB_RISE_PCT (DL-204)
+    const float PROD_TARGET = 80.0f;  // matches config.h TARGET_PCT (DL-203)
+
+    // The tonight bug: bone-dry recovery, 100mL moved the probe only ~3% (28->31).
+    // Old 7% bar faulted this; at 2% it is real absorption -> SUPPLEMENT, not fault.
+    CHECK(evaluate_decision(31.0f, 3.0f, 100, false, PROD_TARGET, PROD_ABSORB, CAP) == Decision::SUPPLEMENT);
+    // Even a marginal 2.5% rise in a dry pot now supplements rather than stalling.
+    CHECK(evaluate_decision(33.0f, 2.5f, 100, false, PROD_TARGET, PROD_ABSORB, CAP) == Decision::SUPPLEMENT);
+    // Normal-range dose (the healthy session that reached 80% in 2 doses) still works.
+    CHECK(evaluate_decision(70.0f, 8.0f, 100, false, PROD_TARGET, PROD_ABSORB, CAP) == Decision::SUPPLEMENT);
+    // Genuine failure signature (dead pump / empty reservoir ~= 0% rise) still faults.
+    CHECK(evaluate_decision(31.0f, 0.5f, 100, false, PROD_TARGET, PROD_ABSORB, CAP) == Decision::GRACE);
+    CHECK(evaluate_decision(31.0f, 0.5f, 100, true,  PROD_TARGET, PROD_ABSORB, CAP) == Decision::STOP_FAILED);
+    // Near-saturation: rise shrinks as media fills, but the DONE-on-target check
+    // fires first, so reaching 80% stops the session (not a small-rise stall).
+    CHECK(evaluate_decision(80.5f, 1.0f, 250, false, PROD_TARGET, PROD_ABSORB, CAP) == Decision::DONE);
 }
 
 int main() {
