@@ -37,7 +37,7 @@ bool camera_begin() {
     config.frame_size   = FRAMESIZE_UXGA;   // 1600x1200 (deployment, DL-080)
     config.jpeg_quality = 10;                // lower number = less compression
     config.fb_count     = psramFound() ? 2 : 1;
-    config.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;
+    config.grab_mode    = CAMERA_GRAB_LATEST;   // DL-205: return the newest frame, drop stale ones (GRAB_WHEN_EMPTY handed back a buffered pre-light-off frame)
     config.fb_location  = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
 
     esp_err_t err = esp_camera_init(&config);
@@ -55,5 +55,18 @@ bool camera_begin() {
 }
 
 camera_fb_t* camera_capture() {
+    // DL-205: return a frame that reflects the scene RIGHT NOW, not a stale one.
+    // The driver keeps up to fb_count frames queued; a plain fb_get() could hand
+    // back a frame captured before the grow-light was switched off (the "dark"
+    // frames were coming back lit). Drain the queued buffers first -- with a short
+    // delay between grabs so auto-exposure re-adapts to the darker scene -- then
+    // grab the fresh frame we actually return. GRAB_LATEST also biases fb_get()
+    // toward the newest frame; the explicit flush makes it deterministic.
+    const int flush = psramFound() ? 2 : 1;   // == fb_count
+    for (int i = 0; i < flush; i++) {
+        camera_fb_t* stale = esp_camera_fb_get();
+        if (stale) esp_camera_fb_return(stale);
+        delay(120);   // let AE/AGC settle to the new lighting between frames
+    }
     return esp_camera_fb_get();
 }
