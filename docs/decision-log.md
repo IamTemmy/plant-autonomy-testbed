@@ -4974,7 +4974,7 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 <a id="dl-205"></a>
 ### DL-205 — Fix "dark" captures coming back lit (stale camera frame buffer)
 
-**Date:** 2026-09-03 · **Status:** Active — camera-node firmware. **Awaiting reflash of the XIAO.**
+**Date:** 2026-09-03 · **Status:** Active — camera-node firmware. **Validated on hardware 2026-09-03.**
 
 **Symptom.** Every grow-light-OFF ("dark") capture showed the grow-light ON, even after the timezone fix aligned the schedule. On 2026-09-03 all five dark windows fired on time and the enforcer logged holding the light off (15:58 "holding grow-light OFF" -> 16:04 "corrected ... ON"), with the capture at 16:00 squarely inside that OFF span -- yet the stored frame was lit.
 
@@ -4989,6 +4989,8 @@ Start publishes `start` to `plant/cmd/dose` via `send_dose_cmd`; the firmware th
 **Verification.** Braces/parens balanced; only `camera.cpp` changed; no framebuffer leak. Cannot host-compile ESP32 firmware -- **reflash the XIAO**, then repeat the on-demand test: light off (watched) -> `mosquitto_pub .../capture` -> the pulled frame must now be genuinely dark.
 
 **Files.** `firmware/camera-node/src/camera.cpp`.
+
+**Validated (2026-09-03).** Reflashed the XIAO and repeated the on-demand test: switched the grow-light off (watched it go dark), waited a few seconds, triggered a capture, switched it back on. The pulled frame (`darktest2`, cam-20260903-224931) was **genuinely dark — grow-light off** — the first dark-window frame the system has produced that actually reflects the lights-off scene. Confirms the stale frame buffer was the cause and the flush is the fix.
 
 ## Maintaining this log
 
